@@ -53,7 +53,9 @@ public sealed partial class LocalPractice
   Exec(write,tx,"INSERT INTO accounting_profiles(user_id,endpoint,protected_value,last_success_utc,revision) VALUES($id,$e,$v,$s,$r) ON CONFLICT(user_id) DO UPDATE SET endpoint=excluded.endpoint,protected_value=excluded.protected_value,last_success_utc=excluded.last_success_utc,revision=excluded.revision",("$id",actor),("$e",endpoint),("$v",encrypted),("$s",UtcNow()),("$r",Guid.NewGuid().ToString("N")));
   Audit(write,tx,actor,"Save","AccountingProfile",actor);tx.Commit();return result;
  }
- public async Task<AccountingProbeResult> TestSavedAccountingProfileAsync(CancellationToken ct=default)
+ public Task<AccountingProbeResult> TestSavedAccountingProfileAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(false,ct);
+ public Task<AccountingProbeResult> InspectSavedCustomersAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(true,ct);
+ private async Task<AccountingProbeResult> UseSavedAccountingProfileAsync(bool inspect,CancellationToken ct)
  {
   long actor;StoredProfile? profile;var generation=sessionGeneration;
   using(var c=Open())using(var t=c.BeginTransaction()){
@@ -65,7 +67,7 @@ public sealed partial class LocalPractice
   try{clear=ProtectedData.Unprotect(profile.ProtectedValue,Context(actor,profile.Endpoint),DataProtectionScope.CurrentUser);}
   catch(CryptographicException){return new("CredentialUnavailable");}
   AccountingProbeResult result;
-  try{result=await new ManagerDesktopProbe().TestAsync(profile.Endpoint,Encoding.UTF8.GetString(clear),ct);}
+  try{var probe=new ManagerDesktopProbe();result=inspect?await probe.InspectCustomersAsync(profile.Endpoint,Encoding.UTF8.GetString(clear),ct):await probe.TestAsync(profile.Endpoint,Encoding.UTF8.GetString(clear),ct);}
   finally{CryptographicOperations.ZeroMemory(clear);}
   using var write=Open();using var tx=write.BeginTransaction(deferred:false);
   CheckProfileSession(write,tx,generation,actor,false);

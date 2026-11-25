@@ -15,6 +15,8 @@ internal sealed class AccountingConnectionWindow : Window
     private readonly TextBlock result=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
     private readonly Button save=new(){Content="Test and save connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
     private readonly Button savedTest=new(){Content="Test saved connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
+    private readonly Button inspect=new(){Content="Inspect customer schema (read-only)",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
+    private readonly TextBox schema=new(){IsReadOnly=true,TextWrapping=TextWrapping.Wrap,AcceptsReturn=true,MaxHeight=240,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Visibility=Visibility.Collapsed,Margin=new Thickness(0,8,0,0)};
     private readonly Button remove=new(){Content="Remove saved connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
     private readonly TextBlock profileStatus=new(){TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DimGray,Margin=new Thickness(0,0,0,12)};
     private CancellationTokenSource? pending;
@@ -39,11 +41,11 @@ internal sealed class AccountingConnectionWindow : Window
         clear.Click+=(_,_)=>{secret.Clear();result.Text="Secret field cleared.";};buttons.Children.Add(clear);
         layout.Children.Add(buttons);
         layout.Children.Add(new TextBlock{Text="Paste reads the Windows clipboard and clears its current value when possible. Windows clipboard history is separate.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DimGray,Margin=new Thickness(0,8,0,0)});
-        layout.Children.Add(test);layout.Children.Add(save);layout.Children.Add(savedTest);layout.Children.Add(remove);layout.Children.Add(result);
+        layout.Children.Add(test);layout.Children.Add(save);layout.Children.Add(savedTest);layout.Children.Add(inspect);layout.Children.Add(remove);layout.Children.Add(result);layout.Children.Add(schema);
         var close=new Button{Content="Close",HorizontalAlignment=HorizontalAlignment.Right,Padding=new Thickness(12,6,12,6),Margin=new Thickness(0,12,0,0)};
         close.Click+=(_,_)=>Close();layout.Children.Add(close);
         Content=new ScrollViewer{Content=layout,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};MaxHeight=SystemParameters.WorkArea.Height-40;
-        paste.Click+=Paste_Click;test.Click+=async (_,_)=>await ExecuteAsync("test");save.Click+=async (_,_)=>await ExecuteAsync("save");savedTest.Click+=async (_,_)=>await ExecuteAsync("saved");
+        paste.Click+=Paste_Click;test.Click+=async (_,_)=>await ExecuteAsync("test");save.Click+=async (_,_)=>await ExecuteAsync("save");savedTest.Click+=async (_,_)=>await ExecuteAsync("saved");inspect.Click+=async (_,_)=>await ExecuteAsync("inspect");
         remove.Click+=(_,_)=>RemoveProfile();
         RefreshProfile(true);
         endpoint.TextChanged+=(_,_)=>{if(pending==null)result.Text="";};
@@ -71,11 +73,12 @@ internal sealed class AccountingConnectionWindow : Window
         if(fillEndpoint&&p!=null)endpoint.Text=p.Endpoint;
         save.IsEnabled=service.CanManageAccountingConnection();
         remove.IsEnabled=p!=null&&service.CanManageAccountingConnection();
-        savedTest.IsEnabled=p!=null;
+        savedTest.IsEnabled=inspect.IsEnabled=p!=null;
     }
     private void RemoveProfile()
     {
         if(pending!=null)return;
+        schema.Clear();schema.Visibility=Visibility.Collapsed;
         if(MessageBox.Show(this,"Remove the saved connection from this CRC profile? This does not revoke the Manager token.","Remove connection",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
         try{service.RemoveAccountingProfile();secret.Clear();endpoint.Clear();RefreshProfile(false);result.Text="Saved connection removed. No Manager records changed.";}
         catch(UnauthorizedAccessException){result.Text="Access denied.";}
@@ -86,7 +89,8 @@ internal sealed class AccountingConnectionWindow : Window
         if(pending!=null)return;
         using var request=new CancellationTokenSource();pending=request;
         var key=secret.Password.Trim();secret.Clear();
-        test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=save.IsEnabled=savedTest.IsEnabled=remove.IsEnabled=false;
+        test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=save.IsEnabled=savedTest.IsEnabled=inspect.IsEnabled=remove.IsEnabled=false;
+        schema.Clear();schema.Visibility=Visibility.Collapsed;
         result.Foreground=Brushes.DimGray;result.Text="Testing local connection...";
         try
         {
@@ -94,9 +98,11 @@ internal sealed class AccountingConnectionWindow : Window
             {
                 "save"=>await service.SaveAccountingProfileAsync(endpoint.Text,key,request.Token),
                 "saved"=>await service.TestSavedAccountingProfileAsync(request.Token),
+                "inspect"=>await service.InspectSavedCustomersAsync(request.Token),
                 _=>await service.TestAccountingConnectionAsync(endpoint.Text,key,request.Token)
             };
             if(closed)return;
+            if(mode=="inspect"&&r.Success&&r.SchemaSummary!=null){schema.Text=r.SchemaSummary;schema.Visibility=Visibility.Visible;}
             result.Foreground=r.Success?Brushes.DarkGreen:Brushes.DarkRed;
             result.Text=r.Outcome switch
             {
@@ -119,6 +125,6 @@ internal sealed class AccountingConnectionWindow : Window
         }
         catch(UnauthorizedAccessException){if(!closed)result.Text="Access denied. Sign in again as administrator.";}
         catch(Exception){if(!closed)result.Text="Diagnostic failed. No successful connection is assumed.";}
-        finally{pending=null;if(!closed){test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=true;secret.Clear();try{RefreshProfile(false);}catch{save.IsEnabled=savedTest.IsEnabled=remove.IsEnabled=false;}}}
+        finally{pending=null;if(!closed){test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=true;secret.Clear();try{RefreshProfile(false);}catch{save.IsEnabled=savedTest.IsEnabled=inspect.IsEnabled=remove.IsEnabled=false;}}}
     }
 }

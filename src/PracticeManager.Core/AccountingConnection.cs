@@ -16,9 +16,12 @@ public interface IAccountingConnectionProbe
 public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
 {
     public Task<AccountingProbeResult> InspectCustomersAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
-        =>Task.FromResult(new AccountingProbeResult("NotImplemented"));
+        =>RequestAsync(endpoint,secret,true,cancellationToken);
     private const int MaxResponseBytes = 1_048_576;
-    public async Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
+    public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
+        =>RequestAsync(endpoint,secret,false,cancellationToken);
+
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -32,7 +35,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         // Exact literal loopback host; no proxies, credentials from URL, cookies or redirects.
         using var handler=new HttpClientHandler{AllowAutoRedirect=false,UseProxy=false,UseCookies=false,AutomaticDecompression=DecompressionMethods.None};
         using var client=new HttpClient(handler){Timeout=Timeout.InfiniteTimeSpan};
-        using var request=new HttpRequestMessage(HttpMethod.Get,$"http://127.0.0.1:{port}/api2/customers");
+        using var request=new HttpRequestMessage(HttpMethod.Get,$"http://127.0.0.1:{port}/api2/customers"+(inspect?"?skip=0&pageSize=2":""));
         request.Headers.Add("X-API-KEY",secret);
         request.Headers.Accept.ParseAdd("application/json");
         try
@@ -58,11 +61,50 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             using var json=await JsonDocument.ParseAsync(buffer,cancellationToken:ct).ConfigureAwait(false);
             var kind=json.RootElement.ValueKind;
             return kind is JsonValueKind.Array or JsonValueKind.Object
-                ?new("Connected",code,kind.ToString()):new("InvalidResponse",code);
+                ?new("Connected",code,kind.ToString(),inspect?DescribeSchema(json.RootElement):null):new("InvalidResponse",code);
         }
         catch(OperationCanceledException){return new(cancellationToken.IsCancellationRequested?"Cancelled":"Timeout");}
         catch(JsonException){return new("InvalidResponse",200);}
         catch(HttpRequestException){return new("ConnectionFailed");}
         catch(IOException){return new("ConnectionFailed");}
+    }
+
+    // Only bounded structural metadata is returned. Never return JSON field values.
+    private static string DescribeSchema(JsonElement root)
+    {
+        var lines=new List<string>{"Customer schema (field names and types only)"};
+        string Label(string name)=>Regex.IsMatch(name,@"\A[A-Za-z_][A-Za-z0-9_]{0,47}\z",RegexOptions.CultureInvariant)
+            && !Guid.TryParse(name,out _) ?name:"[field name omitted]";
+        string Type(JsonElement value)=>value.ValueKind==JsonValueKind.String && Guid.TryParse(value.GetString(),out _)
+            ?"String (UUID-shaped)":value.ValueKind is JsonValueKind.True or JsonValueKind.False?"Boolean":value.ValueKind.ToString();
+        void Array(JsonElement array,string label)
+        {
+            var count=array.GetArrayLength();
+            lines.Add($"{label} — sample rows: {Math.Min(count,2)}"+(count>2?" (provider returned more than requested; sample truncated)":""));
+            // Limit inspection to the first two rows and 32 fields per row, never recurse into nested values.
+            var fields=new SortedSet<string>(StringComparer.Ordinal);
+            foreach(var row in array.EnumerateArray().Take(2))
+            {
+                if(row.ValueKind==JsonValueKind.Object)
+                    foreach(var p in row.EnumerateObject().Take(32))
+                        fields.Add($"  {Label(p.Name)}: {Type(p.Value)}");
+                else fields.Add($"  Row: {Type(row)}");
+            }
+            lines.AddRange(fields.Take(48));
+            if(fields.Count>48)lines.Add("  Additional fields omitted.");
+        }
+        if(root.ValueKind==JsonValueKind.Array)Array(root,"Root array");
+        else
+        {
+            var arrays=0;
+            foreach(var p in root.EnumerateObject().Take(32))
+            {
+                var label=Label(p.Name);
+                lines.Add($"{label}: {Type(p.Value)}");
+                if(p.Value.ValueKind==JsonValueKind.Array && arrays++<3)Array(p.Value,label);
+            }
+            if(root.EnumerateObject().Count()>32)lines.Add("Additional root fields omitted.");
+        }
+        return string.Join(Environment.NewLine,lines);
     }
 }
