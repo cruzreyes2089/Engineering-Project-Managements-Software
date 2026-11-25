@@ -1,0 +1,41 @@
+name: Windows build and test
+
+on:
+  push:
+    branches: [main, 'milestone-*/*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: SQLite schema tests
+        run: python -m unittest discover -s tests/schema -v
+      - name: Build, smoke test and publish
+        shell: pwsh
+        run: ./BUILD_AND_TEST.ps1 -Publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRC-Practice-Manager-win-x64
+          path: artifacts/win-x64/
+          if-no-files-found: error
+          retention-days: 7
