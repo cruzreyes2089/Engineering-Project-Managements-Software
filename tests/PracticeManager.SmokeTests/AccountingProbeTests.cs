@@ -34,7 +34,7 @@ internal static class AccountingProbeTests
         using var cts=new CancellationTokenSource();cts.Cancel();
         check((await probe.TestAsync("http://127.0.0.1:12345/api2",Key,cts.Token)).Outcome=="Cancelled","cancelled request does not connect");
     }
-    private static async Task WithServer(int status,string body,Func<string,Task<string>,Task> exercise)
+    internal static async Task WithServer(int status,string body,Func<string,Task<string>,Task> exercise)
     {
         using var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
         var port=((IPEndPoint)listener.LocalEndpoint).Port;

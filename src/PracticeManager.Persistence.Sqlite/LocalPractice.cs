@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 // Local development edition. No caller-supplied user identity or role; recheck active grants in every transaction.
-public sealed class LocalPractice
+public sealed partial class LocalPractice
 {
  readonly string connectionString; long? userId; DateTimeOffset expires;
  static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage"];
