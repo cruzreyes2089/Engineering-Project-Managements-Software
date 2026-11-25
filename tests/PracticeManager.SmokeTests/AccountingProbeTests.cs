@@ -34,7 +34,7 @@ internal static class AccountingProbeTests
         using var cts=new CancellationTokenSource();cts.Cancel();
         check((await probe.TestAsync("http://127.0.0.1:12345/api2",Key,cts.Token)).Outcome=="Cancelled","cancelled request does not connect");
     }
-    internal static async Task WithServer(int status,string body,Func<string,Task<string>,Task> exercise)
+    internal static async Task WithServer(int status,string body,Func<string,Task<string>,Task> exercise,int requestCount=1,Action<string>? observe=null)
     {
         using var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
         var port=((IPEndPoint)listener.LocalEndpoint).Port;
@@ -42,17 +42,19 @@ internal static class AccountingProbeTests
         var observed=new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var server=Task.Run(async ()=>{
             try{
+              for(var i=0;i<requestCount;i++){
                 using var client=await listener.AcceptTcpClientAsync(timeout.Token);
                 using var stream=client.GetStream();
                 using var reader=new StreamReader(stream,Encoding.ASCII,false,1024,true);
                 var lines=new List<string>();
                 while(true){var line=await reader.ReadLineAsync(timeout.Token);if(string.IsNullOrEmpty(line))break;lines.Add(line);}
-                observed.TrySetResult(string.Join("\n",lines));
+                var request=string.Join("\n",lines);observe?.Invoke(request);observed.TrySetResult(request);
                 var payload=Encoding.UTF8.GetBytes(body);
                 var extra=status==302?"Location: http://127.0.0.1:1/api2/customers\r\n":"";
                 var headers=Encoding.ASCII.GetBytes($"HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {payload.Length}\r\n{extra}Connection: close\r\n\r\n");
                 await stream.WriteAsync(headers,timeout.Token);
                 await stream.WriteAsync(payload,timeout.Token);
+              }
             }catch(Exception e){observed.TrySetException(e);}
         });
         try{await exercise($"http://127.0.0.1:{port}/api2",observed.Task);}
