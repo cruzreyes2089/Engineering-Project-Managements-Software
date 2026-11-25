@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace PracticeManager.Core;
 
-public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,string? JsonShape=null)
+public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,string? JsonShape=null,string? SchemaSummary=null)
 {
     public bool Success => Outcome=="Connected";
 }
@@ -15,6 +15,8 @@ public interface IAccountingConnectionProbe
 /// <summary>Development-only, read-only API2 connectivity probe; never persists credentials or customer data.</summary>
 public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
 {
+    public Task<AccountingProbeResult> InspectCustomersAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
+        =>Task.FromResult(new AccountingProbeResult("NotImplemented"));
     private const int MaxResponseBytes = 1_048_576;
     public async Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
     {

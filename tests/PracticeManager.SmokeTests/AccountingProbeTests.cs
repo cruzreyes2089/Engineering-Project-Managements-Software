@@ -31,6 +31,17 @@ internal static class AccountingProbeTests
         await WithServer(200,"<html>Not JSON</html>",async (url,_)=>check((await probe.TestAsync(url,Key)).Outcome=="InvalidResponse","non-JSON response rejected"));
         await WithServer(200,"null",async (url,_)=>check((await probe.TestAsync(url,Key)).Outcome=="InvalidResponse","non-container JSON rejected"));
         await WithServer(200,"{\"oversize\":\""+new string('a',1_100_000)+"\"}",async (url,_)=>check(!(await probe.TestAsync(url,Key)).Success,"oversize response rejected"));
+        var marker=Guid.NewGuid().ToString("N");
+        await WithServer(200,"{\"business\":\""+marker+"\",\"totalRecords\":1,\"items\":[{\"Key\":\""+Guid.NewGuid()+"\",\"Name\":\""+marker+"\",\"Balance\":12.34,\"Nested\":{\"Private\":\""+marker+"\"}}]}",async (url,observed)=>{
+            var r=await new ManagerDesktopProbe().InspectCustomersAsync(url,Key);
+            check(r.Success&&r.SchemaSummary!=null,"customer schema discovery succeeds");
+            var summary=r.SchemaSummary??"";
+            check(summary.Contains("items: Array")&&summary.Contains("Name: String")&&summary.Contains("Balance: Number"),"customer response field names and types reported");
+            check(summary.Contains("Key: String (UUID-shaped)")&&summary.Contains("sample rows: 1"),"candidate identifier type and sample count reported");
+            check(!summary.Contains(marker)&&!summary.Contains(Key)&&!summary.Contains("12.34")&&!summary.Contains("Private"),"diagnostics omit values and nested keys");
+            check((await observed).StartsWith("GET /api2/customers?skip=0&pageSize=2 HTTP/1.1",StringComparison.Ordinal),"customer schema discovery bounded GET");
+        });
+        await WithServer(200,"{\"items\":[]}",async (url,_)=>check((await new ManagerDesktopProbe().InspectCustomersAsync(url,Key)).SchemaSummary?.Contains("sample rows: 0")==true,"empty customer page reported"));
         using var cts=new CancellationTokenSource();cts.Cancel();
         check((await probe.TestAsync("http://127.0.0.1:12345/api2",Key,cts.Token)).Outcome=="Cancelled","cancelled request does not connect");
     }
