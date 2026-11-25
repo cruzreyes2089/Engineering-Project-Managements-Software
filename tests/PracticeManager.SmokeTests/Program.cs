@@ -8,7 +8,9 @@ void Check(bool condition,string name){if(!condition)throw new Exception("FAIL: 
 void Denied(Action a,string name){try{a();}catch(UnauthorizedAccessException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 void Invalid(Action a,string name){try{a();}catch(ArgumentException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 try{
- var s=new LocalPractice(path); const string pw="Synthetic-test-passphrase-0001";
+ var s=new LocalPractice(path);
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open(); using var version=db.CreateCommand(); version.CommandText="SELECT sqlite_version()"; var native=Version.Parse(Convert.ToString(version.ExecuteScalar())!); Console.WriteLine($"SQLite runtime: {native}"); Check(native>=new Version(3,50,2),"native SQLite meets GHSA-2m69-gcr7-jv3q fixed-version floor");}
+  const string pw="Synthetic-test-passphrase-0001";
  Check(!s.IsInitialized(),"empty first run");
  Denied(()=>s.SearchClients(""),"unauthenticated list denied");
  Invalid(()=>s.Bootstrap("", "admin",pw,"CL"),"blank firm rejected");
