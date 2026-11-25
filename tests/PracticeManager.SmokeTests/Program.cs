@@ -44,6 +44,13 @@ try{
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE clients SET phone='8055550104' WHERE id=$id";q.Parameters.AddWithValue("$id",id);q.ExecuteNonQuery();q.CommandText="UPDATE contacts SET phone='8055550105' WHERE id=$id";q.Parameters["$id"].Value=cid;q.ExecuteNonQuery();}
  Check(s.SearchClients("Synthetic").Single().Phone=="(805)555-0104","existing unformatted client phone displayed");
  Check(s.Contacts(id).Single(x=>x.Id==cid).Phone=="(805)555-0105","existing unformatted contact phone displayed");
+ Check(Validation.Phone("(805)555-0106")=="(805)555-0106","canonical phone is idempotent");
+ Check(Validation.PhoneForDisplay("+44 20 7946 0958")=="+44 20 7946 0958","unsupported legacy phone preserved");
+ Invalid(()=>Validation.Phone("+44 20 7946 0958"),"international phone rejected rather than truncated");
+ Invalid(()=>Validation.Phone("+8055550106"),"unsupported plus prefix rejected");
+ var newPhoneClient=s.SaveClient(phoneClient with {Id=0,Number="",Company="Synthetic Other",Phone="805-555-0107"});
+ var newPhoneContact=s.SaveContact(new Contact(0,newPhoneClient,"Synthetic","Contact","","","805 555 0108",false));
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="SELECT phone FROM clients WHERE id=$id";q.Parameters.AddWithValue("$id",newPhoneClient);Check((string?)q.ExecuteScalar()=="(805)555-0107","client creation stores canonical phone");q.CommandText="SELECT phone FROM contacts WHERE id=$id";q.Parameters["$id"].Value=newPhoneContact;Check((string?)q.ExecuteScalar()=="(805)555-0108","contact creation stores canonical phone");}
 
  s.SaveClient(list[0] with {Status="Inactive"});
  Invalid(()=>s.SaveContact(new Contact(0,id,"C","Person","","","",false)),"inactive client contact guard");

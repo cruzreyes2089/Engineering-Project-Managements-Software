@@ -11,7 +11,7 @@ CRC Practice Manager is a developing open-source Windows desktop application for
 
 ## Development status
 
-Early development; not production-ready. The planned native foundation uses C#/.NET, WPF and SQLite. Application source and verified build instructions have not yet been imported. No accounting integration is implemented or certified in this repository.
+Early development; not production-ready. The native foundation uses C#/.NET, WPF and SQLite. Source and Windows build instructions are available; [native foundation notes](docs/native-foundation-0.4.0.md) describe the original baseline. Version 0.4.1 adds phone display and entry formatting; see the pull request and exact-commit CI results for verification. No accounting integration is implemented or certified in this repository.
 
 ## Roadmap
 
