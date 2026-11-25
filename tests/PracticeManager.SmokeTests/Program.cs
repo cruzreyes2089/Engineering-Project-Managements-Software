@@ -12,6 +12,7 @@ try{
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open(); using var version=db.CreateCommand(); version.CommandText="SELECT sqlite_version()"; var native=Version.Parse(Convert.ToString(version.ExecuteScalar())!); Console.WriteLine($"SQLite runtime: {native}"); Check(native>=new Version(3,50,2),"native SQLite meets GHSA-2m69-gcr7-jv3q fixed-version floor");}
   const string pw="Synthetic-test-passphrase-0001";
  Check(!s.IsInitialized(),"empty first run");
+ Check(!s.CanTestAccountingConnection(),"unauthenticated accounting diagnostic denied");
  Denied(()=>s.SearchClients(""),"unauthenticated list denied");
  Invalid(()=>s.Bootstrap("", "admin",pw,"CL"),"blank firm rejected");
  Check(!s.IsInitialized(),"failed bootstrap leaves no firm");
@@ -20,6 +21,13 @@ try{
  Invalid(()=>s.Bootstrap("Other","admin",pw,"CL"),"repeat bootstrap rejected");
  Check(!s.Login("admin","wrong"),"invalid password denied");
  Check(s.Login("ADMIN",pw),"normalized username login");
+ Check(s.CanTestAccountingConnection(),"active administrator can test accounting");
+ Check((await s.TestAccountingConnectionAsync("http://example.invalid:12345/api2","synthetic-key")).Outcome=="InvalidEndpoint","service dispatches validated accounting probe");
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO roles(id,name) VALUES(2,'Employee'); UPDATE users SET role_id=2";q.ExecuteNonQuery();}
+ Check(!s.CanTestAccountingConnection(),"nonadministrator accounting diagnostic denied");
+ try{await s.TestAccountingConnectionAsync("http://example.invalid:12345/api2","synthetic-key");throw new Exception("FAIL: unauthorized accounting request");}catch(UnauthorizedAccessException){Check(true,"accounting service rejects unauthorized request");}
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE users SET role_id=1";q.ExecuteNonQuery();}
+
  Check(s.SearchClients("").Count==0,"empty register");
  var id=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
  var list=s.SearchClients("Synthetic"); Check(list.Count==1 && list[0].Id==id && list[0].Number=="CL-000001","client create and search");
@@ -55,6 +63,7 @@ try{
  s.SaveClient(list[0] with {Status="Inactive"});
  Invalid(()=>s.SaveContact(new Contact(0,id,"C","Person","","","",false)),"inactive client contact guard");
  s.Logout(); Denied(()=>s.Contacts(id),"logout clears session");
+ Check(!s.CanTestAccountingConnection(),"logout denies accounting diagnostic");
  using(var c=new SqliteConnection($"Data Source={path}")){c.Open(); using var q=c.CreateCommand(); q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Clients.View'";q.ExecuteNonQuery();}
  Check(s.Login("admin",pw),"login after permission change"); Denied(()=>s.SearchClients(""),"revoked permission denies administrator");
  s.Logout(); using(var c=new SqliteConnection($"Data Source={path}")){c.Open(); using var q=c.CreateCommand();q.CommandText="UPDATE users SET active=0";q.ExecuteNonQuery();}
