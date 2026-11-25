@@ -22,6 +22,13 @@ try{
  Check(!s.Login("admin","wrong"),"invalid password denied");
  Check(s.Login("ADMIN",pw),"normalized username login");
  Check(s.CanTestAccountingConnection(),"active administrator can test accounting");
+ Check(s.Can("Accounting.Connection.Test"),"dedicated accounting test grant seeded");
+ Check(s.Can("Accounting.Connection.Manage"),"dedicated accounting manage grant seeded");
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Accounting.Connection.Test' AND role_id=1";q.ExecuteNonQuery();}
+ Check(!s.CanTestAccountingConnection(),"revoked accounting test grant is enforced");
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=1 WHERE permission_code='Accounting.Connection.Test' AND role_id=1";q.ExecuteNonQuery();}
+ Check(s.CanTestAccountingConnection(),"restored accounting test grant is enforced");
+
  Check((await s.TestAccountingConnectionAsync("http://example.invalid:12345/api2","synthetic-key")).Outcome=="InvalidEndpoint","service dispatches validated accounting probe");
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO roles(id,name) VALUES(2,'Employee'); UPDATE users SET role_id=2";q.ExecuteNonQuery();}
  Check(!s.CanTestAccountingConnection(),"nonadministrator accounting diagnostic denied");
