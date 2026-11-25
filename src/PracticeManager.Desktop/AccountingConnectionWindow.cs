@@ -13,6 +13,10 @@ internal sealed class AccountingConnectionWindow : Window
     private readonly Button paste=new(){Content="Paste secret",Padding=new Thickness(12,6,12,6)};
     private readonly Button test=new(){Content="Test connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,12,0,0)};
     private readonly TextBlock result=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,0)};
+    private readonly Button save=new(){Content="Test and save connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
+    private readonly Button savedTest=new(){Content="Test saved connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
+    private readonly Button remove=new(){Content="Remove saved connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
+    private readonly TextBlock profileStatus=new(){TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DimGray,Margin=new Thickness(0,0,0,12)};
     private CancellationTokenSource? pending;
     private bool closed;
     public AccountingConnectionWindow(LocalPractice service)
@@ -27,17 +31,21 @@ internal sealed class AccountingConnectionWindow : Window
         layout.Children.Add(new TextBlock{Text="API2 endpoint (copy from Manager access token screen)"});
         layout.Children.Add(endpoint);
         layout.Children.Add(new TextBlock{Text="Example: http://127.0.0.1:PORT/api2",Foreground=Brushes.DimGray,Margin=new Thickness(0,0,0,12)});
-        layout.Children.Add(new TextBlock{Text="Secret key (not saved)"});
+        layout.Children.Add(profileStatus);
+        layout.Children.Add(new TextBlock{Text="Secret key (saved only by explicit Test and save)"});
         layout.Children.Add(secret);
         var buttons=new StackPanel{Orientation=Orientation.Horizontal};buttons.Children.Add(paste);
         var clear=new Button{Content="Clear secret",Padding=new Thickness(12,6,12,6),Margin=new Thickness(8,0,0,0)};
         clear.Click+=(_,_)=>{secret.Clear();result.Text="Secret field cleared.";};buttons.Children.Add(clear);
         layout.Children.Add(buttons);
         layout.Children.Add(new TextBlock{Text="Paste reads the Windows clipboard and clears its current value when possible. Windows clipboard history is separate.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DimGray,Margin=new Thickness(0,8,0,0)});
-        layout.Children.Add(test);layout.Children.Add(result);
+        layout.Children.Add(test);layout.Children.Add(save);layout.Children.Add(savedTest);layout.Children.Add(remove);layout.Children.Add(result);
         var close=new Button{Content="Close",HorizontalAlignment=HorizontalAlignment.Right,Padding=new Thickness(12,6,12,6),Margin=new Thickness(0,12,0,0)};
         close.Click+=(_,_)=>Close();layout.Children.Add(close);
-        Content=layout;paste.Click+=Paste_Click;test.Click+=Test_Click;
+        Content=new ScrollViewer{Content=layout,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};MaxHeight=SystemParameters.WorkArea.Height-40;
+        paste.Click+=Paste_Click;test.Click+=async (_,_)=>await ExecuteAsync("test");save.Click+=async (_,_)=>await ExecuteAsync("save");savedTest.Click+=async (_,_)=>await ExecuteAsync("saved");
+        remove.Click+=(_,_)=>RemoveProfile();
+        RefreshProfile(true);
         endpoint.TextChanged+=(_,_)=>{if(pending==null)result.Text="";};
         Closed+=(_,_)=>{closed=true;secret.Clear();pending?.Cancel();};
     }
@@ -56,21 +64,46 @@ internal sealed class AccountingConnectionWindow : Window
         catch(UnauthorizedAccessException){secret.Clear();result.Text="Access denied. Sign in again.";}
         catch(System.Runtime.InteropServices.ExternalException){result.Text="Clipboard unavailable. Copy again or enter the key manually.";}
     }
-    private async void Test_Click(object sender,RoutedEventArgs e)
+    private void RefreshProfile(bool fillEndpoint)
+    {
+        var p=service.ReadAccountingProfile();
+        profileStatus.Text=p==null?"No saved connection.":$"Saved endpoint: {p.Endpoint}\nLast successful test (UTC): {p.LastSuccessUtc}";
+        if(fillEndpoint&&p!=null)endpoint.Text=p.Endpoint;
+        save.IsEnabled=service.CanManageAccountingConnection();
+        remove.IsEnabled=p!=null&&service.CanManageAccountingConnection();
+        savedTest.IsEnabled=p!=null;
+    }
+    private void RemoveProfile()
+    {
+        if(pending!=null)return;
+        if(MessageBox.Show(this,"Remove the saved connection from this CRC profile? This does not revoke the Manager token.","Remove connection",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes)return;
+        try{service.RemoveAccountingProfile();secret.Clear();endpoint.Clear();RefreshProfile(false);result.Text="Saved connection removed. No Manager records changed.";}
+        catch(UnauthorizedAccessException){result.Text="Access denied.";}
+        catch(Exception){result.Text="Removal failed. No successful removal is assumed.";}
+    }
+    private async Task ExecuteAsync(string mode)
     {
         if(pending!=null)return;
         using var request=new CancellationTokenSource();pending=request;
         var key=secret.Password.Trim();secret.Clear();
-        test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=false;
+        test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=save.IsEnabled=savedTest.IsEnabled=remove.IsEnabled=false;
         result.Foreground=Brushes.DimGray;result.Text="Testing local connection...";
         try
         {
-            var r=await service.TestAccountingConnectionAsync(endpoint.Text,key,request.Token);
+            var r=mode switch
+            {
+                "save"=>await service.SaveAccountingProfileAsync(endpoint.Text,key,request.Token),
+                "saved"=>await service.TestSavedAccountingProfileAsync(request.Token),
+                _=>await service.TestAccountingConnectionAsync(endpoint.Text,key,request.Token)
+            };
             if(closed)return;
             result.Foreground=r.Success?Brushes.DarkGreen:Brushes.DarkRed;
             result.Text=r.Outcome switch
             {
-                "Connected"=>$"API CONNECTION SUCCESSFUL — HTTP {r.StatusCode}. Customer response: JSON {r.JsonShape}. No records imported.",
+                "Connected"=>$"API CONNECTION SUCCESSFUL — HTTP {r.StatusCode}. Customer response: JSON {r.JsonShape}. No records imported."+(mode=="save"?" Connection saved.":""),
+                "CredentialUnavailable"=>"Windows credential protection unavailable. Re-enter and save the connection under your Windows account.",
+                "NotConfigured"=>"No saved connection.",
+                "ProfileChanged"=>"Connection changed during testing. Reopen the dialog and try again.",
                 "InvalidEndpoint"=>"Enter the exact local HTTP 127.0.0.1 port and /api2 address from Manager.",
                 "MissingSecret"=>"Enter or paste the secret key again. Only a valid nonempty key is accepted.",
                 "Unauthorized"=>$"HTTP {r.StatusCode} — key invalid or access denied.",
@@ -86,6 +119,6 @@ internal sealed class AccountingConnectionWindow : Window
         }
         catch(UnauthorizedAccessException){if(!closed)result.Text="Access denied. Sign in again as administrator.";}
         catch(Exception){if(!closed)result.Text="Diagnostic failed. No successful connection is assumed.";}
-        finally{pending=null;if(!closed){test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=true;secret.Clear();}}
+        finally{pending=null;if(!closed){test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=true;secret.Clear();try{RefreshProfile(false);}catch{save.IsEnabled=savedTest.IsEnabled=remove.IsEnabled=false;}}}
     }
 }
