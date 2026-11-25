@@ -95,5 +95,6 @@ try{
  Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
 
  await AccountingProfileTests.Run(migrated,legacyPath,pw,Check);
+ await AccountingCustomerPageTests.Run(Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
