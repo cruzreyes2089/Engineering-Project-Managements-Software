@@ -60,5 +60,6 @@ try{
  s.Logout(); using(var c=new SqliteConnection($"Data Source={path}")){c.Open(); using var q=c.CreateCommand();q.CommandText="UPDATE users SET active=0";q.ExecuteNonQuery();}
  Check(!s.Login("admin",pw),"inactive user denied");
  Check(PasswordCodec.Verify(pw,PasswordCodec.Hash(pw)),"password hash roundtrip"); Check(!PasswordCodec.Verify(pw,"invalid"),"bad hash denied");
+ await AccountingProbeTests.Run(Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
