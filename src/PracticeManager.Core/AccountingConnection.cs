@@ -18,12 +18,12 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
     public Task<AccountingProbeResult> InspectCustomersAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,true,cancellationToken);
     public Task<AccountingProbeResult> ReadCustomerPageAsync(string endpoint,string secret,int skip,CancellationToken cancellationToken=default)
-        =>Task.FromResult(new AccountingProbeResult("NotImplemented"));
+        =>skip<0||skip>int.MaxValue-20?Task.FromResult(new AccountingProbeResult("InvalidPage")):RequestAsync(endpoint,secret,false,cancellationToken,skip);
     private const int MaxResponseBytes = 1_048_576;
     public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,false,cancellationToken);
 
-    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken)
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -37,7 +37,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         // Exact literal loopback host; no proxies, credentials from URL, cookies or redirects.
         using var handler=new HttpClientHandler{AllowAutoRedirect=false,UseProxy=false,UseCookies=false,AutomaticDecompression=DecompressionMethods.None};
         using var client=new HttpClient(handler){Timeout=Timeout.InfiniteTimeSpan};
-        using var request=new HttpRequestMessage(HttpMethod.Get,$"http://127.0.0.1:{port}/api2/customers"+(inspect?"?skip=0&pageSize=2":""));
+        using var request=new HttpRequestMessage(HttpMethod.Get,$"http://127.0.0.1:{port}/api2/customers"+(customerSkip is int offset?"?skip="+offset.ToString(System.Globalization.CultureInfo.InvariantCulture)+"&pageSize=20":inspect?"?skip=0&pageSize=2":""));
         request.Headers.Add("X-API-KEY",secret);
         request.Headers.Accept.ParseAdd("application/json");
         try
@@ -62,6 +62,11 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             buffer.Position=0;
             using var json=await JsonDocument.ParseAsync(buffer,cancellationToken:ct).ConfigureAwait(false);
             var kind=json.RootElement.ValueKind;
+            if(customerSkip is int requested)
+            {
+                var page=AccountingCustomerPageParser.Parse(json.RootElement,requested);
+                return page==null?new("InvalidCustomerPage",code):new("Connected",code,"Object",CustomerPage:page);
+            }
             return kind is JsonValueKind.Array or JsonValueKind.Object
                 ?new("Connected",code,kind.ToString(),inspect?DescribeSchema(json.RootElement):null):new("InvalidResponse",code);
         }

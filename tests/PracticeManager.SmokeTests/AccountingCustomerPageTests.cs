@@ -38,6 +38,8 @@ internal static class AccountingCustomerPageTests
    Page(Enumerable.Range(0,21).Select(n=>Row(Guid.NewGuid(),"A")).ToArray(),0,20,21),
    Page(new[]{Row(id1,"A")},0,50,1)
   }) await AccountingProbeTests.WithServer(200,body,async(url,_)=>{var r=await probe.ReadCustomerPageAsync(url,fixture,0);check(!r.Success&&r.CustomerPage==null,"malformed customer page rejected atomically");});
+  await AccountingProbeTests.WithServer(200,Page(new[]{Row(id1,"A")},0,1,2),async(url,_)=>check((await probe.ReadCustomerPageAsync(url,fixture,0)).CustomerPage?.PageSize==1,"provider-capped page size accepted"));
+  await AccountingProbeTests.WithServer(200,"{\"business\":{\"name\":\"Synthetic\",\"name\":\"Duplicate\"},\"skip\":0,\"pageSize\":20,\"totalRecords\":0,\"customers\":[]}",async(url,_)=>check(!(await probe.ReadCustomerPageAsync(url,fixture,0)).Success,"duplicate business JSON property rejected"));
   check((await probe.ReadCustomerPageAsync("http://127.0.0.1:1/api2",fixture,-1)).Outcome=="InvalidPage","negative page offset rejected");
   check((await probe.ReadCustomerPageAsync("http://example.invalid:12345/api2",fixture,0)).Outcome=="InvalidEndpoint","customer reader external host rejected");
   await AccountingProbeTests.WithServer(401,"{}",async(url,_)=>check((await probe.ReadCustomerPageAsync(url,fixture,0)).Outcome=="Unauthorized","customer reader authentication error"));

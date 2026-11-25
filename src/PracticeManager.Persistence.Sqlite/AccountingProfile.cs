@@ -55,7 +55,8 @@ public sealed partial class LocalPractice
  }
  public Task<AccountingProbeResult> TestSavedAccountingProfileAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(false,ct);
  public Task<AccountingProbeResult> InspectSavedCustomersAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(true,ct);
- private async Task<AccountingProbeResult> UseSavedAccountingProfileAsync(bool inspect,CancellationToken ct)
+ public Task<AccountingProbeResult> ReadSavedCustomersAsync(int skip,CancellationToken ct=default)=>UseSavedAccountingProfileAsync(false,ct,skip);
+ private async Task<AccountingProbeResult> UseSavedAccountingProfileAsync(bool inspect,CancellationToken ct,int? customerSkip=null)
  {
   long actor;StoredProfile? profile;var generation=sessionGeneration;
   using(var c=Open())using(var t=c.BeginTransaction()){
@@ -67,7 +68,7 @@ public sealed partial class LocalPractice
   try{clear=ProtectedData.Unprotect(profile.ProtectedValue,Context(actor,profile.Endpoint),DataProtectionScope.CurrentUser);}
   catch(CryptographicException){return new("CredentialUnavailable");}
   AccountingProbeResult result;
-  try{var probe=new ManagerDesktopProbe();result=inspect?await probe.InspectCustomersAsync(profile.Endpoint,Encoding.UTF8.GetString(clear),ct):await probe.TestAsync(profile.Endpoint,Encoding.UTF8.GetString(clear),ct);}
+  try{var probe=new ManagerDesktopProbe();var key=Encoding.UTF8.GetString(clear);result=customerSkip is int offset?await probe.ReadCustomerPageAsync(profile.Endpoint,key,offset,ct):inspect?await probe.InspectCustomersAsync(profile.Endpoint,key,ct):await probe.TestAsync(profile.Endpoint,key,ct);}
   finally{CryptographicOperations.ZeroMemory(clear);}
   using var write=Open();using var tx=write.BeginTransaction(deferred:false);
   CheckProfileSession(write,tx,generation,actor,false);
