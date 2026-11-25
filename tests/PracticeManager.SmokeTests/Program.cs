@@ -77,5 +77,22 @@ try{
  Check(!s.Login("admin",pw),"inactive user denied");
  Check(PasswordCodec.Verify(pw,PasswordCodec.Hash(pw)),"password hash roundtrip"); Check(!PasswordCodec.Verify(pw,"invalid"),"bad hash denied");
  await AccountingProbeTests.Run(Check);
+ var legacyPath=Path.Combine(Path.GetDirectoryName(path)!,"legacy-v1.db");
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){
+  db.Open();using var q=db.CreateCommand();using var schema=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(schema);
+  q.CommandText=reader.ReadToEnd();q.ExecuteNonQuery();
+  q.CommandText="INSERT INTO firms VALUES(1,'Migration Test','CL'); INSERT INTO roles VALUES(1,'Administrator'),(2,'Employee'); INSERT INTO permissions VALUES('Clients.View'); INSERT INTO role_permissions VALUES(1,'Clients.View',1); INSERT INTO users(id,username,normalized_username,password_hash,role_id,active) VALUES(1,'admin','ADMIN',$h,1,1),(2,'employee','EMPLOYEE',$h,2,1); INSERT INTO clients(client_no,client_type,company_name) VALUES('CL-000001','Business / Company','Migration Test Client');";
+  q.Parameters.AddWithValue("$h",PasswordCodec.Hash(pw));q.ExecuteNonQuery();
+ }
+ var migrated=new LocalPractice(legacyPath);
+ Check(migrated.Login("admin",pw),"v1 upgrade preserves administrator login");
+ Check(migrated.SearchClients("").Count==1,"v1 upgrade preserves client records");
+ Check(migrated.CanTestAccountingConnection()&&migrated.CanManageAccountingConnection(),"v1 upgrade seeds accounting grants");
+ Check(migrated.Login("employee",pw),"v1 upgrade preserves employee login");
+ Check(!migrated.CanTestAccountingConnection()&&!migrated.CanManageAccountingConnection(),"v1 upgrade does not grant employees accounting access");
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==2,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
+ migrated=new LocalPractice(legacyPath);
+ Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
+
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}

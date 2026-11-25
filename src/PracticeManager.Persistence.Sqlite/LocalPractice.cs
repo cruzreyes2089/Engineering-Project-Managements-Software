@@ -5,8 +5,17 @@ namespace PracticeManager.Persistence;
 public sealed class LocalPractice
 {
  readonly string connectionString; long? userId; DateTimeOffset expires;
- static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit"];
- public LocalPractice(string path){path=Path.GetFullPath(path);Directory.CreateDirectory(Path.GetDirectoryName(path)!);connectionString=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,DefaultTimeout=10,Pooling=false}.ToString();using var c=Open();using var t=c.BeginTransaction(deferred:false);var version=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));if(version==0){if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))!=0)throw new InvalidOperationException("Unknown database; refusing initialization.");using var stream=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(stream);Exec(c,t,reader.ReadToEnd());}else if(version!=1)throw new InvalidOperationException("Unsupported schema version.");t.Commit();}
+ static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage"];
+ public LocalPractice(string path){path=Path.GetFullPath(path);Directory.CreateDirectory(Path.GetDirectoryName(path)!);connectionString=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,DefaultTimeout=10,Pooling=false}.ToString();using var c=Open();using var t=c.BeginTransaction(deferred:false);var version=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));if(version==0){if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))!=0)throw new InvalidOperationException("Unknown database; refusing initialization.");using var stream=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(stream);Exec(c,t,reader.ReadToEnd());version=1;}if(version==1){UpgradeToV2(c,t);version=2;}if(version!=2)throw new InvalidOperationException("Unsupported schema version.");t.Commit();}
+ static void UpgradeToV2(SqliteConnection c,SqliteTransaction t)
+ {
+  foreach(var grant in new[]{"Accounting.Connection.Test","Accounting.Connection.Manage"})
+  {
+   Exec(c,t,"INSERT OR IGNORE INTO permissions(code) VALUES($p)",("$p",grant));
+   Exec(c,t,"INSERT OR IGNORE INTO role_permissions(role_id,permission_code,allowed) SELECT id,$p,1 FROM roles WHERE name='Administrator'",("$p",grant));
+  }
+  Exec(c,t,"PRAGMA user_version=2");
+ }
  SqliteConnection Open(){var c=new SqliteConnection(connectionString);c.Open();return c;}
  static SqliteCommand Command(SqliteConnection c,SqliteTransaction? t,string sql,params (string,object?)[] args){var q=c.CreateCommand();q.Transaction=t;q.CommandText=sql;foreach(var (key,value) in args)q.Parameters.AddWithValue(key,value??DBNull.Value);return q;}
  static object? Scalar(SqliteConnection c,SqliteTransaction? t,string sql,params (string,object?)[] args){using var q=Command(c,t,sql,args);return q.ExecuteScalar();}
@@ -14,22 +23,18 @@ public sealed class LocalPractice
  static long Last(SqliteConnection c,SqliteTransaction t)=>Convert.ToInt64(Scalar(c,t,"SELECT last_insert_rowid()"));
  public bool IsInitialized(){using var c=Open();return Convert.ToInt64(Scalar(c,null,"SELECT count(*) FROM firms"))==1;}
  public string FirmName(){using var c=Open();return Convert.ToString(Scalar(c,null,"SELECT name FROM firms WHERE id=1"))??"";}
- public void Bootstrap(string firm,string username,string password,string prefix){firm=Validation.Text(firm,150,"Company",true);var normalized=Validation.Username(username);prefix=Validation.Text(prefix,10,"Client prefix",true).ToUpperInvariant();if(prefix.Any(x=>!char.IsAsciiLetterOrDigit(x)))throw new ArgumentException("Prefix must be alphanumeric.");var hash=PasswordCodec.Hash(password);using var c=Open();using var t=c.BeginTransaction(deferred:false);if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM firms"))!=0)throw new ArgumentException("Company already initialized.");Exec(c,t,"INSERT INTO firms(id,name,client_prefix) VALUES(1,$n,$p)",("$n",firm),("$p",prefix));Exec(c,t,"INSERT INTO roles(id,name) VALUES(1,'Administrator')");foreach(var grant in Grants){Exec(c,t,"INSERT INTO permissions(code) VALUES($g)",("$g",grant));Exec(c,t,"INSERT INTO role_permissions VALUES(1,$g,1)",("$g",grant));}Exec(c,t,"INSERT INTO users(username,normalized_username,password_hash,role_id,active) VALUES($u,$n,$h,1,1)",("$u",username.Trim()),("$n",normalized),("$h",hash));var id=Last(c,t);Exec(c,t,"INSERT INTO sequences VALUES('Client',1)");Audit(c,t,id,"Bootstrap","Firm",1);t.Commit();}
+ public void Bootstrap(string firm,string username,string password,string prefix){firm=Validation.Text(firm,150,"Company",true);var normalized=Validation.Username(username);prefix=Validation.Text(prefix,10,"Client prefix",true).ToUpperInvariant();if(prefix.Any(x=>!char.IsAsciiLetterOrDigit(x)))throw new ArgumentException("Prefix must be alphanumeric.");var hash=PasswordCodec.Hash(password);using var c=Open();using var t=c.BeginTransaction(deferred:false);if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM firms"))!=0)throw new ArgumentException("Company already initialized.");Exec(c,t,"INSERT INTO firms(id,name,client_prefix) VALUES(1,$n,$p)",("$n",firm),("$p",prefix));Exec(c,t,"INSERT INTO roles(id,name) VALUES(1,'Administrator')");foreach(var grant in Grants){Exec(c,t,"INSERT OR IGNORE INTO permissions(code) VALUES($g)",("$g",grant));Exec(c,t,"INSERT INTO role_permissions VALUES(1,$g,1)",("$g",grant));}Exec(c,t,"INSERT INTO users(username,normalized_username,password_hash,role_id,active) VALUES($u,$n,$h,1,1)",("$u",username.Trim()),("$n",normalized),("$h",hash));var id=Last(c,t);Exec(c,t,"INSERT INTO sequences VALUES('Client',1)");Audit(c,t,id,"Bootstrap","Firm",1);t.Commit();}
  public bool Login(string username,string password){Logout();string n;try{n=Validation.Username(username);}catch(ArgumentException){return false;}using var c=Open();using var t=c.BeginTransaction(deferred:false);long id,locked,attempts;string hash;bool active,force;using(var q=Command(c,t,"SELECT id,password_hash,active,failed_attempts,locked_until,force_password_change FROM users WHERE normalized_username=$n",("$n",n)))using(var r=q.ExecuteReader()){if(!r.Read())return false;id=r.GetInt64(0);hash=r.GetString(1);active=r.GetInt64(2)==1;attempts=r.GetInt64(3);locked=r.GetInt64(4);force=r.GetInt64(5)==1;}var now=DateTimeOffset.UtcNow.ToUnixTimeSeconds();if(!active||force||locked>now)return false;if(!PasswordCodec.Verify(password,hash)){attempts=locked>0&&locked<=now?1:attempts+1;Exec(c,t,"UPDATE users SET failed_attempts=$a,locked_until=$l WHERE id=$i",("$a",attempts),("$l",attempts>=5?now+300:0),("$i",id));Audit(c,t,id,"LoginFailed","User",id);t.Commit();return false;}Exec(c,t,"UPDATE users SET failed_attempts=0,locked_until=0 WHERE id=$i",("$i",id));Audit(c,t,id,"Login","User",id);t.Commit();userId=id;expires=DateTimeOffset.UtcNow.AddHours(8);return true;}
  public void Logout(){userId=null;expires=default;}
  long Require(SqliteConnection c,SqliteTransaction t,string permission){if(userId is not long id||DateTimeOffset.UtcNow>=expires)throw new UnauthorizedAccessException("Sign in again.");var allowed=Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM users u JOIN role_permissions rp ON rp.role_id=u.role_id WHERE u.id=$i AND u.active=1 AND u.force_password_change=0 AND rp.permission_code=$p AND rp.allowed=1",("$i",id),("$p",permission)));if(allowed!=1)throw new UnauthorizedAccessException("Permission denied.");return id;}
  public bool Can(string permission){using var c=Open();using var t=c.BeginTransaction();try{Require(c,t,permission);return true;}catch(UnauthorizedAccessException){return false;}}
- // Temporary administrator-only diagnostic; no existing CRM grant is repurposed.
- public bool CanTestAccountingConnection()
- {
-  if(userId is not long id||DateTimeOffset.UtcNow>=expires)return false;
-  using var c=Open();using var t=c.BeginTransaction();
-  return Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=$i AND u.active=1 AND u.force_password_change=0 AND r.name='Administrator'",("$i",id)))==1;
- }
+ // Accounting permissions are separate from CRM permissions and checked for each operation.
+ public bool CanTestAccountingConnection()=>Can("Accounting.Connection.Test");
+ public bool CanManageAccountingConnection()=>Can("Accounting.Connection.Manage");
  public async Task<AccountingProbeResult> TestAccountingConnectionAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
  {
   var actor=userId;
-  if(!CanTestAccountingConnection())throw new UnauthorizedAccessException("Accounting connection diagnostic requires an active administrator.");
+  if(!CanTestAccountingConnection())throw new UnauthorizedAccessException("Accounting connection diagnostic requires the accounting test permission.");
   var result=await new ManagerDesktopProbe().TestAsync(endpoint,secret,cancellationToken);
   if(userId!=actor||!CanTestAccountingConnection())throw new UnauthorizedAccessException("Accounting diagnostic session ended.");
   return result;
