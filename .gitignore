@@ -424,3 +424,38 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Practice management: local data, credentials and confidential files
+*.accdb
+*.mdb
+*.accde
+*.laccdb
+*.ldb
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+*.manager
+*.bak
+*.pfx
+*.p12
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/appsettings.Production.json
+**/secrets.json
+**/production-data/
+**/private-templates/
+**/backups/
+**/exports/
