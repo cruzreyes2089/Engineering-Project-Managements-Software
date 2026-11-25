@@ -27,6 +27,24 @@ try{
  var cid=s.SaveContact(new Contact(0,id,"A","Person","","","",true));
  var cid2=s.SaveContact(new Contact(0,id,"B","Person","","","",true));
  Check(s.Contacts(id).Count==2 && s.Contacts(id).Single(x=>x.Primary).Id==cid2,"primary replacement");
+ s.SaveClient(list[0] with {Phone="8055550101"});
+ Check(s.SearchClients("Synthetic").Single().Phone=="(805)555-0101","client phone normalized on edit");
+ s.SaveContact(s.Contacts(id).Single(x=>x.Id==cid) with {Phone="805.555.0102"});
+ Check(s.Contacts(id).Single(x=>x.Id==cid).Phone=="(805)555-0102","contact phone normalized on edit");
+ var phoneClient=s.SearchClients("Synthetic").Single();
+ var phoneContact=s.Contacts(id).Single(x=>x.Id==cid);
+ s.SaveClient(phoneClient with {Phone="+1 (805) 555-0103"});
+ Check(s.SearchClients("Synthetic").Single().Phone=="(805)555-0103","country code one normalized");
+ s.SaveContact(phoneContact with {Phone=""});
+ Check(s.Contacts(id).Single(x=>x.Id==cid).Phone=="","optional contact phone");
+ s.SaveClient(phoneClient with {Phone=""});
+ Check(s.SearchClients("Synthetic").Single().Phone=="","optional client phone");
+ Invalid(()=>s.SaveClient(phoneClient with {Phone="80555501"}),"incomplete client phone rejected");
+ Invalid(()=>s.SaveContact(phoneContact with {Phone="abc8055550102"}),"invalid contact phone rejected");
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE clients SET phone='8055550104' WHERE id=$id";q.Parameters.AddWithValue("$id",id);q.ExecuteNonQuery();q.CommandText="UPDATE contacts SET phone='8055550105' WHERE id=$id";q.Parameters["$id"].Value=cid;q.ExecuteNonQuery();}
+ Check(s.SearchClients("Synthetic").Single().Phone=="(805)555-0104","existing unformatted client phone displayed");
+ Check(s.Contacts(id).Single(x=>x.Id==cid).Phone=="(805)555-0105","existing unformatted contact phone displayed");
+
  s.SaveClient(list[0] with {Status="Inactive"});
  Invalid(()=>s.SaveContact(new Contact(0,id,"C","Person","","","",false)),"inactive client contact guard");
  s.Logout(); Denied(()=>s.Contacts(id),"logout clears session");
