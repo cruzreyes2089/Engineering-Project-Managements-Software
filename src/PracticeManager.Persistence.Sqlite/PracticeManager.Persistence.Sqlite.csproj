@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../PracticeManager.Core/PracticeManager.Core.csproj"/><PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0"/><EmbeddedResource Include="schema.sql" LogicalName="PracticeManager.schema.sql"/></ItemGroup></Project>
