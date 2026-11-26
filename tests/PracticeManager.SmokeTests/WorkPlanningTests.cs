@@ -29,6 +29,7 @@ internal static class WorkPlanningTests
   s.EditProjectTask(project,task,1,plan with{EstimateMinutes=180});
   Invalid(()=>s.EditProjectTask(project,task,1,plan),"stale plan revision blocked");
   var a=s.RecordSignedAgreement(project,hash,"test.pdf","%PDF-1.7\nSynthetic only\n%%EOF"u8.ToArray(),"Synthetic review",true);
+  ConflictReviewTests.Clear(s,project);
   check(s.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")=="Active","project explicitly authorized for work");
   Invalid(()=>worker.AdvanceMyTask(otherTask,1,"InProgress"),"cannot start another employee task");
   Invalid(()=>worker.AdvanceMyTask(task,2,"Completed"),"cannot skip task start");

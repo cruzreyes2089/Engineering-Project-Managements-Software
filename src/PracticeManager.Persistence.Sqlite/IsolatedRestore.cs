@@ -16,7 +16,7 @@ public sealed partial class LocalPractice
   if(!Regex.IsMatch(expectedSha256??"",@"\A[0-9A-Fa-f]{64}\z"))throw new ArgumentException("Enter the original recorded SHA-256.");
   var input=Path.GetFullPath(source);var target=Path.GetFullPath(destination);
   var live=Path.GetFullPath(new SqliteConnectionStringBuilder(connectionString).DataSource);
-  bool Same(string a,string b)=>string.Equals(a,b,StringComparison.OrdinalIgnoreCase);
+  bool Same(string? a,string? b)=>string.Equals(a,b,StringComparison.OrdinalIgnoreCase);
   if(!Same(Path.GetExtension(input),".db")||!Same(Path.GetExtension(target),".db")||Same(input,target)||Same(input,live)||Same(target,live))throw new ArgumentException("Choose separate recovery and new destination database files.");
   var folder=Path.GetDirectoryName(target)??throw new ArgumentException("Destination folder required.");
   if(!Directory.Exists(folder)||File.Exists(target)||Directory.Exists(target))throw new ArgumentException("Choose a new file; no existing file will be replaced.");
@@ -38,7 +38,7 @@ public sealed partial class LocalPractice
    long clients,projects,documents;
    using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=staging,Mode=SqliteOpenMode.ReadOnly,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString())){
     db.Open();Exec(db,null,"PRAGMA trusted_schema=OFF; PRAGMA query_only=ON");
-    if(Convert.ToInt64(Scalar(db,null,"PRAGMA user_version"))!=22)throw new ArgumentException("Only current schema 22 recovery copies are supported; older copies require a reviewed migration.");
+    if(Convert.ToInt64(Scalar(db,null,"PRAGMA user_version"))!=23)throw new ArgumentException("Only current schema 23 recovery copies are supported; older copies require a reviewed migration.");
     using(var q=Command(db,null,"PRAGMA integrity_check"))using(var r=q.ExecuteReader()){if(!r.Read()||r.GetString(0)!="ok"||r.Read())throw new InvalidOperationException("Recovery database integrity failed.");}
     using(var q=Command(db,null,"PRAGMA foreign_key_check"))using(var r=q.ExecuteReader()){if(r.Read())throw new InvalidOperationException("Recovery database foreign-key check failed.");}
     long Count(string sql)=>Convert.ToInt64(Scalar(db,null,sql));

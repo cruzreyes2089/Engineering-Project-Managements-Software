@@ -31,6 +31,7 @@ internal static class ProjectHandoffTests
   Invalid(()=>s.RecordProjectSetupItem(project,"ScopeReviewed",false,"Stale",false,""),"stale setup edit rejected");
   foreach(var item in setup.Items.Where(x=>!x.Complete))s.RecordProjectSetupItem(project,item.Item,true,"Synthetic review",false,"");
   check(s.ReadProjectSetup(project).State=="Complete"&&s.SearchPendingProjects().Single().SetupState=="Complete"&&s.ReadProjectHandoff(project).State=="Pending","complete setup not start authorization");
+  ConflictReviewTests.Clear(s,project);
   Sql("CREATE TRIGGER test_start_abort BEFORE UPDATE OF state ON projects BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
   try{s.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic");throw new Exception("FAIL: rollback");}catch(SqliteException){check(true,"start failure injected");}
   check(!s.ReadProjectHandoff(project).HasAuthorization&&s.ReadProjectHandoff(project).State=="Pending","authorization and state rollback atomically");

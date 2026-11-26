@@ -38,7 +38,7 @@ internal static class ProjectEvidenceTests
   Invalid(()=>s.AddQualityNote(p.Id,q,"After closure"),"closed quality history read-only");
   var change=s.ProposeScopeChange(p.Id,"Extra work","Synthetic additional scope");
   Invalid(()=>s.DecideScopeChange(p.Id,change,true,"Reviewed",true),"pending project cannot authorize additional work");
-  var a=s.RecordSignedAgreement(p.Id,p.Hash,"signed.pdf","%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray(),"Reviewed",true);s.AuthorizeProjectStart(p.Id,p.Hash,a.Id,a.PdfHash,true,"Synthetic");
+  var a=s.RecordSignedAgreement(p.Id,p.Hash,"signed.pdf","%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray(),"Reviewed",true);ConflictReviewTests.Clear(s,p.Id);s.AuthorizeProjectStart(p.Id,p.Hash,a.Id,a.PdfHash,true,"Synthetic");
   Invalid(()=>s.DecideScopeChange(p.Id,change,true,"Reviewed",false),"explicit client review required");
   check(s.DecideScopeChange(p.Id,change,true,"Written synthetic approval",true)=="Authorized"&&s.ReadScopeChanges(p.Id).Single().State=="Authorized","scope approval recorded separately");
   check(s.DecideScopeChange(p.Id,change,false,"Changed",false)=="AlreadyAuthorized","scope authorization not silently reversed");

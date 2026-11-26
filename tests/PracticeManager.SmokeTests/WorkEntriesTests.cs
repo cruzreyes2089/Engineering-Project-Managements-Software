@@ -19,7 +19,7 @@ internal static class WorkEntriesTests
   var phase=admin.CreateProjectPhase(project,"Design",day.AddDays(-2),day.AddDays(2));var task=admin.CreateProjectTask(project,new(phase,employee,"Design",day.AddDays(-2),day.AddDays(2),120));
   var entry=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",60,null,null,"Synthetic time");
   Invalid(()=>worker.SubmitWork(entry),"pending and unstarted task blocks time");
-  var a=admin.RecordSignedAgreement(project,hash,"test.pdf","%PDF-1.7\nSynthetic only\n%%EOF"u8.ToArray(),"Synthetic review",true);check(admin.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")=="Active","work entries project authorized");
+  var a=admin.RecordSignedAgreement(project,hash,"test.pdf","%PDF-1.7\nSynthetic only\n%%EOF"u8.ToArray(),"Synthetic review",true);ConflictReviewTests.Clear(admin,project);check(admin.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")=="Active","work entries project authorized");
   Invalid(()=>worker.SubmitWork(entry),"unstarted task blocks time");
   worker.AdvanceMyTask(task,1,"InProgress");
   Invalid(()=>worker.SubmitWork(entry with{Minutes=0}),"zero minutes rejected");

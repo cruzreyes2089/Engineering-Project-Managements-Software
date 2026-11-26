@@ -12,7 +12,7 @@ internal static class OwnerApprovalTests
   var e=s.CreateEmployee(new("Synthetic","Owner","","",true),owner);
   var c=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
   var p=s.CreateProposal(new(c,"Synthetic","Site","Scope",100m));var h=s.RecordProposalIssued(p,1);var project=s.RecordProposalDecision(p,h,true,"Synthetic").ProjectId!.Value;
-  var a=s.RecordSignedAgreement(project,h,"test.pdf","%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray(),"Reviewed",true);s.AuthorizeProjectStart(project,h,a.Id,a.PdfHash,true,"Synthetic");
+  var a=s.RecordSignedAgreement(project,h,"test.pdf","%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray(),"Reviewed",true);ConflictReviewTests.Clear(s,project);s.AuthorizeProjectStart(project,h,a.Id,a.PdfHash,true,"Synthetic");
   var day=DateOnly.FromDateTime(DateTime.Today);var phase=s.CreateProjectPhase(project,"Design",day,day);var task=s.CreateProjectTask(project,new(phase,e,"Design",day,day,120));s.AdvanceMyTask(task,1,"InProgress");
   var time=s.SubmitWork(new(Guid.NewGuid(),task,day,"Time",60,null,null,"Synthetic time"));var expense=s.SubmitWork(new(Guid.NewGuid(),task,day,"Expense",null,10m,"Supplies","Synthetic expense"));
   var initial=s.ReadOwnerApprovalPolicy();check(initial.Eligible&&!initial.Enabled&&initial.EventId==null,"owner exception default off");

@@ -86,6 +86,7 @@ public sealed partial class LocalPractice
  public void AdvanceMyTask(long task,int revision,string next)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var employee=OwnEmployee(c,t);var actor=Require(c,t,"Work.Own");
+  if(next=="InProgress"&&Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id JOIN project_conflict_cleared r ON r.project_id=h.project_id WHERE w.id=$i AND w.employee_id=$e",("$i",task),("$e",employee)))!=1)throw new ArgumentException("Current conflict review required before starting work.");
   var previous=next switch{"InProgress"=>"Planned","Completed"=>"InProgress",_=>throw new ArgumentException("Unsupported task transition.")};
   if(Exec(c,t,@"UPDATE project_tasks SET state=$n,revision=revision+1 WHERE id=$i AND employee_id=$e AND revision=$r AND state=$s AND EXISTS(SELECT 1 FROM project_phases h JOIN projects p ON p.id=h.project_id JOIN project_start_authorizations a ON a.project_id=p.id WHERE h.id=project_tasks.phase_id AND p.state='Active') AND (scope_change_id IS NULL OR EXISTS(SELECT 1 FROM project_scope_decisions d WHERE d.change_id=project_tasks.scope_change_id AND d.decision='Authorized'))",("$n",next),("$i",task),("$e",employee),("$r",revision),("$s",previous))!=1)throw new ArgumentException("Task unavailable, changed, or project not authorized.");
   Audit(c,t,actor,"Task"+next,"ProjectTask",task);t.Commit();
