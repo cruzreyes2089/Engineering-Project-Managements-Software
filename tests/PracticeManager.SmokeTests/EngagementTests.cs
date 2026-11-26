@@ -23,9 +23,15 @@ internal static class EngagementTests
   check(s.RecordProposalDecision(id,"not issued",true,"synthetic note").Outcome=="IssuedProposalRequired","acceptance requires issued snapshot");
   Invalid(()=>s.RecordProposalIssued(id,1),"issue rejects stale draft");
   Invalid(()=>s.PrepareProposalReviewDocx(id,2,null),"proposal document requires current conflict screening");
-  var hash=ConflictReviewTests.Issue(s,id,2);
+  s.RecordJurisdictionPolicy("Synthetic jurisdiction",null,"EligibleForScreening","Synthetic",true);
+  s.RecordProposalConflictReview(id,2,null,new("Synthetic jurisdiction","No","No","No","No","Synthetic"),true);
+  var draftReview=s.PrepareProposalReviewDocx(id,2,null);
+  var hash=s.RecordProposalIssued(id,2);
   var review=s.PrepareProposalReviewDocx(id,2,hash);
   check(review.Id==s.PrepareProposalReviewDocx(id,2,hash).Id&&review.Bytes.SequenceEqual(s.PrepareProposalReviewDocx(id,2,hash).Bytes),"generated proposal document retained and repeatable");
+  check(review.Id==draftReview.Id&&s.ReadProposalReviewDocuments(id).Single().Id==review.Id,"issued snapshot reuses exact screened review copy");
+  check(s.RetrieveProposalReviewDocument(id,review.Id,review.Sha256).Bytes.SequenceEqual(review.Bytes),"registered proposal document exact retrieval");
+  Invalid(()=>s.RetrieveProposalReviewDocument(id,review.Id,"wrong"),"wrong registered document hash denied");
   var content=ReviewDocxTests.Text(review.Bytes);
   check(content.Contains("1300.00 USD")&&content.Contains("Synthetic structural scope")&&content.Contains("NOT FOR ISSUE")&&content.Contains(hash),"proposal review document matches frozen source");
   Invalid(()=>s.PrepareProposalReviewDocx(id,2,"wrong"),"wrong proposal snapshot blocks document");
@@ -38,6 +44,7 @@ internal static class EngagementTests
   var project=s.SearchPendingProjects().Single();check(project.State=="Pending"&&project.SetupState=="NotStarted"&&project.ProposalId==id,"acceptance never authorizes start");
   check(s.RecordProposalDecision(id,hash,false,"Synthetic rejection").Outcome=="DecisionAlreadyRecorded","accepted proposal cannot reject");
   var rejected=s.CreateProposal(input);var rh=ConflictReviewTests.Issue(s,rejected,1);
+  Invalid(()=>s.RetrieveProposalReviewDocument(rejected,review.Id,review.Sha256),"cross-proposal review retrieval denied");
   check(s.RecordProposalDecision(rejected,rh,false,"Synthetic rejection").Outcome=="Rejected"&&s.SearchPendingProjects().Count==1,"rejection creates no project");
   var failure=s.CreateProposal(input);var fh=ConflictReviewTests.Issue(s,failure,1);
   Sql("CREATE TRIGGER test_abort_project BEFORE INSERT ON projects BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");

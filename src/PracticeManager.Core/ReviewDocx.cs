@@ -24,7 +24,7 @@ public static class ReviewDocx
     void Attr(string n,string value)=>x.WriteAttributeString("w",n,W,value);
     void Value(string n,string value){Start(n);Attr("val",value);x.WriteEndElement();}
     void Para(string text,bool head,bool title=false){
-     Start("p");Start("pPr");Start("spacing");Attr("after",head?"160":"100");Attr("line","276");Attr("lineRule","auto");x.WriteEndElement();if(head)Value("keepNext","1");x.WriteEndElement();
+     Start("p");Start("pPr");if(head)Value("keepNext","1");Start("spacing");Attr("after",head?"160":"100");Attr("line","276");Attr("lineRule","auto");x.WriteEndElement();x.WriteEndElement();
      Start("r");Start("rPr");Start("rFonts");Attr("ascii","Calibri");Attr("hAnsi","Calibri");x.WriteEndElement();if(head)Value("b","1");Value("color",head?"203B56":"202020");Value("sz",title?"36":head?"26":"22");x.WriteEndElement();
      var lines=text.Replace("\r\n","\n").Replace('\r','\n').Split('\n');
      for(int i=0;i<lines.Length;i++){if(i>0){Start("br");x.WriteEndElement();}Start("t");x.WriteAttributeString("xml","space","http://www.w3.org/XML/1998/namespace","preserve");x.WriteString(lines[i]);x.WriteEndElement();}

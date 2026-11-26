@@ -43,7 +43,7 @@ public sealed partial class LocalPractice
     using(var q=Command(db,null,"PRAGMA foreign_key_check"))using(var r=q.ExecuteReader()){if(r.Read())throw new InvalidOperationException("Recovery database foreign-key check failed.");}
     long Count(string sql)=>Convert.ToInt64(Scalar(db,null,sql));
     if(Count("SELECT count(*) FROM firms WHERE id=1")!=1||Count("SELECT count(*) FROM audit_events WHERE action='RecoveryCopyIsolated' AND entity='Firm' AND entity_id=1")<1||Count("SELECT count(*) FROM accounting_profiles")!=0||Count("SELECT count(*) FROM accounting_lifecycle_hold WHERE id=1")!=1||Count("SELECT coalesce((SELECT enabled FROM owner_approval_events ORDER BY id DESC LIMIT 1),0)")!=0)throw new ArgumentException("Recovery isolation evidence missing or invalid.");
-    clients=Count("SELECT count(*) FROM clients");projects=Count("SELECT count(*) FROM projects");documents=Count("SELECT count(*) FROM project_documents")+Count("SELECT count(*) FROM project_agreements");
+    clients=Count("SELECT count(*) FROM clients");projects=Count("SELECT count(*) FROM projects");documents=Count("SELECT count(*) FROM project_documents")+Count("SELECT count(*) FROM project_agreements")+Count("SELECT count(*) FROM generated_review_documents");
    }
    using(var fs=new FileStream(staging,FileMode.Open,FileAccess.Read,FileShare.Read)){
     if(fs.Length!=bytes||!Same(Convert.ToHexString(SHA256.HashData(fs)),hash))throw new InvalidOperationException("Validated recovery copy changed.");

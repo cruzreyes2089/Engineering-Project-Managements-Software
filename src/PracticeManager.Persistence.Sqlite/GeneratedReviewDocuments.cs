@@ -8,6 +8,7 @@ public sealed record GeneratedReviewDocument(long Id,string FileName,string Sour
 {
  public override string ToString()=>"[Confidential generated document]";
 }
+public sealed record GeneratedReviewMetadata(long Id,string FileName,string SourceHash,string Sha256,long Bytes,string CreatedUtc);
 public sealed partial class LocalPractice
 {
  private static string ReviewAmount(decimal amount)=>amount.ToString("0.00",CultureInfo.InvariantCulture)+" USD";
@@ -33,6 +34,45 @@ public sealed partial class LocalPractice
   var bytes=ReviewDocx.Create(heading,paragraphs);var hash=Convert.ToHexString(SHA256.HashData(bytes));
   Exec(c,t,"INSERT INTO generated_review_documents(proposal_id,invoice_draft_id,source_hash,generator,file_name,file_bytes,file_hash,created_by,created_utc) VALUES($p,$i,$s,'ReviewDocx-v1',$f,$b,$h,$a,$u)",("$p",proposal),("$i",invoice),("$s",sourceHash),("$f",fileName),("$b",bytes),("$h",hash),("$a",actor),("$u",UtcNow()));
   var id=Last(c,t);Audit(c,t,actor,"RegisterReviewDocument","GeneratedReviewDocument",id);return new(id,fileName,sourceHash,hash,bytes);
+ }
+ private static void RequireProposalDocumentSource(SqliteConnection c,SqliteTransaction t,long id)
+ {
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM proposals WHERE id=$i",("$i",id)))!=1)throw new ArgumentException("Proposal unavailable.");
+ }
+ private static IReadOnlyList<GeneratedReviewMetadata> ReviewMetadata(SqliteConnection c,SqliteTransaction t,long? proposal,long? invoice)
+ {
+  using var q=Command(c,t,"SELECT id,file_name,source_hash,file_hash,length(file_bytes),created_utc FROM generated_review_documents WHERE proposal_id IS $p AND invoice_draft_id IS $i ORDER BY id DESC LIMIT 501",("$p",proposal),("$i",invoice));using var r=q.ExecuteReader();var rows=new List<GeneratedReviewMetadata>();
+  while(r.Read()){if(rows.Count==500)throw new ArgumentException("Generated review history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetString(5)));}return rows.AsReadOnly();
+ }
+ private static GeneratedReviewDocument RetrieveReview(SqliteConnection c,SqliteTransaction t,long actor,long? proposal,long? invoice,long document,string expectedHash)
+ {
+  GeneratedReviewDocument result;
+  using(var q=Command(c,t,"SELECT id,file_name,source_hash,file_hash,file_bytes FROM generated_review_documents WHERE id=$d AND proposal_id IS $p AND invoice_draft_id IS $i",("$d",document),("$p",proposal),("$i",invoice)))
+  using(var r=q.ExecuteReader()){if(!r.Read())throw new ArgumentException("Review document unavailable for selected source.");result=StoredReview(r);}
+  if(result.Sha256!=expectedHash)throw new ArgumentException("Review document identity changed.");
+  Audit(c,t,actor,"RetrieveReviewDocument","GeneratedReviewDocument",result.Id);return result;
+ }
+ public IReadOnlyList<GeneratedReviewMetadata> ReadProposalReviewDocuments(long proposal)
+ {
+  using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Engagements.Export");Require(c,t,"Engagements.View");Require(c,t,"Clients.View");RequireProposalDocumentSource(c,t,proposal);
+  return ReviewMetadata(c,t,proposal,null);
+ }
+ public GeneratedReviewDocument RetrieveProposalReviewDocument(long proposal,long document,string hash)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Engagements.Export");Require(c,t,"Engagements.View");Require(c,t,"Clients.View");RequireProposalDocumentSource(c,t,proposal);
+  var result=RetrieveReview(c,t,actor,proposal,null,document,hash);t.Commit();return result;
+ }
+ public IReadOnlyList<GeneratedReviewMetadata> ReadInvoiceReviewDocuments(long project,long invoice)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireInvoices(c,t,"Billing.Invoices.Export");ProjectRow(c,t,project);
+  var d=InvoiceDetail(c,t,project,invoice);if(d.Summary.State!="Approved")throw new ArgumentException("Approved internal draft required.");
+  return ReviewMetadata(c,t,null,invoice);
+ }
+ public GeneratedReviewDocument RetrieveInvoiceReviewDocument(long project,long invoice,long document,string hash)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Export");ProjectRow(c,t,project);
+  var d=InvoiceDetail(c,t,project,invoice);if(d.Summary.State!="Approved")throw new ArgumentException("Approved internal draft required.");
+  var result=RetrieveReview(c,t,actor,null,invoice,document,hash);t.Commit();return result;
  }
  public GeneratedReviewDocument PrepareProposalReviewDocx(long id,int expectedRevision,string? expectedIssuedHash)
  {
