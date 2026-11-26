@@ -22,7 +22,13 @@ internal static class EngagementTests
   check(d.Revision==2&&d.Fee==1300m,"draft edit increments revision");
   check(s.RecordProposalDecision(id,"not issued",true,"synthetic note").Outcome=="IssuedProposalRequired","acceptance requires issued snapshot");
   Invalid(()=>s.RecordProposalIssued(id,1),"issue rejects stale draft");
+  Invalid(()=>s.PrepareProposalReviewDocx(id,2,null),"proposal document requires current conflict screening");
   var hash=ConflictReviewTests.Issue(s,id,2);
+  var review=s.PrepareProposalReviewDocx(id,2,hash);
+  check(review.Id==s.PrepareProposalReviewDocx(id,2,hash).Id&&review.Bytes.SequenceEqual(s.PrepareProposalReviewDocx(id,2,hash).Bytes),"generated proposal document retained and repeatable");
+  var content=ReviewDocxTests.Text(review.Bytes);
+  check(content.Contains("1300.00 USD")&&content.Contains("Synthetic structural scope")&&content.Contains("NOT FOR ISSUE")&&content.Contains(hash),"proposal review document matches frozen source");
+  Invalid(()=>s.PrepareProposalReviewDocx(id,2,"wrong"),"wrong proposal snapshot blocks document");
   check(hash.Length==64&&s.ReadIssuedProposalSnapshot(id).Contains("130000"),"issue stores frozen cents and hash");
   Invalid(()=>s.EditProposal(id,2,input),"issued proposal cannot edit");
   check(s.RecordProposalDecision(id,"wrong hash",true,"synthetic note").Outcome=="SnapshotMismatch","decision requires exact hash");

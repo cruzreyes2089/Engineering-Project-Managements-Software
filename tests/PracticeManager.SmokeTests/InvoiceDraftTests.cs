@@ -51,6 +51,10 @@ internal static class InvoiceDraftTests
   Denied(()=>worker.ReadProjectFinancialReport(project,day,day),"employee cannot read cost report");
   Denied(()=>worker.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash),"employee cannot export billing draft");
   Invalid(()=>s.ExportInvoiceDraftCsv(project,draft,detail.Summary.PayloadHash),"cancelled draft cannot export");
+  Denied(()=>worker.PrepareInvoiceReviewDocx(project,next,nextDetail.Summary.PayloadHash),"employee cannot generate invoice review document");
+  Invalid(()=>s.PrepareInvoiceReviewDocx(project,draft,detail.Summary.PayloadHash),"cancelled invoice draft cannot generate document");
+  var doc=s.PrepareInvoiceReviewDocx(project,next,nextDetail.Summary.PayloadHash);var docText=ReviewDocxTests.Text(doc.Bytes);
+  check(doc.Id==s.PrepareInvoiceReviewDocx(project,next,nextDetail.Summary.PayloadHash).Id&&docText.Contains("295.34 USD")&&docText.Contains("NOT AN ISSUED INVOICE")&&!docText.Contains("35.58"),"approved invoice review registered, exact totals, no cost data");
   var csv=s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash);
   check(csv.Contains("NOT AN ISSUED INVOICE")&&csv.Contains("295.34")&&!csv.Contains("35.58"),"export labeled internal and omits cost rate");
   check(SafeCsv.Text(" =SUM(1,2)").StartsWith("\"'")&&SafeCsv.Text("quote\"").Contains("\"\""),"CSV protects formula text and quotes");
