@@ -40,8 +40,15 @@ internal static class LegacyCrmTests
   check(s.SearchClients("").All(x=>x.Phone=="(805)555-0100")&&Count("SELECT count(*) FROM clients WHERE phone='(805)555-0100'")==2,"legacy phones match native storage and display format");
   var inactive=s.SearchClients("").Single(x=>x.Status=="Inactive");check(s.Contacts(inactive.Id).Single().Primary,"historical contact for inactive client preserved");
   check(s.PreviewLegacyCrm(data).TargetStatus=="AlreadyImported"&&s.ImportLegacyCrm(data,p.Sha256,true,"Synthetic repeat").Outcome=="AlreadyImported"&&Count("SELECT count(*) FROM clients")==2,"legacy import cannot duplicate rows");
+  var history=s.ReadLegacyCrmHistory()!;
+  check(history.Clients==2&&history.Contacts==2&&history.Mappings.Count==4&&history.Sha256==p.Sha256,"migration history reconciles imported mapping");
+  var second=history.Mappings.Single(x=>x.Kind=="Client"&&x.LegacyId=="B");
+  check(history.Mappings.Single(x=>x.Kind=="Contact"&&x.LegacyId=="C2").NativeClientNumber==second.NativeClientNumber,"legacy mapping preserves contact parent relationship");
+  Invalid(()=>s.ExportLegacyCrmMapping("wrong"),"mapping export requires exact batch identity");
+  var csv=s.ExportLegacyCrmMapping(p.Sha256);
+  check(csv.Contains("CONFIDENTIAL")&&csv.Contains("OLD-1")&&csv.Contains("CL-000002")&&!csv.Contains("Synthetic Contact"),"mapping export contains identifiers but no contact names");
   var changed=Package(phone:"8055550101");var p2=s.PreviewLegacyCrm(changed);check(p2.TargetStatus=="DifferentPackageAlreadyImported","changed package blocked");
   Invalid(()=>s.ImportLegacyCrm(changed,p2.Sha256,true,"Synthetic"),"different legacy package cannot merge");
-  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Administration.LegacyCrmImport'");Denied(()=>s.PreviewLegacyCrm(data),"revoked migration permission enforced");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Administration.LegacyCrmImport'");Denied(()=>s.PreviewLegacyCrm(data),"revoked migration permission enforced");Denied(()=>s.ReadLegacyCrmHistory(),"revoked mapping history permission enforced");
  }
 }
