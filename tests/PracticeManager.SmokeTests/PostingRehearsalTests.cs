@@ -85,6 +85,59 @@ internal static class PostingRehearsalTests
   using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="SELECT COUNT(*) FROM accounting_posting_rehearsals";check(Convert.ToInt64(q.ExecuteScalar())==5,"no duplicate durable intents");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Accounting.Posting.Rehearse'";q.ExecuteNonQuery();}
   check(!afterHold.CanRehearsePosting(),"rehearsal grant revoked");
   try{afterHold.ReadSyntheticPostingState(i.OperationKey);throw new Exception("FAIL: unauthorized rehearsal");}catch(UnauthorizedAccessException){check(true,"rehearsal history requires authorization");}
-  var again=new LocalPractice(path);check(again.Login("admin",pw)&&!again.CanRehearsePosting(),"reopen preserves revoked grant");
+  var again=new LocalPractice(path);check(again.Login("admin",pw)&&!again.CanRehearsePosting(),"reopen preserves revoked grant"); 
+  VerifyV7Migration(path+".v7",pw,check);
+ }
+ private static void VerifyV7Migration(string path,string pw,Action<bool,string> check)
+ {
+  // Construct a synthetic v7 journal using the exact historical table definition.
+  // No real business DB is read or downgraded.
+  var fixture=new LocalPractice(path);fixture.Bootstrap("Synthetic Migration Firm","admin",pw,"CL");
+  var marker=Guid.NewGuid();var customer=Guid.NewGuid();var income=Guid.NewGuid();
+  var i=new SyntheticPostingIntent(Guid.NewGuid(),RehearsalKind.Invoice,customer,income,null,125m,new DateOnly(2026,11,25),"USD");
+  var receipt=i with{OperationKey=Guid.NewGuid(),Kind=RehearsalKind.Receipt,AllocatedInvoiceKey=Guid.NewGuid(),Amount=50m};
+  var uncertain=i with{OperationKey=Guid.NewGuid(),Amount=30m};
+  var cancelled=i with{OperationKey=Guid.NewGuid(),Amount=40m};
+  var reserved=i with{OperationKey=Guid.NewGuid(),Amount=60m};
+  var oldFingerprint="CRC-SYNTHETIC-INTENT-V1|"+i.OperationKey.ToString("D")+"|Invoice|"+customer.ToString("D")+"|"+income.ToString("D")+"|-|125.00|2026-11-25|USD";
+  check(i.Fingerprint()==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(oldFingerprint))),"v7 invoice fingerprint preserved exactly");
+  var oldReceiptFingerprint="CRC-SYNTHETIC-INTENT-V1|"+receipt.OperationKey.ToString("D")+"|Receipt|"+customer.ToString("D")+"|"+income.ToString("D")+"|"+receipt.AllocatedInvoiceKey!.Value.ToString("D")+"|50.00|2026-11-25|USD";
+  check(receipt.Fingerprint()==Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(oldReceiptFingerprint))),"v7 receipt fingerprint preserved exactly");
+  string Snapshot(SqliteConnection c)
+  {
+   using var q=c.CreateCommand();q.CommandText="SELECT * FROM accounting_posting_rehearsals ORDER BY id";
+   using var reader=q.ExecuteReader();var rows=new List<string>();
+   while(reader.Read())rows.Add(string.Join("|",Enumerable.Range(0,reader.FieldCount).Select(j=>reader.IsDBNull(j)?"<null>":Convert.ToString(reader.GetValue(j),System.Globalization.CultureInfo.InvariantCulture))));
+   return string.Join("\n",rows);
+  }
+  string before;
+  using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
+  {
+   c.Open();using var tx=c.BeginTransaction();using var q=c.CreateCommand();q.Transaction=tx;
+   q.CommandText="DROP TABLE accounting_posting_rehearsals; CREATE TABLE accounting_posting_rehearsals(id INTEGER PRIMARY KEY,source_key TEXT NOT NULL UNIQUE CHECK(length(source_key)=36),marker_key TEXT NOT NULL CHECK(length(marker_key)=36),kind TEXT NOT NULL CHECK(kind IN ('Invoice','Receipt')),payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),state TEXT NOT NULL CHECK(state IN ('Reserved','InFlight','Uncertain','SimulatedConfirmed','Cancelled')),attempt_key TEXT UNIQUE,simulated_external_key TEXT UNIQUE,created_by INTEGER NOT NULL REFERENCES users(id),updated_by INTEGER NOT NULL REFERENCES users(id),created_utc TEXT NOT NULL,updated_utc TEXT NOT NULL,CHECK((state IN ('Reserved','Cancelled') AND attempt_key IS NULL AND simulated_external_key IS NULL) OR (state IN ('InFlight','Uncertain') AND attempt_key IS NOT NULL AND simulated_external_key IS NULL) OR (state='SimulatedConfirmed' AND attempt_key IS NOT NULL AND simulated_external_key IS NOT NULL))); PRAGMA user_version=7;";
+   q.ExecuteNonQuery();
+   void Insert(SyntheticPostingIntent intent,string state,Guid? attempt,Guid? external)
+   {
+    q.Parameters.Clear();
+    q.CommandText="INSERT INTO accounting_posting_rehearsals(source_key,marker_key,kind,payload_hash,state,attempt_key,simulated_external_key,created_by,updated_by,created_utc,updated_utc) SELECT $s,$m,$k,$h,$st,$a,$e,id,id,'2026-11-25T00:00:00Z','2026-11-25T00:00:00Z' FROM users WHERE username='admin'";
+    q.Parameters.AddWithValue("$s",intent.OperationKey.ToString("D"));q.Parameters.AddWithValue("$m",marker.ToString("D"));q.Parameters.AddWithValue("$k",intent.Kind.ToString());q.Parameters.AddWithValue("$h",intent.Fingerprint());q.Parameters.AddWithValue("$st",state);
+    q.Parameters.AddWithValue("$a",(object?)attempt?.ToString("D")??DBNull.Value);q.Parameters.AddWithValue("$e",(object?)external?.ToString("D")??DBNull.Value);
+    if(q.ExecuteNonQuery()!=1)throw new Exception("Synthetic v7 fixture insert failed.");
+   }
+   Insert(i,"SimulatedConfirmed",Guid.NewGuid(),Guid.NewGuid());Insert(receipt,"InFlight",Guid.NewGuid(),null);Insert(uncertain,"Uncertain",Guid.NewGuid(),null);Insert(cancelled,"Cancelled",null,null);Insert(reserved,"Reserved",null,null);
+   q.Parameters.Clear();q.CommandText="INSERT INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) SELECT 1,'Restore',id,'2026-11-25T00:00:00Z' FROM users WHERE username='admin'; UPDATE role_permissions SET allowed=0 WHERE permission_code='Accounting.Posting.Rehearse';";q.ExecuteNonQuery();tx.Commit();
+   before=Snapshot(c);
+  }
+  var upgraded=new LocalPractice(path);
+  check(upgraded.Login("admin",pw)&&!upgraded.CanRehearsePosting(),"v7 migration preserves revoked rehearsal grant");
+  using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
+  {
+   c.Open();using var q=c.CreateCommand();
+   q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==8,"v7 migration reaches schema 8");
+   check(before==Snapshot(c),"v7 journal rows and attempt history preserved byte-for-byte at logical row level");
+   q.CommandText="SELECT reason FROM accounting_lifecycle_hold WHERE id=1";check((string?)q.ExecuteScalar()=="Restore","v7 sticky hold preserved");
+   q.CommandText="PRAGMA foreign_key_check";using var reader=q.ExecuteReader();check(!reader.Read(),"v8 migration foreign keys valid");
+  }
+
  }
 }
