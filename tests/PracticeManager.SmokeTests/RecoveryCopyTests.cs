@@ -32,10 +32,19 @@ static class RecoveryCopyTests
    q.CommandText="SELECT count(*) FROM accounting_lifecycle_hold";check(Convert.ToInt64(q.ExecuteScalar())==0,"recovery copy does not hold source");
   }
   try{s.CreateRecoveryCopy(target);throw new Exception("Overwrite allowed");}catch(ArgumentException){check(result.Sha256==Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant(),"recovery copy never overwrites");}
+  var isolated=Path.Combine(Path.GetDirectoryName(path)!,"isolated-restored.db");
+  try{s.RestoreRecoveryCopyToNewFile(target,new string('0',64),isolated);throw new Exception("Wrong recovery hash allowed");}catch(ArgumentException){check(!File.Exists(isolated),"restore refuses wrong trusted hash");}
+  var restored=s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);
+  check(restored.Clients==1&&restored.Projects==0&&restored.Documents==0&&restored.Sha256==result.Sha256,"isolated restore verified counts and exact bytes");
+  var reopened=new LocalPractice(isolated);check(reopened.Login("admin",password)&&reopened.SearchClients("").Single().Id==client,"isolated restored copy opens independently");
+  try{s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);throw new Exception("Restore overwrite allowed");}catch(ArgumentException){check(true,"restore refuses overwrite");}
+  try{s.RestoreRecoveryCopyToNewFile(path,result.Sha256,Path.Combine(Path.GetDirectoryName(path)!,"live-copy.db"));throw new Exception("Live database allowed as recovery copy");}catch(ArgumentException){check(true,"restore rejects active database path");}
+  check(Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant()==result.Sha256,"restore leaves recovery original intact");
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){
    db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Administration.RecoveryCopy'";q.ExecuteNonQuery();
   }
   var other=Path.Combine(Path.GetDirectoryName(path)!,"denied-copy.db");
   try{s.CreateRecoveryCopy(other);throw new Exception("Revoked grant allowed");}catch(UnauthorizedAccessException){check(!File.Exists(other),"revoked recovery grant denied");}
+  try{s.RestoreRecoveryCopyToNewFile(target,result.Sha256,other);throw new Exception("Revoked restore grant allowed");}catch(UnauthorizedAccessException){check(!File.Exists(other),"revoked restore grant denied");}
  }
 }
