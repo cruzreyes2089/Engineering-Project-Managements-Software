@@ -5,8 +5,8 @@ namespace PracticeManager.Persistence;
 public sealed partial class LocalPractice
 {
  readonly string connectionString; long? userId; DateTimeOffset expires; long sessionGeneration;
- static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage","Accounting.Customers.Map"];
- public LocalPractice(string path){path=Path.GetFullPath(path);Directory.CreateDirectory(Path.GetDirectoryName(path)!);connectionString=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,DefaultTimeout=10,Pooling=false}.ToString();using var c=Open();using var t=c.BeginTransaction(deferred:false);var version=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));if(version==0){if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))!=0)throw new InvalidOperationException("Unknown database; refusing initialization.");using var stream=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(stream);Exec(c,t,reader.ReadToEnd());version=1;}if(version==1){UpgradeToV2(c,t);version=2;}if(version==2){UpgradeToV3(c,t);version=3;}if(version==3){UpgradeToV4(c,t);version=4;}if(version!=4)throw new InvalidOperationException("Unsupported schema version.");t.Commit();}
+ static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage","Accounting.Customers.Map","Accounting.Identity.Manage"];
+ public LocalPractice(string path){path=Path.GetFullPath(path);Directory.CreateDirectory(Path.GetDirectoryName(path)!);connectionString=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,DefaultTimeout=10,Pooling=false}.ToString();using var c=Open();using var t=c.BeginTransaction(deferred:false);var version=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));if(version==0){if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))!=0)throw new InvalidOperationException("Unknown database; refusing initialization.");using var stream=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(stream);Exec(c,t,reader.ReadToEnd());version=1;}if(version==1){UpgradeToV2(c,t);version=2;}if(version==2){UpgradeToV3(c,t);version=3;}if(version==3){UpgradeToV4(c,t);version=4;}if(version==4){UpgradeToV5(c,t);version=5;}if(version!=5)throw new InvalidOperationException("Unsupported schema version.");t.Commit();}
  static void UpgradeToV2(SqliteConnection c,SqliteTransaction t)
  {
   foreach(var grant in new[]{"Accounting.Connection.Test","Accounting.Connection.Manage"})
@@ -28,6 +28,13 @@ public sealed partial class LocalPractice
   Exec(c,t,"CREATE TABLE accounting_link_scopes(user_id INTEGER NOT NULL REFERENCES users(id),revision TEXT NOT NULL,business_name TEXT NOT NULL CHECK(length(trim(business_name))>0),PRIMARY KEY(user_id,revision))");
   Exec(c,t,"CREATE TABLE accounting_customer_links(user_id INTEGER NOT NULL,revision TEXT NOT NULL,client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,customer_key TEXT NOT NULL,PRIMARY KEY(user_id,revision,client_id),UNIQUE(user_id,revision,customer_key),FOREIGN KEY(user_id,revision) REFERENCES accounting_link_scopes(user_id,revision))");
   Exec(c,t,"PRAGMA user_version=4");
+ }
+ static void UpgradeToV5(SqliteConnection c,SqliteTransaction t)
+ {
+  Exec(c,t,"INSERT OR IGNORE INTO permissions(code) VALUES('Accounting.Identity.Manage')");
+  Exec(c,t,"INSERT OR IGNORE INTO role_permissions(role_id,permission_code,allowed) SELECT id,'Accounting.Identity.Manage',1 FROM roles WHERE name='Administrator'");
+  Exec(c,t,"CREATE TABLE accounting_business_marker(id INTEGER PRIMARY KEY CHECK(id=1),marker_key TEXT NOT NULL, bound_utc TEXT NOT NULL)");
+  Exec(c,t,"PRAGMA user_version=5");
  }
  SqliteConnection Open(){var c=new SqliteConnection(connectionString);c.Open();return c;}
  static SqliteCommand Command(SqliteConnection c,SqliteTransaction? t,string sql,params (string,object?)[] args){var q=c.CreateCommand();q.Transaction=t;q.CommandText=sql;foreach(var (key,value) in args)q.Parameters.AddWithValue(key,value??DBNull.Value);return q;}

@@ -20,6 +20,7 @@ internal sealed class AccountingConnectionWindow : Window
     private readonly Button customers=new(){Content="Open customer register (read-only)",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
     private readonly Button accounts=new(){Content="Open chart of accounts (read-only)",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
     private readonly Button discovery=new(){Content="Inspect integration schemas (read-only)",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
+    private readonly Button marker=new(){Content="Verify accounting business marker",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
     private readonly Button remove=new(){Content="Remove saved connection",Padding=new Thickness(12,8,12,8),Margin=new Thickness(0,8,0,0)};
     private readonly TextBlock profileStatus=new(){TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DimGray,Margin=new Thickness(0,0,0,12)};
     private CancellationTokenSource? pending;
@@ -44,13 +45,14 @@ internal sealed class AccountingConnectionWindow : Window
         clear.Click+=(_,_)=>{secret.Clear();result.Text="Secret field cleared.";};buttons.Children.Add(clear);
         layout.Children.Add(buttons);
         layout.Children.Add(new TextBlock{Text="Paste reads the Windows clipboard and clears its current value when possible. Windows clipboard history is separate.",TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DimGray,Margin=new Thickness(0,8,0,0)});
-        layout.Children.Add(test);layout.Children.Add(save);layout.Children.Add(savedTest);layout.Children.Add(inspect);layout.Children.Add(customers);layout.Children.Add(accounts);layout.Children.Add(discovery);layout.Children.Add(remove);layout.Children.Add(result);layout.Children.Add(schema);
+        layout.Children.Add(test);layout.Children.Add(save);layout.Children.Add(savedTest);layout.Children.Add(inspect);layout.Children.Add(customers);layout.Children.Add(accounts);layout.Children.Add(discovery);layout.Children.Add(marker);layout.Children.Add(remove);layout.Children.Add(result);layout.Children.Add(schema);
         var close=new Button{Content="Close",HorizontalAlignment=HorizontalAlignment.Right,Padding=new Thickness(12,6,12,6),Margin=new Thickness(0,12,0,0)};
         close.Click+=(_,_)=>Close();layout.Children.Add(close);
         Content=new ScrollViewer{Content=layout,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};MaxHeight=SystemParameters.WorkArea.Height-40;
         paste.Click+=Paste_Click;test.Click+=async (_,_)=>await ExecuteAsync("test");save.Click+=async (_,_)=>await ExecuteAsync("save");savedTest.Click+=async (_,_)=>await ExecuteAsync("saved");inspect.Click+=async (_,_)=>await ExecuteAsync("inspect");
         discovery.Click+=(_,_)=>{if(pending==null)new AccountingDiscoveryWindow(service){Owner=this}.ShowDialog();};remove.Click+=(_,_)=>RemoveProfile();customers.Click+=(_,_)=>{if(pending==null)new AccountingCustomerWindow(service){Owner=this}.ShowDialog();};
         accounts.Click+=(_,_)=>{if(pending==null)new AccountingAccountsWindow(service){Owner=this}.ShowDialog();};
+        marker.Click+=(_,_)=>{if(pending==null&&service.CanManageBusinessMarker())new AccountingMarkerWindow(service){Owner=this}.ShowDialog();};
         RefreshProfile(true);
         endpoint.TextChanged+=(_,_)=>{if(pending==null)result.Text="";};
         Closed+=(_,_)=>{closed=true;secret.Clear();pending?.Cancel();};
@@ -78,6 +80,7 @@ internal sealed class AccountingConnectionWindow : Window
         save.IsEnabled=service.CanManageAccountingConnection();
         remove.IsEnabled=p!=null&&service.CanManageAccountingConnection();
         savedTest.IsEnabled=inspect.IsEnabled=customers.IsEnabled=accounts.IsEnabled=discovery.IsEnabled=p!=null;
+        marker.IsEnabled=p!=null&&service.CanManageBusinessMarker();
     }
     private void RemoveProfile()
     {
@@ -93,7 +96,7 @@ internal sealed class AccountingConnectionWindow : Window
         if(pending!=null)return;
         using var request=new CancellationTokenSource();pending=request;
         var key=secret.Password.Trim();secret.Clear();
-        test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=save.IsEnabled=savedTest.IsEnabled=inspect.IsEnabled=customers.IsEnabled=accounts.IsEnabled=discovery.IsEnabled=remove.IsEnabled=false;
+        test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=save.IsEnabled=savedTest.IsEnabled=inspect.IsEnabled=customers.IsEnabled=accounts.IsEnabled=discovery.IsEnabled=marker.IsEnabled=remove.IsEnabled=false;
         schema.Clear();schema.Visibility=Visibility.Collapsed;
         result.Foreground=Brushes.DimGray;result.Text="Testing local connection...";
         try
@@ -114,6 +117,11 @@ internal sealed class AccountingConnectionWindow : Window
                 "CredentialUnavailable"=>"Windows credential protection unavailable. Re-enter and save the connection under your Windows account.",
                 "NotConfigured"=>"No saved connection.",
                 "ProfileChanged"=>"Connection changed during testing. Reopen the dialog and try again.",
+                "MarkerMissing"=>"Enrolled marker missing. Connection not accepted.",
+                "MarkerMismatch"=>"Enrolled marker UUID differs. Connection not accepted.",
+                "MarkerAmbiguous"=>"Marker is ambiguous. Connection not accepted.",
+                "InvalidMarkerResponse"=>"Marker response invalid. Connection not accepted.",
+                "MarkerChanged"=>"Marker state changed. Retry.",
                 "InvalidEndpoint"=>"Enter the exact local HTTP 127.0.0.1 port and /api2 address from Manager.",
                 "MissingSecret"=>"Enter or paste the secret key again. Only a valid nonempty key is accepted.",
                 "Unauthorized"=>$"HTTP {r.StatusCode} — key invalid or access denied.",
@@ -129,6 +137,6 @@ internal sealed class AccountingConnectionWindow : Window
         }
         catch(UnauthorizedAccessException){if(!closed)result.Text="Access denied. Sign in again as administrator.";}
         catch(Exception){if(!closed)result.Text="Diagnostic failed. No successful connection is assumed.";}
-        finally{pending=null;if(!closed){test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=true;secret.Clear();try{RefreshProfile(false);}catch{save.IsEnabled=savedTest.IsEnabled=inspect.IsEnabled=customers.IsEnabled=accounts.IsEnabled=discovery.IsEnabled=remove.IsEnabled=false;}}}
+        finally{pending=null;if(!closed){test.IsEnabled=paste.IsEnabled=endpoint.IsEnabled=secret.IsEnabled=true;secret.Clear();try{RefreshProfile(false);}catch{save.IsEnabled=savedTest.IsEnabled=inspect.IsEnabled=customers.IsEnabled=accounts.IsEnabled=discovery.IsEnabled=marker.IsEnabled=remove.IsEnabled=false;}}}
     }
 }

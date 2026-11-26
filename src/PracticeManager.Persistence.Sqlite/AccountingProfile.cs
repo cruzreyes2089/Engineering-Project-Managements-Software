@@ -32,14 +32,18 @@ public sealed partial class LocalPractice
  }
  public async Task<AccountingProbeResult> SaveAccountingProfileAsync(string endpoint,string key,CancellationToken ct=default)
  {
-  long actor;string? previous;var generation=sessionGeneration;
+  long actor;string? previous;Guid? marker;var generation=sessionGeneration;
   using(var c=Open())using(var t=c.BeginTransaction()){
-   actor=Require(c,t,"Accounting.Connection.Test");Require(c,t,"Accounting.Connection.Manage");previous=ReadProfile(c,t,actor)?.Revision;
+   actor=Require(c,t,"Accounting.Connection.Test");Require(c,t,"Accounting.Connection.Manage");previous=ReadProfile(c,t,actor)?.Revision;marker=ReadMarker(c,t);
   }
   if(!OperatingSystem.IsWindows())return new("CredentialUnavailable");
   endpoint=endpoint.Trim();
   var result=await new ManagerDesktopProbe().TestAsync(endpoint,key,ct);
   if(!result.Success)return result;
+  if(marker.HasValue){
+   var verified=await VerifyMarkerAtAsync(endpoint,key,marker.Value,ct);
+   if(!verified.Success)return verified;
+  }
   if(ct.IsCancellationRequested)return new("Cancelled");
   byte[] encrypted;
   var input=Encoding.UTF8.GetBytes(key);
@@ -50,6 +54,7 @@ public sealed partial class LocalPractice
   CheckProfileSession(write,tx,generation,actor,true);
   if(ct.IsCancellationRequested)return new("Cancelled");
   if(ReadProfile(write,tx,actor)?.Revision!=previous)return new("ProfileChanged");
+  if(ReadMarker(write,tx)!=marker)return new("MarkerChanged");
   Exec(write,tx,"INSERT INTO accounting_profiles(user_id,endpoint,protected_value,last_success_utc,revision) VALUES($id,$e,$v,$s,$r) ON CONFLICT(user_id) DO UPDATE SET endpoint=excluded.endpoint,protected_value=excluded.protected_value,last_success_utc=excluded.last_success_utc,revision=excluded.revision",("$id",actor),("$e",endpoint),("$v",encrypted),("$s",UtcNow()),("$r",Guid.NewGuid().ToString("N")));
   Audit(write,tx,actor,"Save","AccountingProfile",actor);tx.Commit();return result;
  }
@@ -60,9 +65,9 @@ public sealed partial class LocalPractice
  public Task<AccountingProbeResult> ReadSavedAccountsAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(false,ct,readAccounts:true);
  private async Task<AccountingProbeResult> UseSavedAccountingProfileAsync(bool inspect,CancellationToken ct,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false)
  {
-  long actor;StoredProfile? profile;var generation=sessionGeneration;
+  long actor;StoredProfile? profile;Guid? marker;var generation=sessionGeneration;
   using(var c=Open())using(var t=c.BeginTransaction()){
-   actor=Require(c,t,"Accounting.Connection.Test");profile=ReadProfile(c,t,actor);
+   actor=Require(c,t,"Accounting.Connection.Test");profile=ReadProfile(c,t,actor);marker=ReadMarker(c,t);
   }
   if(profile==null)return new("NotConfigured");
   if(!OperatingSystem.IsWindows())return new("CredentialUnavailable");
@@ -70,12 +75,13 @@ public sealed partial class LocalPractice
   try{clear=ProtectedData.Unprotect(profile.ProtectedValue,Context(actor,profile.Endpoint),DataProtectionScope.CurrentUser);}
   catch(CryptographicException){return new("CredentialUnavailable");}
   AccountingProbeResult result;
-  try{var probe=new ManagerDesktopProbe();var key=Encoding.UTF8.GetString(clear);result=readAccounts?await probe.ReadAccountsAsync(profile.Endpoint,key,ct):resource is AccountingDiscoveryResource target?await probe.InspectResourceAsync(profile.Endpoint,key,target,ct):customerSkip is int offset?await probe.ReadCustomerPageAsync(profile.Endpoint,key,offset,ct):inspect?await probe.InspectCustomersAsync(profile.Endpoint,key,ct):await probe.TestAsync(profile.Endpoint,key,ct);}
+  try{var probe=new ManagerDesktopProbe();var key=Encoding.UTF8.GetString(clear);if(marker.HasValue){var verified=await VerifyMarkerAtAsync(profile.Endpoint,key,marker.Value,ct);if(!verified.Success)return verified;}result=readAccounts?await probe.ReadAccountsAsync(profile.Endpoint,key,ct):resource is AccountingDiscoveryResource target?await probe.InspectResourceAsync(profile.Endpoint,key,target,ct):customerSkip is int offset?await probe.ReadCustomerPageAsync(profile.Endpoint,key,offset,ct):inspect?await probe.InspectCustomersAsync(profile.Endpoint,key,ct):await probe.TestAsync(profile.Endpoint,key,ct);}
   finally{CryptographicOperations.ZeroMemory(clear);}
   using var write=Open();using var tx=write.BeginTransaction(deferred:false);
   CheckProfileSession(write,tx,generation,actor,false);
   if(ct.IsCancellationRequested)return new("Cancelled");
   if(ReadProfile(write,tx,actor)?.Revision!=profile.Revision)return new("ProfileChanged");
+  if(ReadMarker(write,tx)!=marker)return new("MarkerChanged");
   if(result.Success){
    Exec(write,tx,"UPDATE accounting_profiles SET last_success_utc=$s WHERE user_id=$id AND revision=$r",("$s",UtcNow()),("$id",actor),("$r",profile.Revision));
    tx.Commit();
