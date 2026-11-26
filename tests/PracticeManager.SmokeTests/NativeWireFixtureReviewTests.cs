@@ -45,6 +45,24 @@ internal static class NativeWireFixtureReviewTests
   check((await Run(change:(route,_)=>route==$"payment-form/{pm}"?Form(payment with{Amount=21m},pm):responses[route])).Reason=="NativeFixtureRegisterAmountMismatch","native fixture register and form amounts must agree");
   check((await Run(change:(route,count)=>route==$"payment-form/{pm}"&&count>7?Form(payment with{VendorContact="Changed vendor"},pm):responses[route])).Reason=="NativeFixtureChanged","native fixture second sweep drift blocked");
   check((await Run(change:(route,_)=>route==$"payment-form/{pm}"?Form(payment with{VendorContact="Changed vendor"},pm):responses[route])).Finding==SyntheticRecoveryFinding.Conflict,"native fixture independent fingerprint mismatch");
+  var targets=new[]{SyntheticWireCompiler.Compile(invoice).RecoveryTarget(iv),SyntheticWireCompiler.Compile(receipt).RecoveryTarget(rc),target};
+  var accounts=new TestLedgerAccounts(receipt.AccountKey,bank,invoice.AccountKey,payment.AccountKey);
+  var balances=new TestLedgerBalances(75,30,125,20,105,0,105,105);
+  async Task<NativeWireBatchReview> Batch(TestLedgerAccounts a,TestLedgerBalances b,Func<string,string>? change=null){
+   NativeWireBatchReview? result=null;int count=0;
+   await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>result=await probe.ReviewNativeWireBatchAsync(url,"synthetic-key",targets,true,a,b),
+    requestCount:14,observe:_=>count++,responseFor:req=>{var route=req.Split(' ')[1]["/api2/".Length..].Split('?')[0];return change==null?responses[route]:change(route);});
+   check(!result!.MayPost&&!result.MayRetry,"batch grants no posting or replay authority");
+   return result!;
+  }
+  var batch=await Batch(accounts,balances);
+  check(batch.Outcome=="MatchedForReview"&&batch.Findings.Count==3&&batch.Reconciliation?.Matches==true,"single two-sweep batch reconciles three exact documents and independent summary");
+  check((await Batch(accounts,balances with{Cash=31})).Reconciliation?.Outcome=="Mismatch","batch detects independent cash mismatch");
+  check((await Batch(accounts with{Receivables=Guid.NewGuid()},balances)).Findings.All(x=>x.Reason=="NativeFixtureReceivablesAccountMismatch"),"batch verifies receipt ledger account");
+  var allocation=await Batch(accounts,balances,route=>route==$"receipt-form/{rc}"?Form(receipt with{AllocatedInvoiceKey=Guid.NewGuid()},rc):responses[route]);
+  check(allocation.Reconciliation?.Outcome=="Blocked"&&allocation.Findings[1].Finding==SyntheticRecoveryFinding.Conflict,"batch rejects wrong invoice allocation");
+  var wrongBalance=await Batch(accounts,balances,route=>route=="sales-invoices"?J(new{business,skip=0,pageSize=20,totalRecords=1,salesInvoices=new[]{new{key=iv,invoiceAmount=Money(125),balanceDue=Money(76)}}}):responses[route]);
+  check(wrongBalance.Reconciliation?.Differences.Contains("InvoiceBalance")==true&&wrongBalance.Outcome=="ReviewRequired","batch rejects individual outstanding balance mismatch");
   var absent=SyntheticWireCompiler.Compile(payment with{OperationKey=Guid.NewGuid()}).RecoveryTarget();
   check((await Run(absent)).Finding==SyntheticRecoveryFinding.NoMatchObserved,"native fixture no match never authorizes retry");
   check((await probe.ReviewNativeWireFixtureAsync("http://127.0.0.1:1/api2","synthetic-key",target,false)).Reason=="OperatorScopeEvidenceRequired","native fixture currency assertion required before GET");
