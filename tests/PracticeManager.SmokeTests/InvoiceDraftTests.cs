@@ -18,6 +18,7 @@ internal static class InvoiceDraftTests
   check(s.ReadInvoiceCandidates(project,day).Count==0,"unreviewed work excluded");
   s.ReviewWork(time,true,"Reviewed");s.ClassifyWork(time,true,"Billable");s.ReviewWork(expense,true,"Reviewed");s.ClassifyWork(expense,true,"Billable");
   check(s.ReadInvoiceCandidates(project,day).Single(x=>x.SourceId==time).Status=="Positive billing rate required","missing rate is explicit");
+  check(s.ReadProjectFinancialReport(project,day,day).EstimatedLaborCost==null&&s.ReadProjectFinancialReport(project,day,day).MissingCostRates==1,"missing cost rate does not become zero cost");
   s.RecordEmployeeRate(new(employee,day.AddDays(-1),180m,35m));
   Invalid(()=>s.RecordEmployeeRate(new(employee,day.AddDays(-2),190m,36m)),"backdated rate insertion rejected");
   Denied(()=>worker.ReadEmployeeRates(employee),"employee cannot see rate history");
@@ -39,5 +40,15 @@ internal static class InvoiceDraftTests
   check(s.ReadInvoiceDrafts(project).Count==2,"invoice draft history retained");
   s.RecordEmployeeRate(new(employee,day.AddDays(1),200m,40m));
   check(s.ReadInvoiceDraft(project,next).Lines.Single(x=>x.Kind=="Time").Amount==183m,"new rate does not alter approved history");
+  var ops=s.ReadProjectOperations(project,day,day);check(ops.ApprovedMinutes==61&&ops.SubmittedMinutes==61&&ops.ExpenseSubmissions==1&&ops.StartedTasks==1,"operational report matches approved facts");
+  var fin=s.ReadProjectFinancialReport(project,day,day);
+  check(fin.ApprovedMinutes==61&&fin.BillableMinutes==61&&fin.EstimatedLaborCost==35.58m&&fin.ApprovedExpenseCost==12.34m&&fin.TotalOperationalCost==47.92m,"operational cost report uses effective rate and cents");
+  check(fin.ApprovedInternalDraftValue==295.34m&&fin.CancelledDraftValue==295.34m&&fin.DraftValue==0,"approved and cancelled drafts reported separately");
+  Denied(()=>worker.ReadProjectFinancialReport(project,day,day),"employee cannot read cost report");
+  Denied(()=>worker.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash),"employee cannot export billing draft");
+  Invalid(()=>s.ExportInvoiceDraftCsv(project,draft,detail.Summary.PayloadHash),"cancelled draft cannot export");
+  var csv=s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash);
+  check(csv.Contains("NOT AN ISSUED INVOICE")&&csv.Contains("295.34")&&!csv.Contains("35.58"),"export labeled internal and omits cost rate");
+  check(SafeCsv.Text(" =SUM(1,2)").StartsWith("\"'")&&SafeCsv.Text("quote\"").Contains("\"\""),"CSV protects formula text and quotes");
  }
 }
