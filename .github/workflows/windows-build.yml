@@ -46,15 +46,4 @@ jobs:
         run: ./tools/security/Review-Dependencies.ps1
       - name: Inventory quarantined build (no distribution)
         shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = (Resolve-Path 'artifacts/win-x64').Path
-          $files = @(Get-ChildItem -LiteralPath $root -File -Recurse)
-          if ($files.Count -eq 0) { throw 'No build output to inventory.' }
-          Write-Host "Build file count: $($files.Count)"
-          $app = Join-Path $root 'CRC.PracticeManager.exe'
-          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw 'Missing application.' }
-          Get-FileHash -LiteralPath $app -Algorithm SHA256 | Select-Object Algorithm,Hash | Format-List
-          $sig = Get-AuthenticodeSignature -LiteralPath $app
-          Write-Host "Application Authenticode status: $($sig.Status)"
-          Write-Host 'Executable distribution suspended pending security review. No artifact upload.'
+        run: ./tools/security/Inventory-DevelopmentBuild.ps1
