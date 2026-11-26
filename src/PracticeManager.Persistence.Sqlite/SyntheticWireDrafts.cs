@@ -10,8 +10,18 @@ public sealed record WireDraftResult(string Outcome,string? State=null,Synthetic
  public bool MaySend=>false;
  public override string ToString()=>$"Synthetic wire draft: {Outcome}, {State}";
 }
+public sealed record WireDraftStatus(int Draft,int Approved,int Cancelled)
+{
+ public override string ToString()=>"[Synthetic wire draft status]";
+}
 public sealed partial class LocalPractice
 {
+ public WireDraftStatus ReadSyntheticWireDraftStatus()
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireRehearsal(c,t);Require(c,t,"Accounting.WireDraft.Prepare");
+  int Count(string state)=>Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM accounting_wire_drafts WHERE state=$s",("$s",state)));
+  return new(Count("Draft"),Count("Approved"),Count("Cancelled"));
+ }
  private sealed record WireDraftRow(long Id,string Source,string Marker,string Kind,string Reference,string IntentJson,string WireJson,string Hash,string State);
  private static WireDraftRow? ReadWireDraftRow(SqliteConnection c,SqliteTransaction t,Guid operation)
  {

@@ -39,18 +39,33 @@ internal static class SyntheticPostingPipelineTests
    return new(marker,candidates.All(x=>x!=null),true,candidates.OfType<SyntheticRecoveryCandidate>().ToArray());
   }
  }
- public static async Task Run(string directory,Action<bool,string> check)
+ public static async Task Run(string directory,string pw,Action<bool,string> check)
  {
   var root=Path.Combine(directory,"pipeline-witness");Directory.CreateDirectory(root);
   var marker=Guid.NewGuid();var store=Guid.NewGuid();var witness=new SyntheticAttemptWitness(root,store,marker);
   check(witness.InitializeEmptyFixture().Outcome=="InitializedForReview","pipeline synthetic witness ready");
   var customer=Guid.NewGuid();var bank=Guid.NewGuid();var day=new DateOnly(2026,11,25);
   var invoice=new SyntheticWireIntent(Guid.NewGuid(),marker,RehearsalKind.Invoice,Guid.NewGuid(),125m,day,"USD",customer);
+  var dbPath=Path.Combine(directory,"pipeline-draft.db");var drafts=new LocalPractice(dbPath);drafts.Bootstrap("Synthetic Pipeline Firm","admin",pw,"CL");
+  check(drafts.Login("admin",pw),"pipeline draft service authenticated");
+  string Reply(string req)=>req.StartsWith("GET /api2/text-custom-fields?")?JsonSerializer.Serialize(new{business=new{name="CRC ACCOUNTING TEST"},skip=0,pageSize=2,totalRecords=1,textCustomFields=new[]{new{key=marker,name=BusinessMarker.TestName}}}):JsonSerializer.Serialize(new{business=new{name="CRC ACCOUNTING TEST"},skip=0,pageSize=20,totalRecords=1,customers=new[]{new{key=customer,name="CRC Test Customer 001",status="Paid"}}});
+  await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>{
+   check((await drafts.SaveAccountingProfileAsync(url,"synthetic-key")).Success,"pipeline test profile saved");
+   check((await drafts.EnrollOrVerifyMarkerAsync(true)).Success,"pipeline test marker enrolled");
+   check((await drafts.SyncCustomerDirectoryAsync()).Outcome=="Synchronized","pipeline test directory synchronized");
+  },6,responseFor:Reply);
   using var provider=new FakeProvider();using var client=new HttpClient(provider,false);
   async Task<SyntheticDispatchAssessment> Exercise(SyntheticWireIntent intent,string route,string mode)
   {
-   var payload=SyntheticWireCompiler.Compile(intent);var attempt=Guid.NewGuid();
-   var recorded=witness.Record(intent,attempt);
+   var expected=SyntheticWireCompiler.Compile(intent);
+   check(drafts.PrepareSyntheticWireDraft(intent).Outcome=="Prepared","pipeline full wire draft persisted");
+   check(!drafts.ReadSyntheticWireDraft(intent.OperationKey).ApprovalCurrentlyValid,"pipeline unapproved payload is not ready");
+   check(drafts.ApproveSyntheticWireDraft(intent.OperationKey,expected.Fingerprint).Outcome=="Approved","pipeline exact full-wire approval persisted");
+   var reopened=new LocalPractice(dbPath);check(reopened.Login("admin",pw),"pipeline draft reopens from SQLite");
+   var loaded=reopened.ReadSyntheticWireDraft(intent.OperationKey);
+   check(loaded.ApprovalCurrentlyValid&&loaded.Payload?.Fingerprint==expected.Fingerprint&&!loaded.MaySend,"pipeline uses restored approved candidate without granting live send authority");
+   var payload=loaded.Payload!;var attempt=Guid.NewGuid();
+   var recorded=witness.Record(payload.Intent,attempt);
    check(recorded.Outcome=="RecordedForReview"&&!recorded.MaySend,"pipeline witness recorded without real send authority");
    // Test code alone exercises the fake provider; this is NOT production dispatch.
    provider.Mode=mode;int? status=null;Guid? returned=null;bool complete=false;

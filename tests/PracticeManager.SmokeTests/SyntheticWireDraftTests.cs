@@ -13,6 +13,7 @@ internal static class SyntheticWireDraftTests
   void Denied(Action action,string label){try{action();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   Denied(()=>s.PrepareSyntheticWireDraft(receipt),"wire draft unauthorized preparation denied");
   check(s.Login("admin",pw)&&s.CanPrepareWireDraft()&&s.CanApproveWireDraft(),"wire draft grants seeded");
+  check(s.ReadSyntheticWireDraftStatus()==new WireDraftStatus(0,0,0),"initial wire history empty");
   check(s.PrepareSyntheticWireDraft(receipt).Outcome=="FixtureScopeRequired","wire draft requires original synthetic fixture scope");
   string Reply(string req)=>req.StartsWith("GET /api2/text-custom-fields?")?JsonSerializer.Serialize(new{business=new{name="CRC ACCOUNTING TEST"},skip=0,pageSize=2,totalRecords=1,textCustomFields=new[]{new{key=marker,name=BusinessMarker.TestName}}}):JsonSerializer.Serialize(new{business=new{name="CRC ACCOUNTING TEST"},skip=0,pageSize=20,totalRecords=1,customers=new[]{new{key=customer,name="CRC Test Customer 001",status="Paid"}}});
   await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>{
@@ -34,6 +35,7 @@ internal static class SyntheticWireDraftTests
   check(s.ApproveSyntheticWireDraft(receipt.OperationKey,"wrong").Outcome=="IntentConflict","wire approval bound to reviewed hash");
   var approvals=await Task.WhenAll(Task.Run(()=>s.ApproveSyntheticWireDraft(receipt.OperationKey,hash)),Task.Run(()=>peer.ApproveSyntheticWireDraft(receipt.OperationKey,hash)));
   check(approvals.Count(x=>x.Outcome=="Approved")==1&&approvals.Count(x=>x.Outcome=="AlreadyApproved")==1,"concurrent full-wire approval recorded once");
+  check(s.ReadSyntheticWireDraftStatus()==new WireDraftStatus(0,1,0),"wire history counts one approved row");
   check(peer.ReadSyntheticWireDraft(receipt.OperationKey).ApprovalCurrentlyValid&&!peer.ReadSyntheticWireDraft(receipt.OperationKey).MaySend,"offline approval grants no send authority");
   void Sql(string sql){using var db=new SqliteConnection($"Data Source={path}");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
   void BlockSql(string sql,string label){try{Sql(sql);}catch(SqliteException){check(true,label);return;}throw new Exception("FAIL: "+label);}
@@ -61,7 +63,9 @@ internal static class SyntheticWireDraftTests
   check(reopened.DeclareAccountingLifecycleHold(LifecycleHoldReason.Restore).Outcome=="LifecycleHold","wire draft test hold declared");
   check(s.ApproveSyntheticWireDraft(invoice.OperationKey,SyntheticWireCompiler.Compile(invoice).Fingerprint).Outcome=="LifecycleHold"&&s.PrepareSyntheticWireDraft(expense with{OperationKey=Guid.NewGuid()}).Outcome=="LifecycleHold","lifecycle hold blocks wire draft changes");
   check(s.ReadSyntheticWireDraft(receipt.OperationKey).State=="Cancelled","hold retains inspection");
+  check(s.ReadSyntheticWireDraftStatus()==new WireDraftStatus(2,0,1),"hold retains complete wire history counts");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Accounting.WireDraft.Prepare'");
   Denied(()=>s.ReadSyntheticWireDraft(receipt.OperationKey),"wire draft inspection requires dedicated grant");
+  Denied(()=>s.ReadSyntheticWireDraftStatus(),"wire history counts require dedicated grant");
  }
 }
