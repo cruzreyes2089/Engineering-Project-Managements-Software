@@ -4,14 +4,16 @@ internal static class SyntheticDispatchReviewTests
  public static void Run(Action<bool,string> check)
  {
   var match=new SyntheticRecoveryAssessment(SyntheticRecoveryFinding.MatchedForReview,"Synthetic");
-  var good=new SyntheticDispatchObservation(true,true,201,true,null,true,match);
+  var key=Guid.NewGuid();var good=new SyntheticDispatchObservation(true,true,201,true,null,true,match,key);
   void Expect(SyntheticDispatchObservation observation,SyntheticDispatchState state,string label)
   {
    var r=SyntheticDispatchReview.Evaluate(observation);
    check(r.State==state&&!r.MayAutomaticallyRetry&&!r.MayMarkPosted,label);
   }
   Expect(good,SyntheticDispatchState.ConfirmationForReview,"201 without response GUID can reach review only after independent match");
-  Expect(good with{ReturnedExternalKey=Guid.NewGuid()},SyntheticDispatchState.ConfirmationForReview,"201 with response GUID still review only");
+  Expect(good with{ReturnedExternalKey=key},SyntheticDispatchState.ConfirmationForReview,"201 with matching response GUID still review only");
+  Expect(good with{ReturnedExternalKey=Guid.NewGuid()},SyntheticDispatchState.Uncertain,"response GUID conflicting with readback uncertain");
+  Expect(good with{IndependentlyMatchedExternalKey=null},SyntheticDispatchState.Uncertain,"missing independent GUID uncertain");
   Expect(good with{ReturnedExternalKey=Guid.Empty},SyntheticDispatchState.Uncertain,"empty response GUID uncertain");
   Expect(good with{AttemptDurablyRecorded=false},SyntheticDispatchState.Uncertain,"send without durable attempt uncertain");
   Expect(good with{StatusCode=null,CompleteResponse=false,IndependentReadbackComplete=false,Recovery=null},SyntheticDispatchState.Uncertain,"timeout after possible commit uncertain");
