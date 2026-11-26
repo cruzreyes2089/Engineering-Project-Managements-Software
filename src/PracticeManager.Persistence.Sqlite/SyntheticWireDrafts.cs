@@ -60,7 +60,8 @@ public sealed partial class LocalPractice
   var row=ReadWireDraftRow(c,t,operation);if(row==null)return new("NotRecorded");
   var p=ReconstructWireDraft(row);if(p==null)return new("StoredPayloadInvalid",row.State);
   // Inspection remains possible during holds; validity is not send authority.
-  return new("Recorded",row.State,p,!LifecycleHeld(c,t)&&WireApprovalValid(c,t,row));
+  var scope=RehearsalScope(c,t);
+  return new("Recorded",row.State,p,scope.Block==null&&scope.Marker==p.Intent.MarkerKey&&WireApprovalValid(c,t,row));
  }
  public WireDraftResult ApproveSyntheticWireDraft(Guid operation,string expectedFingerprint)
  {

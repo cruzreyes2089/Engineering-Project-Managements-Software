@@ -45,6 +45,13 @@ internal static class SyntheticWireDraftTests
   Denied(()=>s.CancelSyntheticWireDraft(receipt.OperationKey,hash),"approved wire cancellation requires approval permission");
   Denied(()=>s.ApproveSyntheticWireDraft(receipt.OperationKey,hash),"approval permission enforced");
   Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Accounting.WireDraft.Approve'");
+  s.RemoveAccountingProfile();
+  check(!s.ReadSyntheticWireDraft(receipt.OperationKey).ApprovalCurrentlyValid,"missing profile invalidates current offline approval readiness");
+  check(s.ApproveSyntheticWireDraft(receipt.OperationKey,hash).Outcome=="FixtureScopeRequired","approval cannot proceed without configured profile");
+  await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>{
+   check((await s.SaveAccountingProfileAsync(url,"synthetic-key")).Success,"wire draft profile restored for same marker");
+   check((await s.SyncCustomerDirectoryAsync()).Outcome=="Synchronized","wire draft directory revalidated");
+  },6,responseFor:Reply);
   check(s.CancelSyntheticWireDraft(receipt.OperationKey,hash).Outcome=="Cancelled","approved but unsent synthetic draft cancelled");
   check(s.PrepareSyntheticWireDraft(receipt).State=="Cancelled"&&s.ApproveSyntheticWireDraft(receipt.OperationKey,hash).Outcome=="ApprovalNotAllowed","cancelled operation permanently consumed");
   var invoice=new SyntheticWireIntent(Guid.NewGuid(),marker,RehearsalKind.Invoice,Guid.NewGuid(),125m,date,"USD",customer);
