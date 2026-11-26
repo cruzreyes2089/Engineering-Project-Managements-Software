@@ -30,7 +30,7 @@ try{
  Check(s.CanTestAccountingConnection(),"restored accounting test grant is enforced");
 
  Check((await s.TestAccountingConnectionAsync("http://example.invalid:12345/api2","synthetic-key")).Outcome=="InvalidEndpoint","service dispatches validated accounting probe");
- using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO roles(id,name) VALUES(2,'Employee'); UPDATE users SET role_id=2";q.ExecuteNonQuery();}
+ using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO roles(id,name) VALUES(100,'Employee'); UPDATE users SET role_id=100";q.ExecuteNonQuery();}
  Check(!s.CanTestAccountingConnection(),"nonadministrator accounting diagnostic denied");
  try{await s.TestAccountingConnectionAsync("http://example.invalid:12345/api2","synthetic-key");throw new Exception("FAIL: unauthorized accounting request");}catch(UnauthorizedAccessException){Check(true,"accounting service rejects unauthorized request");}
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE users SET role_id=1";q.ExecuteNonQuery();}
@@ -90,7 +90,7 @@ try{
  Check(migrated.CanTestAccountingConnection()&&migrated.CanManageAccountingConnection(),"v1 upgrade seeds accounting grants");
  Check(migrated.Login("employee",pw),"v1 upgrade preserves employee login");
  Check(!migrated.CanTestAccountingConnection()&&!migrated.CanManageAccountingConnection(),"v1 upgrade does not grant employees accounting access");
- using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==11,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==18,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
  migrated=new LocalPractice(legacyPath);
  Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
 
@@ -116,5 +116,11 @@ try{
  await PostingRehearsalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"rehearsal.db"),pw,Check);
  await SyntheticWireDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"wire-draft.db"),pw,Check);
  await SyntheticWireAttemptTests.Run(Path.GetDirectoryName(path)!,pw,Check);
+ await EngagementTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"engagement.db"),pw,Check);
+ await ProjectHandoffTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-handoff.db"),pw,Check);
+ StaffAdministrationTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"staff.db"),pw,Check);
+ WorkPlanningTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-planning.db"),pw,Check);
+ await WorkEntriesTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-entries.db"),pw,Check);
+ ProjectEvidenceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-evidence.db"),pw,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
