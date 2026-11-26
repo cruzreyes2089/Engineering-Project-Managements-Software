@@ -21,6 +21,8 @@ internal static class AccountingDetailTests
   await AccountingProbeTests.WithServer(200,"{\"a\":1,\"a\":2}",async(url,_)=>check((await probe.InspectDetailAsync(url,key,AccountingDetailResource.Invoice,id)).Outcome=="InvalidDetailResponse","duplicate detail field rejected"));
   var s=new LocalPractice(path);s.Bootstrap("Synthetic Detail Firm","admin",pw,"CL");check(s.Login("admin",pw),"detail admin login");
   check((await s.InspectFinancialDetailsAsync()).Outcome=="NotConfigured","detail requires saved profile");
+  var evidence=new SyntheticSummaryEvidence(new(60,30,100,10,90,0,90,90),true);
+  check((await s.ReconcileSavedSyntheticAsync(evidence)).Differences.Contains("NotConfigured"),"reconciliation requires saved profile");
   var marker=Guid.NewGuid();var income=Guid.NewGuid();var expense=Guid.NewGuid();var cust=Guid.NewGuid();
   string Marker()=>JsonSerializer.Serialize(new{business=new{name="Synthetic"},skip=0,pageSize=2,totalRecords=1,textCustomFields=new[]{new{key=marker,name=BusinessMarker.TestName}}});
   string Customers()=>JsonSerializer.Serialize(new{business=new{name="Synthetic"},skip=0,pageSize=20,totalRecords=1,customers=new[]{new{key=cust,name="Synthetic customer",status="Paid"}}});
@@ -35,10 +37,12 @@ internal static class AccountingDetailTests
   await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>{
    check((await s.SaveAccountingProfileAsync(url,key)).Success,"detail profile saved");
    check((await s.InspectFinancialDetailsAsync()).Outcome=="MarkerNotEnrolled","detail requires marker");
+   check((await s.ReconcileSavedSyntheticAsync(evidence)).Differences.Contains("MarkerNotEnrolled"),"reconciliation requires enrolled marker");
    check((await s.EnrollOrVerifyMarkerAsync(true)).Success,"detail marker enrolled");
    check((await s.InspectFinancialDetailsAsync()).Outcome=="NotSynchronized","detail requires directory");
    var synced=await s.SyncCustomerDirectoryAsync();
    check(synced.Outcome=="Synchronized","detail directory synchronized");
+   check((await s.ReconcileSavedSyntheticAsync(evidence)).Differences.Contains("SyntheticDirectoryRequired"),"reconciliation refuses other business before API access");
    check((await s.InspectFinancialDetailsAsync()).Outcome=="RolesNotConfigured","detail requires both roles");
    var rev=synced.Report!.Revision;
    check((await s.SaveProvisionalAccountRoleAsync(rev,"ServiceIncome",new(income,"Synthetic Income","4000"))).Outcome=="RoleSaved","detail income configured");
@@ -48,5 +52,7 @@ internal static class AccountingDetailTests
    check(result.Report!=null&&!result.Report.Contains(id.ToString())&&!result.Report.Contains("Private description"),"combined report sanitized");
    check(requests.Count==21&&requests.Last().StartsWith("GET /api2/text-custom-fields?"),"detail sequence bounded and final marker checked");
   },21,requests.Add,Reply);
+  s.Logout();
+  try{await s.ReconcileSavedSyntheticAsync(evidence);throw new Exception("FAIL: reconciliation without session");}catch(UnauthorizedAccessException){check(true,"reconciliation denied without active authorized session");}
  }
 }
