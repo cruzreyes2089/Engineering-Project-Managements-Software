@@ -29,7 +29,11 @@ class ArchiveInventoryTests(unittest.TestCase):
     def test_reject_unsafe_names(self):
         for path in ["../escape","/absolute","C:/bad","sub\\bad","a/../bad","NUL.txt","file."]:
             with self.subTest(path=path):
-                a,d = self.fixture([("CRC.PracticeManager.exe",b"x"),(path,b"x")])
+                # Write a safe placeholder and replace both ZIP name headers with raw bytes.
+                # This avoids platform-specific name normalization during ZIP creation.
+                placeholder = "z" * len(path.encode("ascii"))
+                a,d = self.fixture([("CRC.PracticeManager.exe",b"x"),(placeholder,b"x")])
+                a.write_bytes(a.read_bytes().replace(placeholder.encode("ascii"),path.encode("ascii")))
                 with self.assertRaises(ValueError):
                     module.extract_inventory(a,d)
                 self.assertFalse(d.exists())

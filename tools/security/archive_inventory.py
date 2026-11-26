@@ -23,7 +23,10 @@ def extract_inventory(archive, destination):
         files = []
         declared = 0
         for member in items:
-            name = member.filename
+            # ZipInfo.filename can normalize separators or truncate NUL; validate original.
+            name = member.orig_filename
+            if name != member.filename:
+                raise ValueError("Archive path changed during parsing")
             path = PurePosixPath(name)
             parts = name.rstrip("/").split("/")
             if (len(name) > 512 or len(parts) > 16 or
