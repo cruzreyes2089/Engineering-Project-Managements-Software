@@ -38,23 +38,29 @@ public sealed partial class LocalPractice
   DateRange(plan.Start,plan.End,3660);if(plan.EstimateMinutes is <1 or >600000)throw new ArgumentException("Enter a positive estimate in minutes.");
   if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_phases WHERE id=$h AND project_id=$p AND start_on<=$s AND end_on>=$e",("$h",plan.PhaseId),("$p",project),("$s",PlanDate(plan.Start)),("$e",PlanDate(plan.End))))!=1)throw new ArgumentException("Task must be within the selected project phase.");
   if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM employees WHERE id=$i AND active=1",("$i",plan.EmployeeId)))!=1)throw new ArgumentException("Select an active employee.");
+  if(plan.ScopeChangeId.HasValue&&Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_scope_changes s LEFT JOIN project_scope_decisions d ON d.change_id=s.id WHERE s.id=$i AND s.project_id=$p AND coalesce(d.decision,'Proposed')!='Rejected'",("$i",plan.ScopeChangeId),("$p",project)))!=1)throw new ArgumentException("Additional scope unavailable or rejected.");
   return Validation.Text(plan.Title,200,"Task title",true);
  }
  public long CreateProjectTask(long project,ProjectTaskPlan plan)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequirePlan(c,t);ProjectRow(c,t,project);var n=ValidateTask(c,t,project,plan);
-  Exec(c,t,"INSERT INTO project_tasks(phase_id,employee_id,title,start_on,end_on,estimate_minutes,state,revision) VALUES($h,$i,$n,$s,$e,$m,'Planned',1)",("$h",plan.PhaseId),("$i",plan.EmployeeId),("$n",n),("$s",PlanDate(plan.Start)),("$e",PlanDate(plan.End)),("$m",plan.EstimateMinutes));var id=Last(c,t);Audit(c,t,actor,"Create","ProjectTask",id);t.Commit();return id;
+  Exec(c,t,"INSERT INTO project_tasks(phase_id,employee_id,title,start_on,end_on,estimate_minutes,state,revision,scope_change_id) VALUES($h,$i,$n,$s,$e,$m,'Planned',1,$change)",("$h",plan.PhaseId),("$i",plan.EmployeeId),("$n",n),("$s",PlanDate(plan.Start)),("$e",PlanDate(plan.End)),("$m",plan.EstimateMinutes),("$change",plan.ScopeChangeId));var id=Last(c,t);Audit(c,t,actor,"Create","ProjectTask",id);t.Commit();return id;
  }
  public void EditProjectTask(long project,long task,int revision,ProjectTaskPlan plan)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequirePlan(c,t);ProjectRow(c,t,project);var n=ValidateTask(c,t,project,plan);
-  if(Exec(c,t,"UPDATE project_tasks SET employee_id=$i,title=$n,start_on=$s,end_on=$e,estimate_minutes=$m,revision=revision+1 WHERE id=$t AND phase_id=$h AND revision=$r AND state='Planned'",("$i",plan.EmployeeId),("$n",n),("$s",PlanDate(plan.Start)),("$e",PlanDate(plan.End)),("$m",plan.EstimateMinutes),("$t",task),("$h",plan.PhaseId),("$r",revision))!=1)throw new ArgumentException("Task changed, moved, or already started.");
+  if(Exec(c,t,"UPDATE project_tasks SET employee_id=$i,title=$n,start_on=$s,end_on=$e,estimate_minutes=$m,revision=revision+1 WHERE id=$t AND phase_id=$h AND revision=$r AND state='Planned' AND scope_change_id IS $change",("$i",plan.EmployeeId),("$n",n),("$s",PlanDate(plan.Start)),("$e",PlanDate(plan.End)),("$m",plan.EstimateMinutes),("$t",task),("$h",plan.PhaseId),("$r",revision),("$change",plan.ScopeChangeId))!=1)throw new ArgumentException("Task changed, moved, or already started.");
   Audit(c,t,actor,"Update","ProjectTask",task);t.Commit();
  }
- private const string TaskProjection=@"SELECT t.id,p.id,p.project_no,p.state,h.id,h.name,e.id,trim(e.first_name||' '||e.last_name),t.title,t.start_on,t.end_on,t.estimate_minutes,t.state,t.revision FROM project_tasks t JOIN project_phases h ON h.id=t.phase_id JOIN projects p ON p.id=h.project_id JOIN employees e ON e.id=t.employee_id";
+ private const string TaskProjection=@"SELECT t.id,p.id,p.project_no,p.state,h.id,h.name,e.id,trim(e.first_name||' '||e.last_name),t.title,t.start_on,t.end_on,t.estimate_minutes,t.state,t.revision,t.scope_change_id,CASE WHEN t.scope_change_id IS NULL THEN 'Base scope' ELSE coalesce(d.decision,'Proposed') END FROM project_tasks t JOIN project_phases h ON h.id=t.phase_id JOIN projects p ON p.id=h.project_id JOIN employees e ON e.id=t.employee_id LEFT JOIN project_scope_decisions d ON d.change_id=t.scope_change_id";
  private static IReadOnlyList<ProjectTask> TaskRows(SqliteCommand q)
  {
-  using var r=q.ExecuteReader();var rows=new List<ProjectTask>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("More than 500 tasks. Narrow the date range or project selection.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetString(5),r.GetInt64(6),r.GetString(7),r.GetString(8),ReadPlanDate(r.GetString(9)),ReadPlanDate(r.GetString(10)),r.GetInt32(11),r.GetString(12),r.GetInt32(13)));}return rows.AsReadOnly();
+  using var r=q.ExecuteReader();var rows=new List<ProjectTask>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("More than 500 tasks. Narrow the date range or project selection.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetString(5),r.GetInt64(6),r.GetString(7),r.GetString(8),ReadPlanDate(r.GetString(9)),ReadPlanDate(r.GetString(10)),r.GetInt32(11),r.GetString(12),r.GetInt32(13),r.IsDBNull(14)?null:r.GetInt64(14),r.GetString(15)));}return rows.AsReadOnly();
+ }
+ public IReadOnlyList<TaskScopeOption> ReadTaskScopeOptions(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequirePlan(c,t);ProjectRow(c,t,project);
+  using var q=Command(c,t,"SELECT s.id,s.title,coalesce(d.decision,'Proposed') FROM project_scope_changes s LEFT JOIN project_scope_decisions d ON d.change_id=s.id WHERE s.project_id=$p ORDER BY s.id",("$p",project));using var r=q.ExecuteReader();var rows=new List<TaskScopeOption>{new(null,"Base scope","Base scope")};while(r.Read())rows.Add(new(r.GetInt64(0),r.GetString(1)+" ("+r.GetString(2)+")",r.GetString(2)));return rows.AsReadOnly();
  }
  public IReadOnlyList<ProjectTask> ReadProjectTasks(long project)
  {
@@ -81,7 +87,7 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var employee=OwnEmployee(c,t);var actor=Require(c,t,"Work.Own");
   var previous=next switch{"InProgress"=>"Planned","Completed"=>"InProgress",_=>throw new ArgumentException("Unsupported task transition.")};
-  if(Exec(c,t,@"UPDATE project_tasks SET state=$n,revision=revision+1 WHERE id=$i AND employee_id=$e AND revision=$r AND state=$s AND EXISTS(SELECT 1 FROM project_phases h JOIN projects p ON p.id=h.project_id JOIN project_start_authorizations a ON a.project_id=p.id WHERE h.id=project_tasks.phase_id AND p.state='Active')",("$n",next),("$i",task),("$e",employee),("$r",revision),("$s",previous))!=1)throw new ArgumentException("Task unavailable, changed, or project not authorized.");
+  if(Exec(c,t,@"UPDATE project_tasks SET state=$n,revision=revision+1 WHERE id=$i AND employee_id=$e AND revision=$r AND state=$s AND EXISTS(SELECT 1 FROM project_phases h JOIN projects p ON p.id=h.project_id JOIN project_start_authorizations a ON a.project_id=p.id WHERE h.id=project_tasks.phase_id AND p.state='Active') AND (scope_change_id IS NULL OR EXISTS(SELECT 1 FROM project_scope_decisions d WHERE d.change_id=project_tasks.scope_change_id AND d.decision='Authorized'))",("$n",next),("$i",task),("$e",employee),("$r",revision),("$s",previous))!=1)throw new ArgumentException("Task unavailable, changed, or project not authorized.");
   Audit(c,t,actor,"Task"+next,"ProjectTask",task);t.Commit();
  }
 }

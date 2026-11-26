@@ -35,6 +35,20 @@ internal static class WorkPlanningTests
   worker.AdvanceMyTask(task,2,"InProgress");check(worker.ReadMyWork(day,day.AddDays(10)).Single().State=="InProgress","own task started");
   Invalid(()=>s.EditProjectTask(project,task,3,plan),"in-progress task cannot be reassigned or edited");
   worker.AdvanceMyTask(task,3,"Completed");check(s.ReadProjectTasks(project).Single(x=>x.Id==task).State=="Completed","own task completion retained");
+  var change=s.ProposeScopeChange(project,"Extra design","Synthetic scope expansion");
+  var extra=s.CreateProjectTask(project,plan with{Title="Extra design",ScopeChangeId=change});
+  check(worker.ReadMyWork(day,day.AddDays(10)).Single(x=>x.Id==extra).ScopeState=="Proposed","employee sees proposed scope state");
+  Invalid(()=>worker.AdvanceMyTask(extra,1,"InProgress"),"unapproved additional scope cannot start");
+  Invalid(()=>s.EditProjectTask(project,extra,1,plan),"additional scope cannot be removed to bypass authorization");
+  check(s.DecideScopeChange(project,change,true,"Reviewed written synthetic authorization",true)=="Authorized","additional scope authorized");
+  worker.AdvanceMyTask(extra,1,"InProgress");check(worker.ReadMyWork(day,day.AddDays(10)).Single(x=>x.Id==extra).ScopeState=="Authorized","authorized extra task starts");
+  var rejected=s.ProposeScopeChange(project,"Rejected additional","Synthetic");var rejectedTask=s.CreateProjectTask(project,plan with{ScopeChangeId=rejected});
+  s.DecideScopeChange(project,rejected,false,"Client declined",false);
+  Invalid(()=>worker.AdvanceMyTask(rejectedTask,1,"InProgress"),"rejected additional scope cannot start");
+  Invalid(()=>s.CreateProjectTask(project,plan with{ScopeChangeId=rejected}),"rejected scope cannot receive new tasks");
+  var p2=s.CreateProposal(new(c,"Other project","Site","Scope",100m));var h2=s.RecordProposalIssued(p2,1);var project2=s.RecordProposalDecision(p2,h2,true,"Synthetic").ProjectId!.Value;
+  var phase2=s.CreateProjectPhase(project2,"Design",day,day.AddDays(10));
+  Invalid(()=>s.CreateProjectTask(project2,plan with{PhaseId=phase2,ScopeChangeId=change}),"cross-project scope rejected");
   var employee=s.ReadEmployees().Single(x=>x.Id==e);s.EditEmployee(e,employee.Revision,new(employee.First,employee.Last,employee.Email,employee.Title,false));Denied(()=>worker.ReadMyWork(day,day.AddDays(10)),"inactive linked employee denied work access");
  }
 }
