@@ -29,7 +29,7 @@ internal static class AccountingLinkTests
    var list=await reopened.ReadProvisionalLinksAsync(revision,name,0);
    check(list.Outcome=="Loaded"&&list.Links?.Single().CustomerKey==a,"local provisional link persists after restart");
    check((await s.ReadProvisionalLinksAsync(revision,"Different Business",0)).Outcome=="BusinessChanged","unexpected business name blocked");
-   s.RemoveProvisionalLink(revision,one);
+   s.RemoveProvisionalLink(revision,one,a);
    check((await s.ReadProvisionalLinksAsync(revision,name,0)).Links?.Count==0,"explicit unlink removes local link");
    check((await s.SaveProvisionalLinkAsync(revision,name,0,two,a)).Outcome=="Saved","unlink permits new explicit link");
    check((await s.SaveAccountingProfileAsync(url,fixture)).Success,"replacement rotates profile revision");
@@ -38,7 +38,7 @@ internal static class AccountingLinkTests
    check((await s.ReadProvisionalLinksAsync(fresh.ProfileRevision!,name,0)).Links?.Count==0,"new revision never inherits links");
    s.RemoveAccountingProfile();
    check((await s.ReadProvisionalLinksAsync(fresh.ProfileRevision!,name,0)).Outcome=="ProfileChanged","removed profile links inaccessible");
-  },13);
+  },14);
   using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Customers.Map'";q.ExecuteNonQuery();}
   check(!s.CanManageCustomerLinks(),"revoked mapping permission enforced");
   try{await s.SaveProvisionalLinkAsync(revision,name,0,one,a);throw new Exception("FAIL: revoked mapping permission");}catch(UnauthorizedAccessException){check(true,"revoked mapping write denied");}

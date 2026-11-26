@@ -78,7 +78,7 @@ public sealed partial class LocalPractice
    Exec(write,tx,"UPDATE accounting_profiles SET last_success_utc=$s WHERE user_id=$id AND revision=$r",("$s",UtcNow()),("$id",actor),("$r",profile.Revision));
    tx.Commit();
   }
-  return result;
+  return result.Success&&customerSkip.HasValue?result with {ProfileRevision=profile.Revision}:result;
  }
  public void RemoveAccountingProfile()
  {
