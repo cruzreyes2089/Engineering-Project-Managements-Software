@@ -109,6 +109,7 @@ try{
  SyntheticWireReadbackTests.Run(Check);
  SyntheticDispatchReviewTests.Run(Check);
  await SyntheticAttemptWitnessTests.Run(Path.GetDirectoryName(path)!,Check);
+ await SyntheticPostingPipelineTests.Run(Path.GetDirectoryName(path)!,Check);
  SyntheticDetailValidatorTests.Run(Check);
  await SyntheticAcquisitionTests.Run(Check);
  await PostingRehearsalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"rehearsal.db"),pw,Check);
