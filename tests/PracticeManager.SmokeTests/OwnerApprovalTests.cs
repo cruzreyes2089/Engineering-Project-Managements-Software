@@ -27,10 +27,23 @@ internal static class OwnerApprovalTests
   var role=s.ReadStaffRoles().Single(x=>x.Name=="Financial / Accounting");
   var staff=s.CreateStaffAccount("reviewer",role.Id,"Synthetic-reviewer-temp-0001");
   check(s.ReadOwnerApprovalPolicy().Enabled,"ordinary nonreview account does not suspend exception");
+  s.RecordBillingPolicy(new(project,"FixedFee",100m,100m,false,"Synthetic agreement"));
+  var draft=s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("First",30m)},Array.Empty<long>()));
+  var draftHash=s.ReadInvoiceDraft(project,draft).Summary.PayloadHash;
   s.SetStaffGrant(role.Id,"Work.Review",true,false);
   var suspended=s.ReadOwnerApprovalPolicy();check(!suspended.Enabled&&!suspended.Eligible&&suspended.EventId!=enabled.EventId,"new reviewer grant suspends even before password change");
   Denied(()=>s.ClassifyWork(expense,true,"Synthetic",true),"suspension covers classification");
   Denied(()=>s.SetOwnerApprovalPolicy(true,suspended.EventId,"Synthetic"),"cannot enable while other approval account exists");
+  Denied(()=>s.DecideInvoiceDraft(project,draft,draftHash,true,"Synthetic",true),"suspended owner cannot approve own invoice");
+  foreach(var grant in new[]{"Projects.View","Clients.View","Billing.Invoices.View","Billing.Invoices.Edit","Billing.Invoices.Approve"})s.SetStaffGrant(role.Id,grant,true,false);
+  var reviewer=new LocalPractice(path);check(reviewer.ChangeRequiredPassword("reviewer","Synthetic-reviewer-temp-0001","Synthetic-reviewer-password-0001")&&reviewer.Login("reviewer","Synthetic-reviewer-password-0001"),"independent reviewer authenticated");
+  Denied(()=>reviewer.ReadOwnerPolicyHistory(),"ordinary reviewer cannot inspect owner policy history");
+  check(reviewer.DecideInvoiceDraft(project,draft,draftHash,true,"Reviewed independently")=="Approved","independent invoice approval after suspension");
+  var staffDraft=reviewer.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Second",20m)},Array.Empty<long>()));
+  var staffHash=reviewer.ReadInvoiceDraft(project,staffDraft).Summary.PayloadHash;
+  Denied(()=>reviewer.DecideInvoiceDraft(project,staffDraft,staffHash,true,"Synthetic",true),"ordinary staff cannot approve own invoice even with approval grant");
+  check(s.DecideInvoiceDraft(project,staffDraft,staffHash,true,"Independent owner review")=="Approved","owner can independently review staff draft");
+  s.SetStaffGrant(role.Id,"Billing.Invoices.Approve",false,true);
   s.SetStaffGrant(role.Id,"Work.Review",false,true);
   var off=s.ReadOwnerApprovalPolicy();check(off.Eligible&&!off.Enabled&&off.EventId==suspended.EventId,"grant removal does not silently reactivate");
   Invalid(()=>s.SetOwnerApprovalPolicy(true,enabled.EventId,"Synthetic"),"stale policy change rejected");
@@ -44,6 +57,8 @@ internal static class OwnerApprovalTests
   q.CommandText="SELECT count(*) FROM work_billing_classifications WHERE owner_exception_event_id IS NOT NULL";check(Convert.ToInt64(q.ExecuteScalar())==2,"self classifications linked to explicit policy history");
   q.CommandText="SELECT count(*) FROM audit_events WHERE action='OwnerSelfReviewApproved'";check(Convert.ToInt64(q.ExecuteScalar())==2,"owner approvals distinctly audited");
   q.CommandText="SELECT count(*) FROM audit_events WHERE action='OwnerExceptionAutoSuspended'";check(Convert.ToInt64(q.ExecuteScalar())==1,"automatic suspension audited");
+  check(s.ReadOwnerPolicyHistory().Count==3&&s.ReadOwnerPolicyHistory().Any(x=>x.Actor=="System"),"policy history exposes automatic suspension");
+  var evidence=s.ReadOwnerDecisionEvidence();check(evidence.Count==4&&evidence.All(x=>x.PolicyEventId.HasValue&&!string.IsNullOrWhiteSpace(x.Justification)),"read-only self-decision audit links justification to policy");
   s.SetOwnerApprovalPolicy(false,again.EventId,"Owner disabled");check(!s.ReadOwnerApprovalPolicy().Enabled,"manual disable supported");
  }
 }
