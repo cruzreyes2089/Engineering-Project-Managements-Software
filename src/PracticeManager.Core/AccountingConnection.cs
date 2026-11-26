@@ -8,6 +8,7 @@ public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,s
 {
     public bool Success => Outcome=="Connected";
 }
+public enum AccountingDiscoveryResource { IdentityFields, ChartOfAccounts, SalesInvoices, Receipts, Payments }
 public interface IAccountingConnectionProbe
 {
     Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default);
@@ -19,11 +20,13 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         =>RequestAsync(endpoint,secret,true,cancellationToken);
     public Task<AccountingProbeResult> ReadCustomerPageAsync(string endpoint,string secret,int skip,CancellationToken cancellationToken=default)
         =>skip<0||skip>int.MaxValue-20?Task.FromResult(new AccountingProbeResult("InvalidPage")):RequestAsync(endpoint,secret,false,cancellationToken,skip);
+    public Task<AccountingProbeResult> InspectResourceAsync(string endpoint,string secret,AccountingDiscoveryResource resource,CancellationToken cancellationToken=default)
+        => Enum.IsDefined(resource)?RequestAsync(endpoint,secret,true,cancellationToken,resource:resource):Task.FromResult(new AccountingProbeResult("InvalidResource"));
     private const int MaxResponseBytes = 1_048_576;
     public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,false,cancellationToken);
 
-    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null)
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -37,7 +40,18 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         // Exact literal loopback host; no proxies, credentials from URL, cookies or redirects.
         using var handler=new HttpClientHandler{AllowAutoRedirect=false,UseProxy=false,UseCookies=false,AutomaticDecompression=DecompressionMethods.None};
         using var client=new HttpClient(handler){Timeout=Timeout.InfiniteTimeSpan};
-        using var request=new HttpRequestMessage(HttpMethod.Get,$"http://127.0.0.1:{port}/api2/customers"+(customerSkip is int offset?"?skip="+offset.ToString(System.Globalization.CultureInfo.InvariantCulture)+"&pageSize=20":inspect?"?skip=0&pageSize=2":""));
+        // Fixed resource allowlist. No arbitrary URLs, form requests, or write methods.
+        var path=resource switch
+        {
+            AccountingDiscoveryResource.IdentityFields=>"text-custom-fields?skip=0&pageSize=2",
+            AccountingDiscoveryResource.ChartOfAccounts=>"chart-of-accounts?fields=Key&fields=Code&fields=Name",
+            AccountingDiscoveryResource.SalesInvoices=>"sales-invoices?skip=0&pageSize=2",
+            AccountingDiscoveryResource.Receipts=>"receipts?skip=0&pageSize=2",
+            AccountingDiscoveryResource.Payments=>"payments?skip=0&pageSize=2",
+            null=>"customers"+(customerSkip is int offset?"?skip="+offset.ToString(System.Globalization.CultureInfo.InvariantCulture)+"&pageSize=20":inspect?"?skip=0&pageSize=2":""),
+            _=>throw new ArgumentOutOfRangeException(nameof(resource))
+        };
+        using var request=new HttpRequestMessage(HttpMethod.Get,$"http://127.0.0.1:{port}/api2/"+path);
         request.Headers.Add("X-API-KEY",secret);
         request.Headers.Accept.ParseAdd("application/json");
         try
@@ -68,7 +82,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
                 return page==null?new("InvalidCustomerPage",code):new("Connected",code,"Object",CustomerPage:page);
             }
             return kind is JsonValueKind.Array or JsonValueKind.Object
-                ?new("Connected",code,kind.ToString(),inspect?DescribeSchema(json.RootElement):null):new("InvalidResponse",code);
+                ?new("Connected",code,kind.ToString(),inspect?DescribeSchema(json.RootElement,resource):null):new("InvalidResponse",code);
         }
         catch(OperationCanceledException){return new(cancellationToken.IsCancellationRequested?"Cancelled":"Timeout");}
         catch(JsonException){return new("InvalidResponse",200);}
@@ -77,9 +91,9 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
     }
 
     // Only bounded structural metadata is returned. Never return JSON field values.
-    private static string DescribeSchema(JsonElement root)
+    private static string DescribeSchema(JsonElement root,AccountingDiscoveryResource? resource)
     {
-        var lines=new List<string>{"Customer schema (field names and types only)"};
+        var lines=new List<string>{(resource?.ToString()??"Customer")+" schema (field names and types only)"};
         string Label(string name)=>Regex.IsMatch(name,@"\A[A-Za-z_][A-Za-z0-9_]{0,47}\z",RegexOptions.CultureInvariant)
             && !Guid.TryParse(name,out _) ?name:"[field name omitted]";
         string Type(JsonElement value)=>value.ValueKind==JsonValueKind.String && Guid.TryParse(value.GetString(),out _)
@@ -87,7 +101,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         void Array(JsonElement array,string label)
         {
             var count=array.GetArrayLength();
-            lines.Add($"{label} — sample rows: {Math.Min(count,2)}"+(count>2?" (provider returned more than requested; sample truncated)":""));
+            lines.Add($"{label} — sample rows: {Math.Min(count,2)}"+(count>2?" (sample truncated)":""));
             // Limit inspection to the first two rows and 32 fields per row, never recurse into nested values.
             var fields=new SortedSet<string>(StringComparer.Ordinal);
             foreach(var row in array.EnumerateArray().Take(2))
