@@ -8,7 +8,7 @@ internal static class WorkPlanningTests
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   var c=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
-  var id=s.CreateProposal(new(c,"Synthetic","Site","Scope",100m));var hash=s.RecordProposalIssued(id,1);var project=s.RecordProposalDecision(id,hash,true,"Synthetic").ProjectId!.Value;
+  var id=s.CreateProposal(new(c,"Synthetic","Site","Scope",100m));var hash=ConflictReviewTests.Issue(s,id,1);var project=s.RecordProposalDecision(id,hash,true,"Synthetic").ProjectId!.Value;
   var role=s.ReadStaffRoles().Single(r=>r.Name=="Engineer");s.SetStaffGrant(role.Id,"Work.Own",true,false);
   var u=s.CreateStaffAccount("worker",role.Id,"Synthetic-worker-temp-0001");var e=s.CreateEmployee(new("Synthetic","Worker","","",true),u);
   var other=s.CreateEmployee(new("Other","Employee","","",true));var inactive=s.CreateEmployee(new("Inactive","Employee","","",false));
@@ -47,7 +47,7 @@ internal static class WorkPlanningTests
   s.DecideScopeChange(project,rejected,false,"Client declined",false);
   Invalid(()=>worker.AdvanceMyTask(rejectedTask,1,"InProgress"),"rejected additional scope cannot start");
   Invalid(()=>s.CreateProjectTask(project,plan with{ScopeChangeId=rejected}),"rejected scope cannot receive new tasks");
-  var p2=s.CreateProposal(new(c,"Other project","Site","Scope",100m));var h2=s.RecordProposalIssued(p2,1);var project2=s.RecordProposalDecision(p2,h2,true,"Synthetic").ProjectId!.Value;
+  var p2=s.CreateProposal(new(c,"Other project","Site","Scope",100m));var h2=ConflictReviewTests.Issue(s,p2,1);var project2=s.RecordProposalDecision(p2,h2,true,"Synthetic").ProjectId!.Value;
   var phase2=s.CreateProjectPhase(project2,"Design",day,day.AddDays(10));
   Invalid(()=>s.CreateProjectTask(project2,plan with{PhaseId=phase2,ScopeChangeId=change}),"cross-project scope rejected");
   var employee=s.ReadEmployees().Single(x=>x.Id==e);s.EditEmployee(e,employee.Revision,new(employee.First,employee.Last,employee.Email,employee.Title,false));Denied(()=>worker.ReadMyWork(day,day.AddDays(10)),"inactive linked employee denied work access");

@@ -48,9 +48,8 @@ public sealed partial class LocalPractice
   Audit(c,t,actor,"Update","Proposal",id);t.Commit();
  }
  private static string HashProposal(string snapshot)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(snapshot)));
- public string RecordProposalIssued(long id,int expectedRevision)
+ private static (long Client,string Snapshot) DraftProposalSnapshot(SqliteConnection c,SqliteTransaction t,long id,int expectedRevision)
  {
-  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Engagements.Issue");Require(c,t,"Engagements.View");Require(c,t,"Clients.View");
   string snapshot;long client;
   using(var q=Command(c,t,@"SELECT p.proposal_no,p.client_id,p.title,p.site,p.scope,p.fee_cents,p.revision,c.company_name,c.first_name,c.last_name FROM proposals p JOIN clients c ON c.id=p.client_id WHERE p.id=$i AND p.state='Draft' AND p.revision=$r",("$i",id),("$r",expectedRevision)))
   using(var r=q.ExecuteReader()){
@@ -58,7 +57,14 @@ public sealed partial class LocalPractice
    client=r.GetInt64(1);
    snapshot=JsonSerializer.Serialize(new{Format="CRC-Proposal-Snapshot-v1",Number=r.GetString(0),ClientId=client,Title=r.GetString(2),Site=r.GetString(3),Scope=r.GetString(4),FeeCents=r.GetInt64(5),Currency="USD",Revision=r.GetInt32(6),Company=r.GetString(7),First=r.GetString(8),Last=r.GetString(9)});
   }
+  return (client,snapshot);
+ }
+ public string RecordProposalIssued(long id,int expectedRevision)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Engagements.Issue");Require(c,t,"Engagements.View");Require(c,t,"Clients.View");
+  var (client,snapshot)=DraftProposalSnapshot(c,t,id,expectedRevision);
   ActiveClient(c,t,client);var hash=HashProposal(snapshot);
+  if(!ProposalConflictCleared(c,t,id,expectedRevision,hash))throw new ArgumentException("Current proposal conflict review required before issue.");
   if(Exec(c,t,"UPDATE proposals SET state='Issued',snapshot=$s,snapshot_hash=$h,issued_by=$a,issued_utc=$u WHERE id=$i AND state='Draft' AND revision=$r",("$s",snapshot),("$h",hash),("$a",actor),("$u",UtcNow()),("$i",id),("$r",expectedRevision))!=1)throw new InvalidOperationException("Draft changed.");
   Audit(c,t,actor,"RecordIssued","Proposal",id);t.Commit();return hash;
  }

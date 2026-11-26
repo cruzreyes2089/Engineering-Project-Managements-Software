@@ -7,7 +7,7 @@ internal static class ProjectHandoffTests
  {
   var s=new LocalPractice(path);s.Bootstrap("Synthetic Handoff Firm","admin",pw,"CL");check(s.Login("admin",pw),"handoff fixture login");
   var c=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
-  var id=s.CreateProposal(new(c,"Synthetic","Site","Scope",100m));var hash=s.RecordProposalIssued(id,1);
+  var id=s.CreateProposal(new(c,"Synthetic","Site","Scope",100m));var hash=ConflictReviewTests.Issue(s,id,1);
   var project=s.RecordProposalDecision(id,hash,true,"Synthetic").ProjectId!.Value;
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}

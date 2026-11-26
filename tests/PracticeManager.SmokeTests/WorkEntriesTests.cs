@@ -15,7 +15,7 @@ internal static class WorkEntriesTests
   var open=worker.ReadMyOpenAttendance()!;check(peer.ClockOut(open.Id)=="ClockedOut"&&worker.ClockOut(open.Id)=="SessionUnavailable"&&worker.ReadMyOpenAttendance()==null,"clock-out atomic and not repeatable");
   var day=DateOnly.FromDateTime(DateTime.Today);var utc=DateOnly.FromDateTime(DateTime.UtcNow);check(worker.ReadMyAttendance(utc,utc).Single().ClockOut!=null,"attendance history retained");
   var client=admin.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
-  var proposal=admin.CreateProposal(new(client,"Synthetic","Site","Scope",100m));var hash=admin.RecordProposalIssued(proposal,1);var project=admin.RecordProposalDecision(proposal,hash,true,"Synthetic").ProjectId!.Value;
+  var proposal=admin.CreateProposal(new(client,"Synthetic","Site","Scope",100m));var hash=ConflictReviewTests.Issue(admin,proposal,1);var project=admin.RecordProposalDecision(proposal,hash,true,"Synthetic").ProjectId!.Value;
   var phase=admin.CreateProjectPhase(project,"Design",day.AddDays(-2),day.AddDays(2));var task=admin.CreateProjectTask(project,new(phase,employee,"Design",day.AddDays(-2),day.AddDays(2),120));
   var entry=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",60,null,null,"Synthetic time");
   Invalid(()=>worker.SubmitWork(entry),"pending and unstarted task blocks time");

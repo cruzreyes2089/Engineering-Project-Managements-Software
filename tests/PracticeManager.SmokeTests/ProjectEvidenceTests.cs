@@ -10,7 +10,7 @@ internal static class ProjectEvidenceTests
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Sql(string sql){using var db=new SqliteConnection($"Data Source={path}");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
   var client=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
-  (long Id,string Hash) Project(string title){var p=s.CreateProposal(new(client,title,"Site","Scope",100m));var h=s.RecordProposalIssued(p,1);return(s.RecordProposalDecision(p,h,true,"Synthetic").ProjectId!.Value,h);}
+  (long Id,string Hash) Project(string title){var p=s.CreateProposal(new(client,title,"Site","Scope",100m));var h=ConflictReviewTests.Issue(s,p,1);return(s.RecordProposalDecision(p,h,true,"Synthetic").ProjectId!.Value,h);}
   var p=Project("First");var other=Project("Other");var bytes="Synthetic document"u8.ToArray();var key=Guid.NewGuid();
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","../report.txt",bytes),"document traversal rejected");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","CON.txt",bytes),"reserved name rejected");

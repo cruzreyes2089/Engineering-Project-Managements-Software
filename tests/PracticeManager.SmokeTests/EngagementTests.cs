@@ -22,7 +22,7 @@ internal static class EngagementTests
   check(d.Revision==2&&d.Fee==1300m,"draft edit increments revision");
   check(s.RecordProposalDecision(id,"not issued",true,"synthetic note").Outcome=="IssuedProposalRequired","acceptance requires issued snapshot");
   Invalid(()=>s.RecordProposalIssued(id,1),"issue rejects stale draft");
-  var hash=s.RecordProposalIssued(id,2);
+  var hash=ConflictReviewTests.Issue(s,id,2);
   check(hash.Length==64&&s.ReadIssuedProposalSnapshot(id).Contains("130000"),"issue stores frozen cents and hash");
   Invalid(()=>s.EditProposal(id,2,input),"issued proposal cannot edit");
   check(s.RecordProposalDecision(id,"wrong hash",true,"synthetic note").Outcome=="SnapshotMismatch","decision requires exact hash");
@@ -31,9 +31,9 @@ internal static class EngagementTests
   check(results.Count(x=>x.Outcome=="Accepted")==1&&results.Count(x=>x.Outcome=="AlreadyAccepted")==1&&results.Select(x=>x.ProjectId).Distinct().Count()==1,"concurrent acceptance creates one project");
   var project=s.SearchPendingProjects().Single();check(project.State=="Pending"&&project.SetupState=="NotStarted"&&project.ProposalId==id,"acceptance never authorizes start");
   check(s.RecordProposalDecision(id,hash,false,"Synthetic rejection").Outcome=="DecisionAlreadyRecorded","accepted proposal cannot reject");
-  var rejected=s.CreateProposal(input);var rh=s.RecordProposalIssued(rejected,1);
+  var rejected=s.CreateProposal(input);var rh=ConflictReviewTests.Issue(s,rejected,1);
   check(s.RecordProposalDecision(rejected,rh,false,"Synthetic rejection").Outcome=="Rejected"&&s.SearchPendingProjects().Count==1,"rejection creates no project");
-  var failure=s.CreateProposal(input);var fh=s.RecordProposalIssued(failure,1);
+  var failure=s.CreateProposal(input);var fh=ConflictReviewTests.Issue(s,failure,1);
   Sql("CREATE TRIGGER test_abort_project BEFORE INSERT ON projects BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
   try{s.RecordProposalDecision(failure,fh,true,"Synthetic acceptance");throw new Exception("FAIL: rollback injection");}catch(SqliteException){check(true,"injected project write failure");}
   check(s.SearchProposals().Single(x=>x.Id==failure).State=="Issued"&&s.SearchPendingProjects().Count==1,"acceptance rolls back completely");
