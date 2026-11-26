@@ -112,6 +112,7 @@ try{
  await SyntheticPostingPipelineTests.Run(Path.GetDirectoryName(path)!,pw,Check);
  SyntheticDetailValidatorTests.Run(Check);
  await SyntheticAcquisitionTests.Run(Check);
+ await NativeWireFixtureReviewTests.Run(Check);
  await PostingRehearsalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"rehearsal.db"),pw,Check);
  await SyntheticWireDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"wire-draft.db"),pw,Check);
  await SyntheticWireAttemptTests.Run(Path.GetDirectoryName(path)!,pw,Check);
