@@ -4,24 +4,31 @@ internal static class SyntheticDetailValidatorTests
 {
  public static void Run(Action<bool,string> check)
  {
-  var k=new SyntheticDetailKeys(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
+  var k=new SyntheticDetailKeys(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
   JsonElement Doc(object x)=>JsonSerializer.SerializeToElement(x);
-  var invoice=Doc(new{Key=k.Invoice,id=k.Invoice,TaxCodeEnabled=false,ProjectEnabled=false,Lines=new[]{new{Account=k.Income,Qty=1m,SalesUnitPrice=100m}}});
+  var invoice=Doc(new{Key=k.Invoice,id=k.Invoice,Customer=k.Customer,TaxCodeEnabled=false,ProjectEnabled=false,Lines=new[]{new{Account=k.Income,Qty=1m,SalesUnitPrice=100m}}});
   var receipt=Doc(new{Key=k.Receipt,id=k.Receipt,TaxCodeEnabled=false,ProjectEnabled=false,ReceivedIn=k.ReceivingBankAccount,Lines=new[]{new{Account=k.Receivables,AccountsReceivableSalesInvoice=k.Invoice,Amount=40m}}});
   var payment=Doc(new{Key=k.Payment,id=k.Payment,TaxCodeEnabled=false,ProjectEnabled=false,PaidFrom=k.ReceivingBankAccount,Lines=new[]{new{Account=k.Expense,Amount=10m}}});
   var income=Doc(new{Key=k.Income,id=k.Income,Code="4000",Name="Engineering Services Income",IsProfitAndLossAccount=true,Group=Guid.NewGuid()});
   var expense=Doc(new{Key=k.Expense,id=k.Expense,Code="6000",Name="Office Supplies",IsProfitAndLossAccount=true,Group=Guid.NewGuid()});
   SyntheticDetailValidation Eval(JsonElement? i=null,JsonElement? r=null,JsonElement? p=null,JsonElement? inc=null,JsonElement? exp=null,SyntheticDetailKeys? keys=null)=>SyntheticDetailValidator.Evaluate(keys??k,i??invoice,r??receipt,p??payment,inc??income,exp??expense);
   JsonElement Replace(JsonElement j,string old,string value)=>JsonDocument.Parse(j.GetRawText().Replace(old,value,StringComparison.Ordinal)).RootElement.Clone();
-  check(Eval().MatchesObservedRelationships&&Eval().Outcome=="PartialMatch","observed detail fields match fixture but do not certify customer or group");
+  check(Eval().MatchesObservedRelationships&&Eval().Outcome=="PartialMatch","observed detail fields and customer match fixture but do not certify group");
   check(Eval(i:Replace(invoice,k.Invoice.ToString(),Guid.NewGuid().ToString())).Failures.Contains("InvoiceIdentity"),"wrong returned invoice identity blocked");
   check(Eval(r:Replace(receipt,k.Invoice.ToString(),Guid.NewGuid().ToString())).Failures.Contains("ReceiptAllocation"),"wrong receipt invoice UUID blocked");
   check(Eval(r:Replace(receipt,k.Receivables.ToString(),k.Income.ToString())).Failures.Contains("ReceiptAllocation"),"wrong receipt ledger account blocked");
   check(Eval(r:Replace(receipt,k.ReceivingBankAccount.ToString(),Guid.NewGuid().ToString())).Failures.Contains("ReceiptBankAccount"),"wrong receiving bank account blocked");
   check(Eval(p:Replace(payment,k.ReceivingBankAccount.ToString(),Guid.NewGuid().ToString())).Failures.Contains("PaymentBankAccount"),"wrong payment bank account blocked");
   check(Eval(p:Replace(payment,k.Expense.ToString(),k.Income.ToString())).Failures.Contains("PaymentLine"),"wrong payment expense role blocked");
-  check(Eval(i:Replace(invoice,"\"TaxCodeEnabled\":false","\"TaxCodeEnabled\":true")).Failures.Contains("TaxFlags"),"unsupported tax flag blocked");
-  check(Eval(i:Replace(invoice,"\"ProjectEnabled\":false","\"ProjectEnabled\":true")).Failures.Contains("ProjectFlags"),"unsupported project flag blocked");
+  var tax=Eval(i:Replace(invoice,"\"TaxCodeEnabled\":false","\"TaxCodeEnabled\":true"));
+  check(tax.RequiresFeatureReview&&tax.Failures.Contains("TaxFlags"),"enabled tax flag requires review not relationship rejection");
+  var project=Eval(i:Replace(invoice,"\"ProjectEnabled\":false","\"ProjectEnabled\":true"));
+  check(project.RequiresFeatureReview&&project.Failures.Contains("ProjectFlags"),"enabled project flag requires review");
+  check(Eval(i:Replace(invoice,k.Customer.ToString(),Guid.NewGuid().ToString())).Failures.Contains("InvoiceCustomer"),"wrong invoice customer blocked");
+  check(Eval(i:Replace(invoice,"\"Customer\":\""+k.Customer.ToString()+"\",","")).Failures.Contains("InvoiceCustomer"),"absent invoice customer blocked");
+  check(Eval(i:Replace(invoice,"\"TaxCodeEnabled\":false,","")).RequiresFeatureReview,"missing flag requires review");
+  check(Eval(i:Replace(invoice,"\"ProjectEnabled\":false","\"ProjectEnabled\":\"false\"")).RequiresFeatureReview,"nonboolean flag requires review");
+  check(Eval(i:Replace(invoice,"\"TaxCodeEnabled\":false","\"TaxCodeEnabled\":true"),r:Replace(receipt,k.Invoice.ToString(),Guid.NewGuid().ToString())).Outcome=="Blocked","feature flag review cannot mask bad allocation");
   check(Eval(i:Replace(invoice,"\"Qty\":1","\"Qty\":2")).Failures.Contains("InvoiceLine"),"unexpected invoice quantity blocked");
   check(Eval(r:Replace(receipt,"\"Amount\":40","\"Amount\":\"40\"")).Failures.Contains("ReceiptAllocation"),"numeric string rejected");
   check(Eval(inc:Replace(income,"\"IsProfitAndLossAccount\":true","\"IsProfitAndLossAccount\":false")).Failures.Contains("IncomeForm"),"non-P&L account blocked");
