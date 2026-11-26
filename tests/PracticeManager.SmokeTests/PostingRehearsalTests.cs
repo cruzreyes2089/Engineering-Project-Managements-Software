@@ -37,6 +37,10 @@ internal static class PostingRehearsalTests
   var reserves=await Task.WhenAll(Task.Run(()=>s.ReserveSyntheticPosting(i)),Task.Run(()=>peer.ReserveSyntheticPosting(i)));
   check(reserves.Count(r=>r.Outcome=="Reserved")==1&&reserves.Count(r=>r.Outcome=="AlreadyRecorded")==1,"concurrent reservations create exactly one durable intent");
   check(s.ReserveSyntheticPosting(i with{Amount=101m}).Outcome=="IntentConflict","changed payload cannot reuse operation");
+  check(s.BeginSyntheticPosting(i).Outcome=="ApprovalRequired","unapproved reservation cannot begin");
+  check(s.ApproveSyntheticPosting(i with{Amount=101m}).Outcome=="IntentConflict","approval cannot change reserved payload");
+  var approvals=await Task.WhenAll(Task.Run(()=>s.ApproveSyntheticPosting(i)),Task.Run(()=>peer.ApproveSyntheticPosting(i)));
+  check(approvals.Count(r=>r.Outcome=="Approved")==1&&approvals.Count(r=>r.Outcome=="AlreadyApproved")==1,"concurrent approval recorded once");
   var begins=await Task.WhenAll(Task.Run(()=>s.BeginSyntheticPosting(i)),Task.Run(()=>peer.BeginSyntheticPosting(i)));
   check(begins.Count(r=>r.Outcome=="Started")==1&&begins.Count(r=>r.AttemptKey.HasValue)==1,"only one concurrent begin returns attempt key");
   var attempt=begins.Single(r=>r.AttemptKey.HasValue).AttemptKey!.Value;
@@ -50,6 +54,12 @@ internal static class PostingRehearsalTests
   check(s.ReserveSyntheticPosting(payment with{OperationKey=i.OperationKey}).Outcome=="IntentConflict","operation key cannot cross transaction kinds");
   check(s.ReserveSyntheticPosting(payment).Outcome=="Reserved","expense rehearsal reserved");
   check(peer.ReserveSyntheticPosting(payment with{VendorContact="Changed vendor"}).Outcome=="IntentConflict","expense vendor change cannot reuse key");
+  check(s.BeginSyntheticPosting(payment).Outcome=="ApprovalRequired","unapproved expense blocked");
+  check(s.ApproveSyntheticPosting(payment).Outcome=="Approved","explicit expense approval");
+  using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Accounting.Posting.RehearseApprove'";q.ExecuteNonQuery();}
+  check(!s.CanApprovePostingRehearsal()&&s.BeginSyntheticPosting(payment).Outcome=="ApprovalRequired","revoked approver permission blocks dispatch");
+  try{peer.ApproveSyntheticPosting(payment);throw new Exception("FAIL: revoked approval permission");}catch(UnauthorizedAccessException){check(true,"approval permission separately enforced");}
+  using(var db=new SqliteConnection($"Data Source={path}")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=1 WHERE permission_code='Accounting.Posting.RehearseApprove'";q.ExecuteNonQuery();}
   var expenseBegins=await Task.WhenAll(Task.Run(()=>s.BeginSyntheticPosting(payment)),Task.Run(()=>peer.BeginSyntheticPosting(payment)));
   check(expenseBegins.Count(r=>r.Outcome=="Started")==1&&expenseBegins.Count(r=>r.AttemptKey.HasValue)==1,"only one expense rehearsal begin");
   var expenseAttempt=expenseBegins.Single(r=>r.AttemptKey.HasValue).AttemptKey!.Value;
@@ -59,8 +69,10 @@ internal static class PostingRehearsalTests
   var c=i with{OperationKey=Guid.NewGuid()};
   check(s.ReserveSyntheticPosting(c).Outcome=="Reserved"&&s.CancelSyntheticPosting(c).Outcome=="Cancelled","only reserved intent may cancel");
   check(s.BeginSyntheticPosting(c).Outcome=="DispatchNotAllowed","cancelled key permanently consumed");
+  check(s.ApproveSyntheticPosting(c).Outcome=="ApprovalNotAllowed","cancelled key cannot be approved");
   var second=payment with{OperationKey=Guid.NewGuid()};
   check(s.ReserveSyntheticPosting(second).Outcome=="Reserved","second operation reserved");
+  check(s.ApproveSyntheticPosting(second).Outcome=="Approved","second expense approved");
   var secondAttempt=s.BeginSyntheticPosting(second).AttemptKey!.Value;
   check(s.FinishSyntheticPosting(second,secondAttempt,SimulatedOutcome.Confirmed,external).Outcome=="SimulatedExternalConflict","same simulated external ID cannot map twice");
   check(s.FinishSyntheticPosting(second,secondAttempt,SimulatedOutcome.Uncertain).Outcome=="Uncertain","ambiguous outcome durably quarantined");
@@ -79,6 +91,7 @@ internal static class PostingRehearsalTests
   check(reopened.BeginSyntheticPosting(third).Outcome=="UnresolvedRehearsal","unresolved state persists across restart");
   check(reopened.DeclareAccountingLifecycleHold(LifecycleHoldReason.Restore).Outcome=="LifecycleHold","restore declaration creates sticky hold");
   check(s.IsAccountingLifecycleHeld()&&s.ReserveSyntheticPosting(i with{OperationKey=Guid.NewGuid()}).Outcome=="LifecycleHold","hold blocks other sessions");
+  check(s.ApproveSyntheticPosting(third).Outcome=="LifecycleHold","hold also blocks approval");
   var afterHold=new LocalPractice(path);check(afterHold.Login("admin",pw)&&afterHold.IsAccountingLifecycleHeld(),"hold survives restart");
   check(afterHold.ReadSyntheticPostingState(i.OperationKey).State=="SimulatedConfirmed","hold preserves history for investigation");
   check(afterHold.ReadPostingRehearsalStatus()==new PostingRehearsalStatus("Restore",1,0,1,2,1),"recovery screen retains hold reason and counts");
@@ -114,7 +127,7 @@ internal static class PostingRehearsalTests
   using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
   {
    c.Open();using var tx=c.BeginTransaction();using var q=c.CreateCommand();q.Transaction=tx;
-   q.CommandText="DROP TABLE accounting_posting_rehearsals; CREATE TABLE accounting_posting_rehearsals(id INTEGER PRIMARY KEY,source_key TEXT NOT NULL UNIQUE CHECK(length(source_key)=36),marker_key TEXT NOT NULL CHECK(length(marker_key)=36),kind TEXT NOT NULL CHECK(kind IN ('Invoice','Receipt')),payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),state TEXT NOT NULL CHECK(state IN ('Reserved','InFlight','Uncertain','SimulatedConfirmed','Cancelled')),attempt_key TEXT UNIQUE,simulated_external_key TEXT UNIQUE,created_by INTEGER NOT NULL REFERENCES users(id),updated_by INTEGER NOT NULL REFERENCES users(id),created_utc TEXT NOT NULL,updated_utc TEXT NOT NULL,CHECK((state IN ('Reserved','Cancelled') AND attempt_key IS NULL AND simulated_external_key IS NULL) OR (state IN ('InFlight','Uncertain') AND attempt_key IS NOT NULL AND simulated_external_key IS NULL) OR (state='SimulatedConfirmed' AND attempt_key IS NOT NULL AND simulated_external_key IS NOT NULL))); PRAGMA user_version=7;";
+   q.CommandText="DROP TABLE accounting_rehearsal_approvals; DELETE FROM role_permissions WHERE permission_code='Accounting.Posting.RehearseApprove'; DELETE FROM permissions WHERE code='Accounting.Posting.RehearseApprove'; DROP TABLE accounting_posting_rehearsals; CREATE TABLE accounting_posting_rehearsals(id INTEGER PRIMARY KEY,source_key TEXT NOT NULL UNIQUE CHECK(length(source_key)=36),marker_key TEXT NOT NULL CHECK(length(marker_key)=36),kind TEXT NOT NULL CHECK(kind IN ('Invoice','Receipt')),payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),state TEXT NOT NULL CHECK(state IN ('Reserved','InFlight','Uncertain','SimulatedConfirmed','Cancelled')),attempt_key TEXT UNIQUE,simulated_external_key TEXT UNIQUE,created_by INTEGER NOT NULL REFERENCES users(id),updated_by INTEGER NOT NULL REFERENCES users(id),created_utc TEXT NOT NULL,updated_utc TEXT NOT NULL,CHECK((state IN ('Reserved','Cancelled') AND attempt_key IS NULL AND simulated_external_key IS NULL) OR (state IN ('InFlight','Uncertain') AND attempt_key IS NOT NULL AND simulated_external_key IS NULL) OR (state='SimulatedConfirmed' AND attempt_key IS NOT NULL AND simulated_external_key IS NOT NULL))); PRAGMA user_version=7;";
    q.ExecuteNonQuery();
    void Insert(SyntheticPostingIntent intent,string state,Guid? attempt,Guid? external)
    {
@@ -133,8 +146,9 @@ internal static class PostingRehearsalTests
   using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
   {
    c.Open();using var q=c.CreateCommand();
-   q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==8,"v7 migration reaches schema 8");
+   q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==9,"v7 migration reaches schema 9");
    check(before==Snapshot(c),"v7 journal rows and attempt history preserved byte-for-byte at logical row level");
+   q.CommandText="SELECT count(*) FROM accounting_rehearsal_approvals";check(Convert.ToInt32(q.ExecuteScalar())==0,"migration never retroactively approves old reservations");
    q.CommandText="SELECT reason FROM accounting_lifecycle_hold WHERE id=1";check((string?)q.ExecuteScalar()=="Restore","v7 sticky hold preserved");
    q.CommandText="PRAGMA foreign_key_check";using var reader=q.ExecuteReader();check(!reader.Read(),"v8 migration foreign keys valid");
   }

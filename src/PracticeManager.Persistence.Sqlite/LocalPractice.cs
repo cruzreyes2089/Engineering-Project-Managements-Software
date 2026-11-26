@@ -5,8 +5,8 @@ namespace PracticeManager.Persistence;
 public sealed partial class LocalPractice
 {
  readonly string connectionString; long? userId; DateTimeOffset expires; long sessionGeneration;
- static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage","Accounting.Customers.Map","Accounting.Identity.Manage","Accounting.Directory.Sync","Accounting.Posting.Rehearse"];
- public LocalPractice(string path){path=Path.GetFullPath(path);Directory.CreateDirectory(Path.GetDirectoryName(path)!);connectionString=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,DefaultTimeout=10,Pooling=false}.ToString();using var c=Open();using var t=c.BeginTransaction(deferred:false);var version=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));if(version==0){if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))!=0)throw new InvalidOperationException("Unknown database; refusing initialization.");using var stream=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(stream);Exec(c,t,reader.ReadToEnd());version=1;}if(version==1){UpgradeToV2(c,t);version=2;}if(version==2){UpgradeToV3(c,t);version=3;}if(version==3){UpgradeToV4(c,t);version=4;}if(version==4){UpgradeToV5(c,t);version=5;}if(version==5){UpgradeToV6(c,t);version=6;}if(version==6){UpgradeToV7(c,t);version=7;}if(version==7){UpgradeToV8(c,t);version=8;}if(version!=8)throw new InvalidOperationException("Unsupported schema version.");t.Commit();}
+ static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage","Accounting.Customers.Map","Accounting.Identity.Manage","Accounting.Directory.Sync","Accounting.Posting.Rehearse","Accounting.Posting.RehearseApprove"];
+ public LocalPractice(string path){path=Path.GetFullPath(path);Directory.CreateDirectory(Path.GetDirectoryName(path)!);connectionString=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,DefaultTimeout=10,Pooling=false}.ToString();using var c=Open();using var t=c.BeginTransaction(deferred:false);var version=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));if(version==0){if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"))!=0)throw new InvalidOperationException("Unknown database; refusing initialization.");using var stream=typeof(LocalPractice).Assembly.GetManifestResourceStream("PracticeManager.schema.sql")!;using var reader=new StreamReader(stream);Exec(c,t,reader.ReadToEnd());version=1;}if(version==1){UpgradeToV2(c,t);version=2;}if(version==2){UpgradeToV3(c,t);version=3;}if(version==3){UpgradeToV4(c,t);version=4;}if(version==4){UpgradeToV5(c,t);version=5;}if(version==5){UpgradeToV6(c,t);version=6;}if(version==6){UpgradeToV7(c,t);version=7;}if(version==7){UpgradeToV8(c,t);version=8;}if(version==8){UpgradeToV9(c,t);version=9;}if(version!=9)throw new InvalidOperationException("Unsupported schema version.");t.Commit();}
  static void UpgradeToV2(SqliteConnection c,SqliteTransaction t)
  {
   foreach(var grant in new[]{"Accounting.Connection.Test","Accounting.Connection.Manage"})
@@ -64,6 +64,14 @@ public sealed partial class LocalPractice
   Exec(c,t,"DROP TABLE accounting_posting_rehearsals");
   Exec(c,t,"ALTER TABLE accounting_posting_rehearsals_v8 RENAME TO accounting_posting_rehearsals");
   Exec(c,t,"PRAGMA user_version=8");
+ }
+ static void UpgradeToV9(SqliteConnection c,SqliteTransaction t)
+ {
+  Exec(c,t,"INSERT OR IGNORE INTO permissions(code) VALUES('Accounting.Posting.RehearseApprove')");
+  Exec(c,t,"INSERT OR IGNORE INTO role_permissions(role_id,permission_code,allowed) SELECT id,'Accounting.Posting.RehearseApprove',1 FROM roles WHERE name='Administrator'");
+  // Historical reservations remain unapproved. No retroactive approvals or state resets.
+  Exec(c,t,"CREATE TABLE accounting_rehearsal_approvals(rehearsal_id INTEGER PRIMARY KEY REFERENCES accounting_posting_rehearsals(id) ON DELETE RESTRICT,marker_key TEXT NOT NULL CHECK(length(marker_key)=36),payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),approved_by INTEGER NOT NULL REFERENCES users(id),approved_utc TEXT NOT NULL)");
+  Exec(c,t,"PRAGMA user_version=9");
  }
  SqliteConnection Open(){var c=new SqliteConnection(connectionString);c.Open();return c;}
  static SqliteCommand Command(SqliteConnection c,SqliteTransaction? t,string sql,params (string,object?)[] args){var q=c.CreateCommand();q.Transaction=t;q.CommandText=sql;foreach(var (key,value) in args)q.Parameters.AddWithValue(key,value??DBNull.Value);return q;}

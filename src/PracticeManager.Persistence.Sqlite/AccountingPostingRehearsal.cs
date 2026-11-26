@@ -49,6 +49,27 @@ public sealed partial class LocalPractice
    ("$s",intent.OperationKey.ToString("D")),("$m",scope.Marker!.Value.ToString("D")),("$k",intent.Kind.ToString()),("$h",hash),("$a",scope.Actor),("$u",now));
   Audit(c,t,scope.Actor,"ReserveRehearsal","AccountingPostingRehearsal",Last(c,t));t.Commit();return new("Reserved","Reserved");
  }
+ // Explicit offline approval, not financial or production authorization.
+ // Same-actor approval is permitted only in this synthetic single-owner rehearsal.
+ public bool CanApprovePostingRehearsal()=>CanRehearsePosting()&&Can("Accounting.Posting.RehearseApprove");
+ private static bool ValidRehearsalApproval(SqliteConnection c,SqliteTransaction t,RehearsalRow row)
+ {
+  return Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_rehearsal_approvals a JOIN users u ON u.id=a.approved_by JOIN role_permissions rp ON rp.role_id=u.role_id WHERE a.rehearsal_id=$i AND a.marker_key=$m AND a.payload_hash=$h AND u.active=1 AND u.force_password_change=0 AND rp.permission_code='Accounting.Posting.RehearseApprove' AND rp.allowed=1",("$i",row.Id),("$m",row.Marker),("$h",row.Hash)))==1;
+ }
+ public RehearsalResult ApproveSyntheticPosting(SyntheticPostingIntent intent)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);
+  var scope=RehearsalScope(c,t);Require(c,t,"Accounting.Posting.RehearseApprove");
+  if(scope.Block!=null)return new(scope.Block);
+  var hash=intent.Fingerprint();var row=ReadRehearsal(c,t,intent.OperationKey);
+  if(row==null)return new("NotReserved");
+  if(!MatchesIntent(row,scope.Marker!.Value,intent,hash))return new("IntentConflict",row.State);
+  if(row.State!="Reserved")return new("ApprovalNotAllowed",row.State);
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_rehearsal_approvals WHERE rehearsal_id=$i",("$i",row.Id)))!=0)
+   return ValidRehearsalApproval(c,t,row)?new("AlreadyApproved",row.State):new("ApprovalInvalid",row.State);
+  Exec(c,t,"INSERT INTO accounting_rehearsal_approvals(rehearsal_id,marker_key,payload_hash,approved_by,approved_utc) VALUES($i,$m,$h,$a,$u)",("$i",row.Id),("$m",row.Marker),("$h",row.Hash),("$a",scope.Actor),("$u",UtcNow()));
+  Audit(c,t,scope.Actor,"ApproveRehearsal","AccountingPostingRehearsal",row.Id);t.Commit();return new("Approved",row.State);
+ }
  public RehearsalResult BeginSyntheticPosting(SyntheticPostingIntent intent)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);
@@ -58,6 +79,7 @@ public sealed partial class LocalPractice
   if(!MatchesIntent(row,scope.Marker!.Value,intent,hash))return new("IntentConflict",row.State);
   if(row.State!="Reserved")return new("DispatchNotAllowed",row.State);
   if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_posting_rehearsals WHERE state IN ('InFlight','Uncertain')"))!=0)return new("UnresolvedRehearsal",row.State);
+  if(!ValidRehearsalApproval(c,t,row))return new("ApprovalRequired",row.State);
   var attempt=Guid.NewGuid();
   if(Exec(c,t,"UPDATE accounting_posting_rehearsals SET state='InFlight',attempt_key=$x,updated_by=$a,updated_utc=$u WHERE id=$i AND state='Reserved'",("$x",attempt.ToString("D")),("$a",scope.Actor),("$u",UtcNow()),("$i",row.Id))!=1)return new("StateChanged");
   Audit(c,t,scope.Actor,"BeginRehearsal","AccountingPostingRehearsal",row.Id);t.Commit();
