@@ -106,6 +106,7 @@ try{
  TestLedgerReconciliationTests.Run(Check);
  SyntheticRecoveryReviewTests.Run(Check);
  SyntheticWireCompilerTests.Run(Check);
+ SyntheticWireReadbackTests.Run(Check);
  SyntheticDetailValidatorTests.Run(Check);
  await SyntheticAcquisitionTests.Run(Check);
  await PostingRehearsalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"rehearsal.db"),pw,Check);
