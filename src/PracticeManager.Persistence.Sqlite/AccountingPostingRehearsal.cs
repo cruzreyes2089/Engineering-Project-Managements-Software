@@ -42,6 +42,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction(deferred:false);
   var scope=RehearsalScope(c,t);if(scope.Block!=null)return new(scope.Block);
   var hash=intent.Fingerprint();
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_wire_drafts WHERE source_key=$k",("$k",intent.OperationKey.ToString("D"))))!=0)return new("WireDraftConflict");
   var row=ReadRehearsal(c,t,intent.OperationKey);
   if(row!=null)return MatchesIntent(row,scope.Marker!.Value,intent,hash)?new("AlreadyRecorded",row.State):new("IntentConflict",row.State);
   var now=UtcNow();
