@@ -2,7 +2,7 @@ using System.Text.Json;
 namespace PracticeManager.Core;
 
 // Source-only validator of the observed API2 forms. It never returns credentials,
-// identifiers or raw JSON, and does not establish customer or group classification.
+// identifiers or raw JSON. Group classification and register scope are separate checks.
 public sealed record SyntheticDetailKeys(Guid Invoice,Guid Receipt,Guid Payment,Guid Receivables,Guid Income,Guid Expense,Guid ReceivingBankAccount,Guid Customer);
 public sealed record SyntheticDetailValidation(string Outcome,IReadOnlyList<string> Failures)
 {
@@ -23,6 +23,16 @@ public static class SyntheticDetailValidator
   line=a[0];return Unique(line);
  }
  static bool Identity(JsonElement v,Guid key)=>Unique(v)&&GuidField(v,"Key",key)&&GuidField(v,"id",key);
+ static bool TypedFlag(JsonElement v,string name)=>v.TryGetProperty(name,out var p)&&p.ValueKind is JsonValueKind.True or JsonValueKind.False;
+ // Exact fixture schema: unknown root/line fields require review. Even null,
+ // zero or empty assignment fields are not accepted without a verified contract.
+ static bool KnownFields(JsonElement v,string allowed)=>Unique(v)&&v.EnumerateObject().All(p=>allowed.Split(' ').Contains(p.Name,StringComparer.Ordinal));
+ static bool HasAssignment(JsonElement v)=>v.EnumerateObject().Any(p=>(p.Name.StartsWith("Tax",StringComparison.OrdinalIgnoreCase)||p.Name.StartsWith("Project",StringComparison.OrdinalIgnoreCase))&&p.Name!="TaxCodeEnabled"&&p.Name!="ProjectEnabled");
+ static bool FixtureFields(JsonElement document,string root,string line)
+ {
+  if(!KnownFields(document,root+" Key id Lines TaxCodeEnabled ProjectEnabled")||HasAssignment(document))return false;
+  return OneLine(document,out var row)&&KnownFields(row,line)&&!HasAssignment(row);
+ }
  public static SyntheticDetailValidation Evaluate(SyntheticDetailKeys k,JsonElement invoice,JsonElement receipt,JsonElement payment,JsonElement income,JsonElement expense)
  {
   var fail=new List<string>();
@@ -37,12 +47,14 @@ public static class SyntheticDetailValidator
   Check(Identity(expense,k.Expense),"ExpenseIdentity");
   if(fail.Count>0)return new("Blocked",fail.AsReadOnly());
   Check(GuidField(invoice,"Customer",k.Customer),"InvoiceCustomer");
-  // Preserve the strict no-tax/no-project gate for downstream reconciliation.
-  // An enabled, missing or malformed flag is a review condition, not a mismatch
-  // of already-verified UUID relationships. Never interpret it as no tax.
+  // The live synthetic forms have both flags true but no assignment fields.
+  // Require typed flags, reject any unverified fields instead of ignoring them.
   var review=new List<string>();
-  if(!BooleanField(invoice,"TaxCodeEnabled",false)||!BooleanField(receipt,"TaxCodeEnabled",false)||!BooleanField(payment,"TaxCodeEnabled",false))review.Add("TaxFlags");
-  if(!BooleanField(invoice,"ProjectEnabled",false)||!BooleanField(receipt,"ProjectEnabled",false)||!BooleanField(payment,"ProjectEnabled",false))review.Add("ProjectFlags");
+  if(!TypedFlag(invoice,"TaxCodeEnabled")||!TypedFlag(receipt,"TaxCodeEnabled")||!TypedFlag(payment,"TaxCodeEnabled"))review.Add("TaxFlags");
+  if(!TypedFlag(invoice,"ProjectEnabled")||!TypedFlag(receipt,"ProjectEnabled")||!TypedFlag(payment,"ProjectEnabled"))review.Add("ProjectFlags");
+  if(!FixtureFields(invoice,"Customer Description DueDate DueDateDate IssueDate Reference text UniqueName","Account Qty SalesUnitPrice")||
+     !FixtureFields(receipt,"Date Description PaidBy ReceivedIn","Account AccountsReceivableSalesInvoice Amount")||
+     !FixtureFields(payment,"Contact Date PaidFrom","Account Amount"))review.Add("UnverifiedDocumentFields");
   Check(OneLine(invoice,out var il)&&GuidField(il,"Account",k.Income)&&NumberField(il,"Qty",1m)&&NumberField(il,"SalesUnitPrice",100m),"InvoiceLine");
   Check(OneLine(receipt,out var rl)&&GuidField(rl,"Account",k.Receivables)&&GuidField(rl,"AccountsReceivableSalesInvoice",k.Invoice)&&NumberField(rl,"Amount",40m),"ReceiptAllocation");
   Check(GuidField(receipt,"ReceivedIn",k.ReceivingBankAccount),"ReceiptBankAccount");
