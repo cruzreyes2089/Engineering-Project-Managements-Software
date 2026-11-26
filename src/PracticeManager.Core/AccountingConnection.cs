@@ -9,14 +9,14 @@ public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,s
     public bool Success => Outcome=="Connected";
     public override string ToString()=>$"Accounting result: {Outcome}, HTTP {StatusCode}";
 }
-public enum AccountingDiscoveryResource { IdentityFields, ChartOfAccounts, SalesInvoices, Receipts, Payments }
-public enum AccountingDetailResource { Invoice, Receipt, Payment, ProfitAndLossAccount }
+public enum AccountingDiscoveryResource { IdentityFields, ChartOfAccounts, SalesInvoices, Receipts, Payments, BankCashAccounts }
+public enum AccountingDetailResource { Invoice, Receipt, Payment, ProfitAndLossAccount, ProfitAndLossGroup }
 public interface IAccountingConnectionProbe
 {
     Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default);
 }
 /// <summary>Development-only, read-only API2 connectivity probe; never persists credentials or customer data.</summary>
-public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
+public sealed partial class ManagerDesktopProbe : IAccountingConnectionProbe
 {
     public Task<AccountingProbeResult> InspectCustomersAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,true,cancellationToken);
@@ -37,7 +37,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
     public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,false,cancellationToken);
 
-    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false,string? markerName=null,bool readFinancial=false,AccountingDetailResource? detail=null,Guid? detailKey=null)
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false,string? markerName=null,bool readFinancial=false,AccountingDetailResource? detail=null,Guid? detailKey=null,Action<JsonElement>? capture=null)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -58,6 +58,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             AccountingDetailResource.Receipt=>"receipt-form/",
             AccountingDetailResource.Payment=>"payment-form/",
             AccountingDetailResource.ProfitAndLossAccount=>"profit-and-loss-statement-account-form/",
+            AccountingDetailResource.ProfitAndLossGroup=>"profit-and-loss-statement-group-form/",
             _=>throw new ArgumentOutOfRangeException(nameof(detail))
         })+detailKey!.Value.ToString("D") : resource switch
         {
@@ -66,6 +67,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             AccountingDiscoveryResource.SalesInvoices=>"sales-invoices?skip=0&pageSize="+(readFinancial?"20":"2"),
             AccountingDiscoveryResource.Receipts=>"receipts?skip=0&pageSize="+(readFinancial?"20":"2"),
             AccountingDiscoveryResource.Payments=>"payments?skip=0&pageSize="+(readFinancial?"20":"2"),
+            AccountingDiscoveryResource.BankCashAccounts=>"bank-and-cash-accounts?skip=0&pageSize=20",
             null=>"customers"+(customerSkip is int offset?"?skip="+offset.ToString(System.Globalization.CultureInfo.InvariantCulture)+"&pageSize=20":inspect?"?skip=0&pageSize=2":""),
             _=>throw new ArgumentOutOfRangeException(nameof(resource))
         };
@@ -94,6 +96,8 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             buffer.Position=0;
             using var json=await JsonDocument.ParseAsync(buffer,cancellationToken:ct).ConfigureAwait(false);
             var kind=json.RootElement.ValueKind;
+            // Private, bounded acquisition callback; raw forms never enter public probe results.
+            if(capture!=null){if(kind!=JsonValueKind.Object)return new("InvalidResponse",code);capture(json.RootElement.Clone());return new("Connected",code,"Object");}
             if(detail.HasValue)return AccountingDetailSchema.Describe(json.RootElement,detail.Value);
             if(markerName!=null)return BusinessMarker.Parse(json.RootElement,markerName);
             if(readFinancial)
