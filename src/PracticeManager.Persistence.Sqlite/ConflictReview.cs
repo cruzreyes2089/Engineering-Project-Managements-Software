@@ -1,15 +1,15 @@
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
-public sealed record ConflictReview(long Id,string Jurisdiction,string RestrictedJurisdiction,string PublicDutyOverlap,string PublicResources,string OtherConflict,string Evidence,string Disposition,string ReviewedUtc);
+public sealed record ConflictReview(long Id,string Jurisdiction,string RestrictedJurisdiction,string PublicDutyOverlap,string PublicResources,string OtherConflict,string Evidence,string Disposition,string ReviewedUtc,long? JurisdictionPolicyEventId=null,long? ReviewerId=null);
 public sealed record ConflictReviewInput(string Jurisdiction,string RestrictedJurisdiction,string PublicDutyOverlap,string PublicResources,string OtherConflict,string Evidence);
 public sealed partial class LocalPractice
 {
  private static bool ConflictCleared(SqliteConnection c,SqliteTransaction t,long project)=>Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_conflict_cleared WHERE project_id=$p",("$p",project)))==1;
  private static ConflictReview? CurrentConflict(SqliteConnection c,SqliteTransaction t,long project)
  {
-  using var q=Command(c,t,"SELECT id,jurisdiction,restricted_jurisdiction,public_duty_overlap,public_resources,other_conflict,evidence,disposition,reviewed_utc FROM project_conflict_current WHERE project_id=$p",("$p",project));using var r=q.ExecuteReader();
-  return r.Read()?new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8)):null;
+  using var q=Command(c,t,"SELECT id,jurisdiction,restricted_jurisdiction,public_duty_overlap,public_resources,other_conflict,evidence,disposition,reviewed_utc,jurisdiction_event_id,reviewed_by FROM project_conflict_current WHERE project_id=$p",("$p",project));using var r=q.ExecuteReader();
+  return r.Read()?new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8),r.IsDBNull(9)?null:r.GetInt64(9),r.GetInt64(10)):null;
  }
  public string ReadProjectConflictStatus(long project)
  {
@@ -19,7 +19,7 @@ public sealed partial class LocalPractice
  public IReadOnlyList<ConflictReview> ReadConflictHistory(long project)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireProjectView(c,t);Require(c,t,"Compliance.View");ProjectRow(c,t,project);
-  using var q=Command(c,t,@"SELECT id,jurisdiction,restricted_jurisdiction,public_duty_overlap,public_resources,other_conflict,evidence,CASE WHEN restricted_jurisdiction='No' AND public_duty_overlap='No' AND public_resources='No' AND other_conflict='No' AND EXISTS(SELECT 1 FROM jurisdiction_policy_events j WHERE j.id=project_conflict_reviews.jurisdiction_event_id AND j.jurisdiction=project_conflict_reviews.jurisdiction COLLATE NOCASE AND j.decision='EligibleForScreening') THEN 'Clear' ELSE 'Hold' END,reviewed_utc FROM project_conflict_reviews WHERE project_id=$p ORDER BY id DESC LIMIT 501",("$p",project));using var r=q.ExecuteReader();var rows=new List<ConflictReview>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Conflict history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8)));}return rows.AsReadOnly();
+  using var q=Command(c,t,@"SELECT id,jurisdiction,restricted_jurisdiction,public_duty_overlap,public_resources,other_conflict,evidence,CASE WHEN restricted_jurisdiction='No' AND public_duty_overlap='No' AND public_resources='No' AND other_conflict='No' AND EXISTS(SELECT 1 FROM jurisdiction_policy_events j WHERE j.id=project_conflict_reviews.jurisdiction_event_id AND j.jurisdiction=project_conflict_reviews.jurisdiction COLLATE NOCASE AND j.decision='EligibleForScreening') THEN 'Clear' ELSE 'Hold' END,reviewed_utc,jurisdiction_event_id,reviewed_by FROM project_conflict_reviews WHERE project_id=$p ORDER BY id DESC LIMIT 501",("$p",project));using var r=q.ExecuteReader();var rows=new List<ConflictReview>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Conflict history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8),r.IsDBNull(9)?null:r.GetInt64(9),r.GetInt64(10)));}return rows.AsReadOnly();
  }
  public ConflictReview RecordConflictReview(long project,long? expectedReview,ConflictReviewInput input,bool confirmed)
  {

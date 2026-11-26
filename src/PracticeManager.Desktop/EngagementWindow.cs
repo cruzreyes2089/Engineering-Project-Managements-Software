@@ -23,7 +23,7 @@ internal sealed class EngagementWindow:Window
   var tabs=new TabControl();
   void Col(DataGrid g,string label,string prop)=>g.Columns.Add(new DataGridTextColumn{Header=label,Binding=new Binding(prop),Width=DataGridLength.Auto});
   foreach(var (label,prop) in new[]{("Number","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Fee (USD)","Fee"),("Revision","Revision"),("Status","State")})Col(proposals,label,prop);
-  foreach(var (label,prop) in new[]{("Project","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Status","State"),("Setup","SetupState")})Col(projects,label,prop);
+  foreach(var (label,prop) in new[]{("Project","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Status","State"),("Setup","SetupState"),("Conflict screening","ConflictStatus")})Col(projects,label,prop);
   var pp=new DockPanel();var buttons=new WrapPanel();
   var create=new Button{Content="New draft",IsEnabled=service.Can("Engagements.Edit")&&service.Can("Engagements.View")&&service.Can("Clients.View")};
   var refresh=new Button{Content="Refresh"};create.Click+=(_,_)=>Run(()=>Edit(null));edit.Click+=(_,_)=>Run(()=>Edit(Selected()));issue.Click+=(_,_)=>Run(Issue);accept.Click+=(_,_)=>Run(()=>Decision(true));reject.Click+=(_,_)=>Run(()=>Decision(false));snapshot.Click+=(_,_)=>Run(()=>ShowSnapshot(Selected()));refresh.Click+=(_,_)=>Refresh();

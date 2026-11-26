@@ -56,10 +56,12 @@ internal static class ConflictReviewTests
   var fresh=s.RecordConflictReview(project,hold.Id,input with{Evidence="Synthetic corrected facts"},true);
   var policyHold=s.RecordJurisdictionPolicy("Synthetic jurisdiction",eligible.Id,"Unverified","Synthetic policy change",true);
   check(s.ReadProjectConflictStatus(project)=="Hold","changed jurisdiction policy invalidates active project clearance");
+  check(s.SearchPendingProjects().Single(x=>x.Id==project).ConflictStatus=="Hold"&&s.ReadMyWork(day,day).Single().ConflictStatus=="Hold","project and employee projections expose hold without review details");
+  check(s.ReadConflictHistory(project).First().JurisdictionPolicyEventId==eligible.Id&&s.ReadConflictHistory(project).First().ReviewerId==owner,"review evidence retains exact policy and reviewer identity");
   Invalid(()=>s.AdvanceMyTask(task,1,"InProgress"),"changed policy blocks new work");
   s.RecordJurisdictionPolicy("Synthetic jurisdiction",policyHold.Id,"EligibleForScreening","Synthetic policy reconsidered",true);
   Invalid(()=>s.AdvanceMyTask(task,1,"InProgress"),"reinstated jurisdiction needs fresh review");
   s.RecordConflictReview(project,fresh.Id,input,true);s.AdvanceMyTask(task,1,"InProgress");
-  check(s.ReadMyWork(day,day).Single().State=="InProgress"&&s.ReadConflictHistory(project).Count==6,"new reviewed clearance preserves prior holds");
+  check(s.ReadMyWork(day,day).Single().State=="InProgress"&&s.ReadConflictHistory(project).Count==6&&s.ReadMyWork(day,day).Single().ConflictStatus=="Clear","new reviewed clearance preserves prior holds");
  }
 }
