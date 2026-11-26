@@ -10,6 +10,7 @@ public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,s
     public override string ToString()=>$"Accounting result: {Outcome}, HTTP {StatusCode}";
 }
 public enum AccountingDiscoveryResource { IdentityFields, ChartOfAccounts, SalesInvoices, Receipts, Payments }
+public enum AccountingDetailResource { Invoice, Receipt, Payment, ProfitAndLossAccount }
 public interface IAccountingConnectionProbe
 {
     Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default);
@@ -30,11 +31,13 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
     public Task<AccountingProbeResult> ReadFinancialPageAsync(string endpoint,string secret,AccountingDiscoveryResource resource,CancellationToken ct=default)
         =>resource is AccountingDiscoveryResource.SalesInvoices or AccountingDiscoveryResource.Receipts or AccountingDiscoveryResource.Payments
             ?RequestAsync(endpoint,secret,false,ct,resource:resource,readFinancial:true):Task.FromResult(new AccountingProbeResult("InvalidResource"));
+    public Task<AccountingProbeResult> InspectDetailAsync(string endpoint,string secret,AccountingDetailResource resource,Guid key,CancellationToken ct=default)
+        =>key==Guid.Empty||!Enum.IsDefined(resource)?Task.FromResult(new AccountingProbeResult("InvalidDetail")):RequestAsync(endpoint,secret,false,ct,detail:resource,detailKey:key);
     private const int MaxResponseBytes = 1_048_576;
     public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,false,cancellationToken);
 
-    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false,string? markerName=null,bool readFinancial=false)
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false,string? markerName=null,bool readFinancial=false,AccountingDetailResource? detail=null,Guid? detailKey=null)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -49,7 +52,14 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         using var handler=new HttpClientHandler{AllowAutoRedirect=false,UseProxy=false,UseCookies=false,AutomaticDecompression=DecompressionMethods.None};
         using var client=new HttpClient(handler){Timeout=Timeout.InfiniteTimeSpan};
         // Fixed resource allowlist. No arbitrary URLs, form requests, or write methods.
-        var path=resource switch
+        var path=detail is AccountingDetailResource target ? (target switch
+        {
+            AccountingDetailResource.Invoice=>"sales-invoice-form/",
+            AccountingDetailResource.Receipt=>"receipt-form/",
+            AccountingDetailResource.Payment=>"payment-form/",
+            AccountingDetailResource.ProfitAndLossAccount=>"profit-and-loss-statement-account-form/",
+            _=>throw new ArgumentOutOfRangeException(nameof(detail))
+        })+detailKey!.Value.ToString("D") : resource switch
         {
             AccountingDiscoveryResource.IdentityFields=>markerName==null?"text-custom-fields?skip=0&pageSize=2":"text-custom-fields?term="+Uri.EscapeDataString(markerName)+"&skip=0&pageSize=2",
             AccountingDiscoveryResource.ChartOfAccounts=>"chart-of-accounts?fields=Key&fields=Code&fields=Name",
@@ -84,6 +94,7 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             buffer.Position=0;
             using var json=await JsonDocument.ParseAsync(buffer,cancellationToken:ct).ConfigureAwait(false);
             var kind=json.RootElement.ValueKind;
+            if(detail.HasValue)return AccountingDetailSchema.Describe(json.RootElement,detail.Value);
             if(markerName!=null)return BusinessMarker.Parse(json.RootElement,markerName);
             if(readFinancial)
             {
