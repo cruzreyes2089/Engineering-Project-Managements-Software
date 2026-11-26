@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record OwnerApprovalPolicy(long? EventId,bool Enabled,bool Eligible,string? Reason);
 public sealed record OwnerPolicyEvent(long Id,string Owner,string Change,string Reason,string Actor,string RecordedUtc);
