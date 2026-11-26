@@ -35,5 +35,31 @@ internal static class TestLedgerReconciliationTests
   check(TestLedgerReconciliation.Evaluate(a,new[]{wrong1,wrong2},new[]{receipt},new[]{payment},summary).Differences.Contains("InvoiceBalance"),"offsetting invoice discrepancies detected despite equal totals");
   check(TestLedgerReconciliation.Evaluate(a,new[]{invoice},new[]{receipt with{Amount=15m},receipt with{Key=Guid.NewGuid(),Amount=25m}},new[]{payment},ledger).Matches,"multiple explicit allocations reconcile");
   check(!Eval().ToString().Contains(customer.ToString()),"reconciliation status does not expose identifiers");
+  PostingSandboxRegression(check,a,customer);
+ }
+ // Synthetic posting sandbox acceptance values, normalized independently of the API.
+ // This is not a live API test or a certification of the posting journal.
+ private static void PostingSandboxRegression(Action<bool,string> check,TestLedgerAccounts accounts,Guid customer)
+ {
+  var i=new TestLedgerInvoice(Guid.NewGuid(),customer,accounts.ServiceIncome,125m,75m);
+  var r=new TestLedgerReceipt(Guid.NewGuid(),customer,i.Key,accounts.Cash,50m);
+  var p=new TestLedgerPayment(Guid.NewGuid(),accounts.Cash,accounts.OfficeExpense,20m);
+  var observed=new TestLedgerBalances(75m,30m,125m,20m,105m,0m,105m,105m);
+  TestLedgerReconciliationResult Reconcile(TestLedgerInvoice invoice,TestLedgerReceipt receipt,TestLedgerPayment payment,TestLedgerBalances summary)
+   =>TestLedgerReconciliation.Evaluate(accounts,new[]{invoice},new[]{receipt},new[]{payment},summary);
+  var result=Reconcile(i,r,p,observed);
+  check(result.Matches&&result.Calculated==observed,"posting sandbox: accepted invoice, receipt, expense and independently observed summary");
+  check(Reconcile(i with{ReportedBalance=125m},r,p,observed).Differences.Contains("InvoiceBalance"),"posting sandbox: unallocated receipt balance rejected");
+  check(Reconcile(i,r with{Customer=Guid.NewGuid()},p,observed).Outcome=="Blocked","posting sandbox: wrong receipt customer rejected");
+  check(Reconcile(i,r with{Invoice=Guid.NewGuid()},p,observed).Outcome=="Blocked","posting sandbox: wrong allocated invoice rejected");
+  check(Reconcile(i,r,p with{ExpenseAccount=accounts.ServiceIncome},observed).Outcome=="Blocked","posting sandbox: expense misclassification rejected");
+  check(Reconcile(i,r,p with{CashAccount=Guid.NewGuid()},observed).Outcome=="Blocked","posting sandbox: wrong payment bank rejected");
+  check(Reconcile(i,r,p,observed with{Income=175m,Profit=155m,Equity=155m}).Differences.Contains("Income"),"posting sandbox: duplicate income from receipt rejected");
+  check(Reconcile(i,r,p,observed with{Cash=50m}).Differences.Contains("Cash"),"posting sandbox: missing cash reduction rejected");
+  check(TestLedgerReconciliation.Evaluate(accounts,new[]{i},new[]{r,r},new[]{p},observed).Outcome=="Blocked","posting sandbox: duplicate receipt GUID rejected");
+  check(TestLedgerReconciliation.Evaluate(accounts,new[]{i},new[]{r},new[]{p,p},observed).Outcome=="Blocked","posting sandbox: duplicate payment GUID rejected");
+  var duplicatePayment=TestLedgerReconciliation.Evaluate(accounts,new[]{i},new[]{r},new[]{p,p with{Key=Guid.NewGuid()}},observed);
+  check(duplicatePayment.Outcome=="Mismatch"&&duplicatePayment.Differences.Contains("Expenses"),"posting sandbox: additional expense with distinct GUID detected against independent summary");
+
  }
 }
