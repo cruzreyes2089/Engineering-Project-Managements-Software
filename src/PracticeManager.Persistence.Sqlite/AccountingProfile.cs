@@ -57,7 +57,8 @@ public sealed partial class LocalPractice
  public Task<AccountingProbeResult> InspectSavedCustomersAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(true,ct);
  public Task<AccountingProbeResult> ReadSavedCustomersAsync(int skip,CancellationToken ct=default)=>UseSavedAccountingProfileAsync(false,ct,skip);
  public Task<AccountingProbeResult> InspectSavedResourceAsync(AccountingDiscoveryResource resource,CancellationToken ct=default)=>UseSavedAccountingProfileAsync(true,ct,resource:resource);
- private async Task<AccountingProbeResult> UseSavedAccountingProfileAsync(bool inspect,CancellationToken ct,int? customerSkip=null,AccountingDiscoveryResource? resource=null)
+ public Task<AccountingProbeResult> ReadSavedAccountsAsync(CancellationToken ct=default)=>UseSavedAccountingProfileAsync(false,ct,readAccounts:true);
+ private async Task<AccountingProbeResult> UseSavedAccountingProfileAsync(bool inspect,CancellationToken ct,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false)
  {
   long actor;StoredProfile? profile;var generation=sessionGeneration;
   using(var c=Open())using(var t=c.BeginTransaction()){
@@ -69,7 +70,7 @@ public sealed partial class LocalPractice
   try{clear=ProtectedData.Unprotect(profile.ProtectedValue,Context(actor,profile.Endpoint),DataProtectionScope.CurrentUser);}
   catch(CryptographicException){return new("CredentialUnavailable");}
   AccountingProbeResult result;
-  try{var probe=new ManagerDesktopProbe();var key=Encoding.UTF8.GetString(clear);result=resource is AccountingDiscoveryResource target?await probe.InspectResourceAsync(profile.Endpoint,key,target,ct):customerSkip is int offset?await probe.ReadCustomerPageAsync(profile.Endpoint,key,offset,ct):inspect?await probe.InspectCustomersAsync(profile.Endpoint,key,ct):await probe.TestAsync(profile.Endpoint,key,ct);}
+  try{var probe=new ManagerDesktopProbe();var key=Encoding.UTF8.GetString(clear);result=readAccounts?await probe.ReadAccountsAsync(profile.Endpoint,key,ct):resource is AccountingDiscoveryResource target?await probe.InspectResourceAsync(profile.Endpoint,key,target,ct):customerSkip is int offset?await probe.ReadCustomerPageAsync(profile.Endpoint,key,offset,ct):inspect?await probe.InspectCustomersAsync(profile.Endpoint,key,ct):await probe.TestAsync(profile.Endpoint,key,ct);}
   finally{CryptographicOperations.ZeroMemory(clear);}
   using var write=Open();using var tx=write.BeginTransaction(deferred:false);
   CheckProfileSession(write,tx,generation,actor,false);
@@ -79,7 +80,7 @@ public sealed partial class LocalPractice
    Exec(write,tx,"UPDATE accounting_profiles SET last_success_utc=$s WHERE user_id=$id AND revision=$r",("$s",UtcNow()),("$id",actor),("$r",profile.Revision));
    tx.Commit();
   }
-  return result.Success&&(customerSkip.HasValue||resource.HasValue)?result with {ProfileRevision=profile.Revision}:result;
+  return result.Success&&(customerSkip.HasValue||resource.HasValue||readAccounts)?result with {ProfileRevision=profile.Revision}:result;
  }
  public void RemoveAccountingProfile()
  {

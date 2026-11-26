@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace PracticeManager.Core;
 
-public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,string? JsonShape=null,string? SchemaSummary=null,AccountingCustomerPage? CustomerPage=null,string? ProfileRevision=null)
+public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,string? JsonShape=null,string? SchemaSummary=null,AccountingCustomerPage? CustomerPage=null,string? ProfileRevision=null,AccountingAccountRegister? Accounts=null)
 {
     public bool Success => Outcome=="Connected";
 }
@@ -22,11 +22,13 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         =>skip<0||skip>int.MaxValue-20?Task.FromResult(new AccountingProbeResult("InvalidPage")):RequestAsync(endpoint,secret,false,cancellationToken,skip);
     public Task<AccountingProbeResult> InspectResourceAsync(string endpoint,string secret,AccountingDiscoveryResource resource,CancellationToken cancellationToken=default)
         => Enum.IsDefined(resource)?RequestAsync(endpoint,secret,true,cancellationToken,resource:resource):Task.FromResult(new AccountingProbeResult("InvalidResource"));
+    public Task<AccountingProbeResult> ReadAccountsAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
+        =>RequestAsync(endpoint,secret,false,cancellationToken,resource:AccountingDiscoveryResource.ChartOfAccounts,readAccounts:true);
     private const int MaxResponseBytes = 1_048_576;
     public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,false,cancellationToken);
 
-    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null)
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -76,6 +78,11 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             buffer.Position=0;
             using var json=await JsonDocument.ParseAsync(buffer,cancellationToken:ct).ConfigureAwait(false);
             var kind=json.RootElement.ValueKind;
+            if(readAccounts)
+            {
+                var accounts=AccountingAccountParser.Parse(json.RootElement);
+                return accounts==null?new("InvalidAccountRegister",code):new("Connected",code,"Object",Accounts:accounts);
+            }
             if(customerSkip is int requested)
             {
                 var page=AccountingCustomerPageParser.Parse(json.RootElement,requested);
