@@ -59,7 +59,8 @@ internal static class NativeWireFixtureReviewTests
   check(batch.Outcome=="MatchedForReview"&&batch.Findings.Count==3&&batch.Reconciliation?.Matches==true,"single two-sweep batch reconciles three exact documents and independent summary");
   check((await Batch(accounts,balances with{Cash=31})).Reconciliation?.Outcome=="Mismatch","batch detects independent cash mismatch");
   check((await Batch(accounts with{Receivables=Guid.NewGuid()},balances)).Findings.All(x=>x.Reason=="NativeFixtureReceivablesAccountMismatch"),"batch verifies receipt ledger account");
-  var allocation=await Batch(accounts,balances,route=>route==$"receipt-form/{rc}"?Form(receipt with{AllocatedInvoiceKey=Guid.NewGuid()},rc):responses[route]);
+  var wrongInvoice=Guid.NewGuid(); // identical conflicting allocation in both sweeps
+  var allocation=await Batch(accounts,balances,route=>route==$"receipt-form/{rc}"?Form(receipt with{AllocatedInvoiceKey=wrongInvoice},rc):responses[route]);
   check(allocation.Reconciliation?.Outcome=="Blocked"&&allocation.Findings[1].Finding==SyntheticRecoveryFinding.Conflict,"batch rejects wrong invoice allocation");
   var wrongBalance=await Batch(accounts,balances,route=>route=="sales-invoices"?J(new{business,skip=0,pageSize=20,totalRecords=1,salesInvoices=new[]{new{key=iv,invoiceAmount=Money(125),balanceDue=Money(76)}}}):responses[route]);
   check(wrongBalance.Reconciliation?.Differences.Contains("InvoiceBalance")==true&&wrongBalance.Outcome=="ReviewRequired","batch rejects individual outstanding balance mismatch");

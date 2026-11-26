@@ -49,5 +49,15 @@ internal static class SyntheticWireAttemptTests
   check(s.PrepareSyntheticWireDraft(third).Outcome=="Prepared"&&s.ApproveSyntheticWireDraft(third.OperationKey,thirdHash).Outcome=="Approved"&&s.ReserveSyntheticWireAttempt(third.OperationKey,thirdHash).Outcome=="UnresolvedRehearsal","uncertainty blocks subsequent dispatch reservations");
   check(s.DeclareAccountingLifecycleHold(LifecycleHoldReason.Restore).Outcome=="LifecycleHold"&&s.ReadSyntheticWireAttempt(other.OperationKey).State=="Uncertain","hold preserves uncertain attempt history");
   check(s.ReadSyntheticWireAttemptStatus()==new WireAttemptStatus(0,0,1,0,1),"reviewed and uncertain attempt counts retained");
+  var page=s.ReadSyntheticWireHistory(pageSize:2);
+  check(page.Items.Count==2&&page.NextBeforeId.HasValue&&page.Items[0].Reference==SyntheticWireCompiler.Compile(third).Reference&&page.Items[0].AttemptState=="NotAttempted","history newest first and bounded");
+  var tail=s.ReadSyntheticWireHistory(beforeId:page.NextBeforeId,pageSize:2);
+  check(tail.Items.Count==1&&tail.NextBeforeId==null&&tail.Items[0].AttemptState=="ReviewedSimulation","history pagination no duplicate or omission");
+  var pending=s.ReadSyntheticWireHistory(unresolvedOnly:true);
+  check(pending.Items.Count==1&&pending.Items[0].Reference==SyntheticWireCompiler.Compile(other).Reference&&pending.Items[0].AttemptState=="Uncertain"&&pending.Items[0].Reason=="WitnessUnavailableOrExisting","unresolved history survives lifecycle hold");
+  check(!pending.Items[0].ToString().Contains(second.AttemptKey!.Value.ToString("D")),"history never returns attempt capability");
+  try{s.ReadSyntheticWireHistory(pageSize:101);throw new Exception("FAIL: history bounds");}catch(ArgumentOutOfRangeException){check(true,"history page size capped");}
+  s.Logout();
+  try{s.ReadSyntheticWireHistory();throw new Exception("FAIL: history authorization");}catch(UnauthorizedAccessException){check(true,"history requires authenticated accounting grants");}
  }
 }

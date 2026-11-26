@@ -22,6 +22,9 @@ internal sealed class AccountingPostingSafetyWindow:Window
   panel.Children.Add(wireReport);
   panel.Children.Add(new TextBlock{Text="Synthetic attempt history (offline only)",FontWeight=FontWeights.SemiBold});
   panel.Children.Add(attemptReport);
+  var history=new Button{Content="Inspect transaction history (read only)",Margin=new Thickness(0,8,0,8),Padding=new Thickness(8)};
+  history.Click+=(_,_)=>new AccountingWireHistoryWindow(service){Owner=this}.ShowDialog();
+  panel.Children.Add(history);
   panel.Children.Add(new TextBlock{Text="Declare a hold only if a clone, restore or suspected identity change has occurred. This is sticky; there is no reset in this version. Read-only inspection remains available.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)});
   reason.ItemsSource=Enum.GetValues<LifecycleHoldReason>();reason.SelectedIndex=-1;
   panel.Children.Add(reason);panel.Children.Add(declare);
