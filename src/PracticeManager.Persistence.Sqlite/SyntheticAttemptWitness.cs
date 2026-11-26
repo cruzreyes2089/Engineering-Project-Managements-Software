@@ -60,26 +60,28 @@ public sealed class SyntheticAttemptWitness
    if(intent.MarkerKey!=marker||attempt==Guid.Empty||attempt==intent.OperationKey||attempt==store||attempt==marker)return Block("WitnessScopeMismatch");
    if(!files.TryAdd(intent.OperationKey.ToString("N")+".attempt",AttemptBytes(SyntheticWireCompiler.Compile(intent),attempt)))return Block("DuplicateAttemptIdentity");
   }
-  WitnessComparison Scan()
+  (WitnessComparison Result,string[] Findings) Scan()
   {
-   if(!RootOrdinary()||!SameFile(Path.Combine(root,ScopeFile),ScopeBytes()))return Block("WitnessScopeMismatch");
+   (WitnessComparison,string[]) Stop(string reason)=>(Block(reason),Array.Empty<string>());
+   if(!RootOrdinary()||!SameFile(Path.Combine(root,ScopeFile),ScopeBytes()))return Stop("WitnessScopeMismatch");
    var entries=Directory.EnumerateFileSystemEntries(root).Take(502).ToArray();
-   if(entries.Length>501)return Block("WitnessInventoryLimit");
-   var seen=new HashSet<string>(StringComparer.Ordinal);int exact=0,conflict=0,orphans=0;
+   if(entries.Length>501)return Stop("WitnessInventoryLimit");
+   var seen=new HashSet<string>(StringComparer.Ordinal);var findings=new List<string>();int exact=0,conflict=0,orphans=0;
    foreach(var entry in entries){
     var name=Path.GetFileName(entry);
     if(name==ScopeFile)continue;
-    if(!seen.Add(name))return Block("DuplicateWitnessEntry");
-    if(!files.TryGetValue(name,out var bytes)){orphans++;continue;}
-    try{if(SameFile(entry,bytes))exact++;else conflict++;}
-    catch(IOException){conflict++;}catch(UnauthorizedAccessException){conflict++;}
+    if(!seen.Add(name))return Stop("DuplicateWitnessEntry");
+    if(!files.TryGetValue(name,out var bytes)){orphans++;findings.Add("Unexpected:"+name);continue;}
+    try{if(SameFile(entry,bytes)){exact++;findings.Add("Exact:"+name);}else{conflict++;findings.Add("Conflict:"+name);}}
+    catch(IOException){conflict++;findings.Add("Unreadable:"+name);}catch(UnauthorizedAccessException){conflict++;findings.Add("Unreadable:"+name);}
    }
-   int missing=files.Keys.Count(x=>!seen.Contains(x));
+   var absent=files.Keys.Where(x=>!seen.Contains(x)).ToArray();int missing=absent.Length;findings.AddRange(absent.Select(x=>"Missing:"+x));
    var unresolved=expected.Count(x=>x.State!="ReviewedSimulation");
-   return new(missing+conflict+orphans+unresolved==0?"MatchedForReview":"WitnessReviewRequired",expected.Count,exact,missing,conflict,orphans,unresolved);
+   return (new(missing+conflict+orphans+unresolved==0?"MatchedForReview":"WitnessReviewRequired",expected.Count,exact,missing,conflict,orphans,unresolved),findings.OrderBy(x=>x,StringComparer.Ordinal).ToArray());
   }
   try{
-   var first=Scan();var second=Scan();return first==second?second:Block("WitnessInventoryChanged");
+   if(OperatingSystem.IsWindows()&&(root.StartsWith(@"\\",StringComparison.Ordinal)||new DriveInfo(Path.GetPathRoot(root)!).DriveType!=DriveType.Fixed))return Block("LocalFixedWitnessRequired");
+   var first=Scan();var second=Scan();return first.Result==second.Result&&first.Findings.SequenceEqual(second.Findings)?second.Result:Block("WitnessInventoryChanged");
   }catch(IOException){return Block("WitnessUnavailable");}
    catch(UnauthorizedAccessException){return Block("WitnessUnavailable");}
  }
