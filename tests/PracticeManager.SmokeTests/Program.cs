@@ -105,6 +105,7 @@ try{
  await AccountingDetailTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"detail.db"),pw,Check);
  TestLedgerReconciliationTests.Run(Check);
  SyntheticRecoveryReviewTests.Run(Check);
+ SyntheticWireCompilerTests.Run(Check);
  SyntheticDetailValidatorTests.Run(Check);
  await SyntheticAcquisitionTests.Run(Check);
  await PostingRehearsalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"rehearsal.db"),pw,Check);
