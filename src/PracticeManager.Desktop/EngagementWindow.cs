@@ -36,7 +36,12 @@ internal sealed class EngagementWindow:Window
   var actions=new WrapPanel();actions.Children.Add(openProject);
   var plan=new Button{Content="Plan phases and tasks",Margin=new Thickness(2)};plan.IsEnabled=service.Can("Projects.Plan")&&service.Can("Employees.View");
   plan.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectPlanningWindow(service,p.Id){Owner=this}.ShowDialog();});
-  actions.Children.Add(plan);DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
+  actions.Children.Add(plan);
+  var documents=new Button{Content="Documents",Margin=new Thickness(2),IsEnabled=service.Can("Documents.View")};
+  documents.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectDocumentsWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(documents);
+  var quality=new Button{Content="QA/QC and scope",Margin=new Thickness(2),IsEnabled=service.Can("QA.View")};
+  quality.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectQualityWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(quality);
+  DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
   root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh();proposals.SelectionChanged+=(_,_)=>UpdateButtons();Refresh();
  }
  ProposalSummary Selected()=>proposals.SelectedItem as ProposalSummary??throw new ArgumentException("Select a proposal.");
