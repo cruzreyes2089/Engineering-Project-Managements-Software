@@ -94,6 +94,7 @@ public sealed partial class LocalPractice
   Exec(c,t,"INSERT INTO projects(project_no,engagement_id,state,setup_state,created_by,created_utc) VALUES($n,$e,'Pending','NotStarted',$a,$u)",("$n",number),("$e",engagement),("$a",actor),("$u",UtcNow()));var project=Last(c,t);Audit(c,t,actor,"CreatePending","Project",project);
   t.Commit();return new("Accepted",project,number);
  }
+ // Historical method name retained for compatibility; register now includes both Pending and Active projects.
  public IReadOnlyList<PendingProject> SearchPendingProjects(string search="")
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Projects.View");Require(c,t,"Clients.View");

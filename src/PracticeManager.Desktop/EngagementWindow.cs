@@ -9,7 +9,7 @@ internal sealed class EngagementWindow:Window
 {
  readonly LocalPractice service;
  readonly DataGrid proposals=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
- readonly DataGrid projects=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false};
+ readonly DataGrid projects=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly TextBox search=new(){MaxLength=150};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
  readonly Button edit=new(){Content="Edit draft"},issue=new(){Content="Record issued"},accept=new(){Content="Record accepted"},reject=new(){Content="Record rejected"},snapshot=new(){Content="View frozen snapshot"};
@@ -29,7 +29,11 @@ internal sealed class EngagementWindow:Window
   var refresh=new Button{Content="Refresh"};create.Click+=(_,_)=>Run(()=>Edit(null));edit.Click+=(_,_)=>Run(()=>Edit(Selected()));issue.Click+=(_,_)=>Run(Issue);accept.Click+=(_,_)=>Run(()=>Decision(true));reject.Click+=(_,_)=>Run(()=>Decision(false));snapshot.Click+=(_,_)=>Run(()=>ShowSnapshot(Selected()));refresh.Click+=(_,_)=>Refresh();
   foreach(var b in new[]{create,edit,issue,accept,reject,snapshot,refresh}){b.Margin=new Thickness(2);buttons.Children.Add(b);}
   DockPanel.SetDock(buttons,Dock.Top);pp.Children.Add(buttons);pp.Children.Add(proposals);
-  tabs.Items.Add(new TabItem{Header="Proposals",Content=pp});tabs.Items.Add(new TabItem{Header="Pending projects",Content=projects});
+  tabs.Items.Add(new TabItem{Header="Proposals",Content=pp});
+  var projectPanel=new DockPanel();var openProject=new Button{Content="Open selected project",Margin=new Thickness(2),IsEnabled=false};
+  projects.SelectionChanged+=(_,_)=>openProject.IsEnabled=projects.SelectedItem is PendingProject;
+  openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectHandoffWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
+  DockPanel.SetDock(openProject,Dock.Top);projectPanel.Children.Add(openProject);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
   root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh();proposals.SelectionChanged+=(_,_)=>UpdateButtons();Refresh();
  }
  ProposalSummary Selected()=>proposals.SelectedItem as ProposalSummary??throw new ArgumentException("Select a proposal.");
