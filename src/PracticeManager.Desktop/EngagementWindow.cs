@@ -33,7 +33,10 @@ internal sealed class EngagementWindow:Window
   var projectPanel=new DockPanel();var openProject=new Button{Content="Open selected project",Margin=new Thickness(2),IsEnabled=false};
   projects.SelectionChanged+=(_,_)=>openProject.IsEnabled=projects.SelectedItem is PendingProject;
   openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectHandoffWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
-  DockPanel.SetDock(openProject,Dock.Top);projectPanel.Children.Add(openProject);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
+  var actions=new WrapPanel();actions.Children.Add(openProject);
+  var plan=new Button{Content="Plan phases and tasks",Margin=new Thickness(2)};plan.IsEnabled=service.Can("Projects.Plan")&&service.Can("Employees.View");
+  plan.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectPlanningWindow(service,p.Id){Owner=this}.ShowDialog();});
+  actions.Children.Add(plan);DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
   root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh();proposals.SelectionChanged+=(_,_)=>UpdateButtons();Refresh();
  }
  ProposalSummary Selected()=>proposals.SelectedItem as ProposalSummary??throw new ArgumentException("Select a proposal.");
