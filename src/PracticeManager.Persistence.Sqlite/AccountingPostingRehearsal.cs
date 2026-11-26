@@ -2,6 +2,12 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 
+public sealed record PostingRehearsalStatus(string? HoldReason,int Reserved,int InFlight,int Uncertain,int SimulatedConfirmed,int Cancelled)
+{
+ public bool Held=>HoldReason!=null;
+ public override string ToString()=>"[Offline posting rehearsal status]";
+}
+
 // Offline rehearsal journal. No transport, no Manager credentials, no real
 // dispatch or posting permission; simulated external IDs cannot become mappings.
 public sealed partial class LocalPractice
@@ -99,6 +105,13 @@ public sealed partial class LocalPractice
   if(LifecycleHeld(c,t))return new("LifecycleHold");
   Exec(c,t,"INSERT INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) VALUES(1,$r,$a,$u)",("$r",reason.ToString()),("$a",actor),("$u",UtcNow()));
   Audit(c,t,actor,"DeclareLifecycleHold","AccountingLifecycleHold",1);t.Commit();return new("LifecycleHold");
+ }
+ public PostingRehearsalStatus ReadPostingRehearsalStatus()
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireRehearsal(c,t);
+  var hold=Scalar(c,t,"SELECT reason FROM accounting_lifecycle_hold WHERE id=1") as string;
+  int Count(string state)=>Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM accounting_posting_rehearsals WHERE state=$s",("$s",state)));
+  return new(hold,Count("Reserved"),Count("InFlight"),Count("Uncertain"),Count("SimulatedConfirmed"),Count("Cancelled"));
  }
  public bool IsAccountingLifecycleHeld()
  {
