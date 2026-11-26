@@ -4,6 +4,7 @@ internal static class ConflictReviewTests
 {
  public static string Issue(LocalPractice s,long id,int revision)
  {
+  if(!s.ReadJurisdictionPolicy().Any(x=>x.Jurisdiction=="Synthetic jurisdiction"))s.RecordJurisdictionPolicy("Synthetic jurisdiction",null,"EligibleForScreening","Synthetic policy evidence",true);
   s.RecordProposalConflictReview(id,revision,s.ReadProposalConflictHistory(id).FirstOrDefault()?.Id,new("Synthetic jurisdiction","No","No","No","No","Synthetic evidence, not actual clearance"),true);
   return s.RecordProposalIssued(id,revision);
  }
@@ -29,6 +30,17 @@ internal static class ConflictReviewTests
   Invalid(()=>s.RecordProposalIssued(draft,2),"draft edit invalidates pre-engagement review");
   Invalid(()=>s.RecordProposalConflictReview(draft,1,pre.Id,input,true),"stale draft review rejected");
   check(Issue(s,draft,2).Length==64&&s.ReadProposalConflictHistory(draft).Count==3,"revised draft reviewed and history retained");
+  var unlisted=s.CreateProposal(draftInput);
+  check(s.RecordProposalConflictReview(unlisted,1,null,input with{Jurisdiction="Unknown place"},true).Disposition=="Hold","unregistered jurisdiction cannot be cleared by manual answers");
+  Invalid(()=>s.RecordProposalIssued(unlisted,1),"unknown policy blocks issue");
+  var policy=s.ReadJurisdictionPolicy().Single(x=>x.Jurisdiction=="Synthetic jurisdiction");
+  var restrictedPolicy=s.RecordJurisdictionPolicy("synthetic jurisdiction",policy.Id,"Restricted","Synthetic restriction",true);
+  var blockedDraft=s.CreateProposal(draftInput);
+  check(s.RecordProposalConflictReview(blockedDraft,1,null,input,true).Disposition=="Hold","restricted policy overrides No answers");
+  Invalid(()=>s.RecordProposalIssued(blockedDraft,1),"restricted policy blocks issue");
+  var eligible=s.RecordJurisdictionPolicy("Synthetic jurisdiction",restrictedPolicy.Id,"EligibleForScreening","Synthetic new evidence",true);
+  Invalid(()=>s.RecordProposalIssued(blockedDraft,1),"later eligibility does not revive old review");
+  check(Issue(s,blockedDraft,1).Length==64,"fresh review required after policy changes");
   Invalid(()=>s.RecordConflictReview(project,null,input,false),"confirmation required");
   var held=s.RecordConflictReview(project,null,input with{RestrictedJurisdiction="Unknown"},true);
   check(held.Disposition=="Hold"&&Start()=="ConflictReviewRequired","unknown jurisdiction blocks start");
@@ -41,7 +53,13 @@ internal static class ConflictReviewTests
   var hold=s.RecordConflictReview(project,clear.Id,input with{PublicDutyOverlap="Yes"},true);
   Invalid(()=>s.AdvanceMyTask(task,1,"InProgress"),"new conflict blocks task start on active project");
   Invalid(()=>s.DecideScopeChange(project,scope,true,"Reviewed",true),"new conflict blocks additional scope authorization");
-  s.RecordConflictReview(project,hold.Id,input with{Evidence="Synthetic corrected facts"},true);s.AdvanceMyTask(task,1,"InProgress");
-  check(s.ReadMyWork(day,day).Single().State=="InProgress"&&s.ReadConflictHistory(project).Count==5,"new reviewed clearance preserves prior holds");
+  var fresh=s.RecordConflictReview(project,hold.Id,input with{Evidence="Synthetic corrected facts"},true);
+  var policyHold=s.RecordJurisdictionPolicy("Synthetic jurisdiction",eligible.Id,"Unverified","Synthetic policy change",true);
+  check(s.ReadProjectConflictStatus(project)=="Hold","changed jurisdiction policy invalidates active project clearance");
+  Invalid(()=>s.AdvanceMyTask(task,1,"InProgress"),"changed policy blocks new work");
+  s.RecordJurisdictionPolicy("Synthetic jurisdiction",policyHold.Id,"EligibleForScreening","Synthetic policy reconsidered",true);
+  Invalid(()=>s.AdvanceMyTask(task,1,"InProgress"),"reinstated jurisdiction needs fresh review");
+  s.RecordConflictReview(project,fresh.Id,input,true);s.AdvanceMyTask(task,1,"InProgress");
+  check(s.ReadMyWork(day,day).Single().State=="InProgress"&&s.ReadConflictHistory(project).Count==6,"new reviewed clearance preserves prior holds");
  }
 }
