@@ -100,5 +100,6 @@ try{
  await AccountingDiscoveryTests.Run(legacyPath,pw,Check);
  await AccountingAccountTests.Run(legacyPath,pw,Check);
  await AccountingMarkerTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"marker.db"),pw,Check);
+ await AccountingFinancialTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"financial.db"),pw,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}

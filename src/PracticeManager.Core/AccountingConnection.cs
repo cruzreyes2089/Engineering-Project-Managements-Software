@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 namespace PracticeManager.Core;
 
-public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,string? JsonShape=null,string? SchemaSummary=null,AccountingCustomerPage? CustomerPage=null,string? ProfileRevision=null,AccountingAccountRegister? Accounts=null,Guid? MarkerKey=null)
+public sealed record AccountingProbeResult(string Outcome,int? StatusCode=null,string? JsonShape=null,string? SchemaSummary=null,AccountingCustomerPage? CustomerPage=null,string? ProfileRevision=null,AccountingAccountRegister? Accounts=null,Guid? MarkerKey=null,FinancialPage? Financial=null)
 {
     public bool Success => Outcome=="Connected";
     public override string ToString()=>$"Accounting result: {Outcome}, HTTP {StatusCode}";
@@ -27,11 +27,14 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         =>RequestAsync(endpoint,secret,false,cancellationToken,resource:AccountingDiscoveryResource.ChartOfAccounts,readAccounts:true);
     public Task<AccountingProbeResult> FindMarkerAsync(string endpoint,string secret,string markerName,CancellationToken cancellationToken=default)
         =>!BusinessMarker.ValidName(markerName)?Task.FromResult(new AccountingProbeResult("InvalidMarker")):RequestAsync(endpoint,secret,false,cancellationToken,resource:AccountingDiscoveryResource.IdentityFields,markerName:markerName);
+    public Task<AccountingProbeResult> ReadFinancialPageAsync(string endpoint,string secret,AccountingDiscoveryResource resource,CancellationToken ct=default)
+        =>resource is AccountingDiscoveryResource.SalesInvoices or AccountingDiscoveryResource.Receipts or AccountingDiscoveryResource.Payments
+            ?RequestAsync(endpoint,secret,false,ct,resource:resource,readFinancial:true):Task.FromResult(new AccountingProbeResult("InvalidResource"));
     private const int MaxResponseBytes = 1_048_576;
     public Task<AccountingProbeResult> TestAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
         =>RequestAsync(endpoint,secret,false,cancellationToken);
 
-    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false,string? markerName=null)
+    private async Task<AccountingProbeResult> RequestAsync(string endpoint,string secret,bool inspect,CancellationToken cancellationToken,int? customerSkip=null,AccountingDiscoveryResource? resource=null,bool readAccounts=false,string? markerName=null,bool readFinancial=false)
     {
         var match=Regex.Match(endpoint?.Trim()??"", @"\Ahttp://127\.0\.0\.1:([0-9]{1,5})/api2/?\z",RegexOptions.CultureInvariant);
         if(!match.Success || !int.TryParse(match.Groups[1].Value,out var port) || port<1 || port>65535)
@@ -50,9 +53,9 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
         {
             AccountingDiscoveryResource.IdentityFields=>markerName==null?"text-custom-fields?skip=0&pageSize=2":"text-custom-fields?term="+Uri.EscapeDataString(markerName)+"&skip=0&pageSize=2",
             AccountingDiscoveryResource.ChartOfAccounts=>"chart-of-accounts?fields=Key&fields=Code&fields=Name",
-            AccountingDiscoveryResource.SalesInvoices=>"sales-invoices?skip=0&pageSize=2",
-            AccountingDiscoveryResource.Receipts=>"receipts?skip=0&pageSize=2",
-            AccountingDiscoveryResource.Payments=>"payments?skip=0&pageSize=2",
+            AccountingDiscoveryResource.SalesInvoices=>"sales-invoices?skip=0&pageSize="+(readFinancial?"20":"2"),
+            AccountingDiscoveryResource.Receipts=>"receipts?skip=0&pageSize="+(readFinancial?"20":"2"),
+            AccountingDiscoveryResource.Payments=>"payments?skip=0&pageSize="+(readFinancial?"20":"2"),
             null=>"customers"+(customerSkip is int offset?"?skip="+offset.ToString(System.Globalization.CultureInfo.InvariantCulture)+"&pageSize=20":inspect?"?skip=0&pageSize=2":""),
             _=>throw new ArgumentOutOfRangeException(nameof(resource))
         };
@@ -82,6 +85,11 @@ public sealed class ManagerDesktopProbe : IAccountingConnectionProbe
             using var json=await JsonDocument.ParseAsync(buffer,cancellationToken:ct).ConfigureAwait(false);
             var kind=json.RootElement.ValueKind;
             if(markerName!=null)return BusinessMarker.Parse(json.RootElement,markerName);
+            if(readFinancial)
+            {
+                var parsed=FinancialPageParser.Parse(json.RootElement,resource!.Value);
+                return parsed;
+            }
             if(readAccounts)
             {
                 var accounts=AccountingAccountParser.Parse(json.RootElement);
