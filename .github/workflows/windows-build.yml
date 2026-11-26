@@ -33,6 +33,9 @@ jobs:
       - name: Build, smoke test and publish
         shell: pwsh
         run: ./BUILD_AND_TEST.ps1 -Publish
+      - name: Review direct and transitive NuGet dependencies
+        shell: pwsh
+        run: ./tools/security/Review-Dependencies.ps1
       - name: Inventory quarantined build (no distribution)
         shell: pwsh
         run: |
