@@ -90,7 +90,7 @@ try{
  Check(migrated.CanTestAccountingConnection()&&migrated.CanManageAccountingConnection(),"v1 upgrade seeds accounting grants");
  Check(migrated.Login("employee",pw),"v1 upgrade preserves employee login");
  Check(!migrated.CanTestAccountingConnection()&&!migrated.CanManageAccountingConnection(),"v1 upgrade does not grant employees accounting access");
- using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==26,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==27,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
  migrated=new LocalPractice(legacyPath);
  Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
 
@@ -128,5 +128,6 @@ try{
  OwnerApprovalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"owner-approval.db"),pw,Check);
  ConflictReviewTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"conflict-review.db"),pw,Check);
  ReviewDocxTests.Run(Check);
+ LegacyCrmTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"legacy-crm.db"),pw,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
