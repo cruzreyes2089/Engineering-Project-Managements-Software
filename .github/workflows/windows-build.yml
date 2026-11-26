@@ -19,13 +19,13 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, node24
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5, node24
         with:
           global-json-file: global.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, node24
         with:
           python-version: '3.12'
       - name: SQLite schema tests
@@ -33,13 +33,17 @@ jobs:
       - name: Build, smoke test and publish
         shell: pwsh
         run: ./BUILD_AND_TEST.ps1 -Publish
-      - name: Security hold notice
-        if: github.ref == 'refs/heads/milestone-04c/accounting-connection'
-        run: echo 'Executable distribution suspended pending security review.'
-      - uses: actions/upload-artifact@v4
-        if: github.ref != 'refs/heads/milestone-04c/accounting-connection'
-        with:
-          name: CRC-Practice-Manager-win-x64
-          path: artifacts/win-x64/
-          if-no-files-found: error
-          retention-days: 7
+      - name: Inventory quarantined build (no distribution)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Resolve-Path 'artifacts/win-x64').Path
+          $files = @(Get-ChildItem -LiteralPath $root -File -Recurse)
+          if ($files.Count -eq 0) { throw 'No build output to inventory.' }
+          Write-Host "Build file count: $($files.Count)"
+          $app = Join-Path $root 'CRC.PracticeManager.exe'
+          if (-not (Test-Path -LiteralPath $app -PathType Leaf)) { throw 'Missing application.' }
+          Get-FileHash -LiteralPath $app -Algorithm SHA256 | Select-Object Algorithm,Hash | Format-List
+          $sig = Get-AuthenticodeSignature -LiteralPath $app
+          Write-Host "Application Authenticode status: $($sig.Status)"
+          Write-Host 'Executable distribution suspended pending security review. No artifact upload.'
