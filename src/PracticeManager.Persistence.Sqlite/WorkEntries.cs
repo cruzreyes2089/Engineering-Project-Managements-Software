@@ -77,29 +77,29 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();RequireWorkReview(c,t,"Work.Review");DateRange(start,end,366);
   using var q=Command(c,t,"SELECT "+SubmissionColumns+",coalesce(r.decision,'Submitted'),trim(e.first_name||' '||e.last_name)"+SubmissionJoin+" WHERE s.work_date BETWEEN $s AND $d AND ($pending=0 OR r.submission_id IS NULL) ORDER BY s.work_date,s.id LIMIT 501",("$s",PlanDate(start)),("$d",PlanDate(end)),("$pending",pendingOnly?1:0));using var r=q.ExecuteReader();var rows=new List<WorkReviewRow>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Narrow date range.");rows.Add(new(r.GetInt64(0),r.GetString(10),r.GetString(1),r.GetString(2),r.GetString(3),ReadPlanDate(r.GetString(4)),ReadMinutes(r,5),ReadAmount(r,6),ReadCategory(r,7),r.GetString(8),r.GetString(9)));}return rows.AsReadOnly();
  }
- public string ReviewWork(long id,bool approved,string note)
+ public string ReviewWork(long id,bool approved,string note,bool confirmOwnerException=false)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireWorkReview(c,t,"Work.Review");
   var submitter=Scalar(c,t,"SELECT submitted_by FROM work_submissions WHERE id=$i",("$i",id));
   if(submitter is not long owner)return "NotRecorded";
-  if(owner==actor)throw new UnauthorizedAccessException("Self review prohibited.");
+  long? exception=null;if(owner==actor){if(!approved)throw new UnauthorizedAccessException("Self rejection not authorized.");exception=RequireOwnerException(c,t,actor,confirmOwnerException);}
   if(Scalar(c,t,"SELECT decision FROM work_reviews WHERE submission_id=$i",("$i",id)) is string prior)return "Already"+prior;
   var n=Validation.Text(note,1000,"Review evidence",true);var state=approved?"Approved":"Rejected";
-  Exec(c,t,"INSERT INTO work_reviews(submission_id,decision,note,reviewed_by,reviewed_utc) VALUES($i,$s,$n,$a,$u)",("$i",id),("$s",state),("$n",n),("$a",actor),("$u",UtcNow()));Audit(c,t,actor,"Review"+state,"WorkSubmission",id);t.Commit();return state;
+  Exec(c,t,"INSERT INTO work_reviews(submission_id,decision,note,reviewed_by,reviewed_utc,owner_exception_event_id) VALUES($i,$s,$n,$a,$u,$x)",("$i",id),("$s",state),("$n",n),("$a",actor),("$u",UtcNow()),("$x",exception));Audit(c,t,actor,exception.HasValue?"OwnerSelfReview"+state:"Review"+state,"WorkSubmission",id);t.Commit();return state;
  }
  public IReadOnlyList<WorkBillingRow> ReadBillingWork(DateOnly start,DateOnly end,bool unclassifiedOnly=true)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireWorkReview(c,t,"Billing.Classify");DateRange(start,end,366);
   using var q=Command(c,t,"SELECT "+SubmissionColumns+",coalesce(b.classification,'Unclassified'),trim(e.first_name||' '||e.last_name)"+SubmissionJoin+" LEFT JOIN work_billing_classifications b ON b.submission_id=s.id WHERE r.decision='Approved' AND s.work_date BETWEEN $s AND $d AND ($pending=0 OR b.submission_id IS NULL) ORDER BY s.work_date,s.id LIMIT 501",("$s",PlanDate(start)),("$d",PlanDate(end)),("$pending",unclassifiedOnly?1:0));using var r=q.ExecuteReader();var rows=new List<WorkBillingRow>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Narrow date range.");rows.Add(new(r.GetInt64(0),r.GetString(10),r.GetString(1),r.GetString(2),r.GetString(3),ReadPlanDate(r.GetString(4)),ReadMinutes(r,5),ReadAmount(r,6),ReadCategory(r,7),r.GetString(8),r.GetString(9)));}return rows.AsReadOnly();
  }
- public string ClassifyWork(long id,bool billable,string note)
+ public string ClassifyWork(long id,bool billable,string note,bool confirmOwnerException=false)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireWorkReview(c,t,"Billing.Classify");
   if(Scalar(c,t,"SELECT submitted_by FROM work_submissions WHERE id=$i",("$i",id)) is not long owner)return "NotRecorded";
-  if(owner==actor)throw new UnauthorizedAccessException("Self classification prohibited.");
+  long? exception=owner==actor?RequireOwnerException(c,t,actor,confirmOwnerException):null;
   if(!Equals(Scalar(c,t,"SELECT decision FROM work_reviews WHERE submission_id=$i",("$i",id)),"Approved"))return "ApprovalRequired";
   if(Scalar(c,t,"SELECT classification FROM work_billing_classifications WHERE submission_id=$i",("$i",id)) is string prior)return "Already"+prior;
   var n=Validation.Text(note,1000,"Billing classification evidence",true);var state=billable?"Billable":"Nonbillable";
-  Exec(c,t,"INSERT INTO work_billing_classifications(submission_id,classification,note,classified_by,classified_utc) VALUES($i,$s,$n,$a,$u)",("$i",id),("$s",state),("$n",n),("$a",actor),("$u",UtcNow()));Audit(c,t,actor,"Classify"+state,"WorkSubmission",id);t.Commit();return state;
+  Exec(c,t,"INSERT INTO work_billing_classifications(submission_id,classification,note,classified_by,classified_utc,owner_exception_event_id) VALUES($i,$s,$n,$a,$u,$x)",("$i",id),("$s",state),("$n",n),("$a",actor),("$u",UtcNow()),("$x",exception));Audit(c,t,actor,exception.HasValue?"OwnerSelfClassify"+state:"Classify"+state,"WorkSubmission",id);t.Commit();return state;
  }
 }

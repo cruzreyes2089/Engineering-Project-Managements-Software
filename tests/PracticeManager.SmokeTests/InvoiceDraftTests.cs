@@ -34,7 +34,10 @@ internal static class InvoiceDraftTests
   check(s.DecideInvoiceDraft(project,draft,detail.Summary.PayloadHash,false,"Recreate")=="Cancelled","unsent draft cancellation retained");
   check(s.ReadInvoiceCandidates(project,day).Count==2,"cancelled unsent draft releases work allocation");
   var next=s.CreateInvoiceDraft(input with{OperationKey=Guid.NewGuid()});var nextDetail=s.ReadInvoiceDraft(project,next);
-  check(s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft")=="Approved","draft approved without posting");
+  Denied(()=>s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft",true),"invoice self approval disabled by default");
+  s.SetOwnerApprovalPolicy(true,null,"Synthetic single-owner authorization");
+  Denied(()=>s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft"),"invoice self approval needs explicit confirmation");
+  check(s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft",true)=="Approved","draft approved under explicit owner exception without posting");
   check(s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,false,"Cancel")=="AlreadyApproved","approved draft cannot silently cancel");
   Invalid(()=>s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Over cap",1m)},Array.Empty<long>())),"fixed component contractual cap enforced");
   check(s.ReadInvoiceDrafts(project).Count==2,"invoice draft history retained");

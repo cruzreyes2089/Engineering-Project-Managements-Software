@@ -33,6 +33,7 @@ public sealed partial class LocalPractice
      Exec(copy,t,"PRAGMA secure_delete=ON");
      Exec(copy,t,"DELETE FROM accounting_profiles");
      Exec(copy,t,"INSERT OR IGNORE INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) VALUES(1,'Restore',$a,$u)",("$a",actor),("$u",UtcNow()));
+     Exec(copy,t,"INSERT INTO owner_approval_events(owner_id,enabled,reason,actor_id,recorded_utc) SELECT owner_id,0,'Recovery copy: explicit reauthorization required',$a,$u FROM owner_approval_events WHERE id=(SELECT max(id) FROM owner_approval_events) AND enabled=1",("$a",actor),("$u",UtcNow()));
      Audit(copy,t,actor,"RecoveryCopyIsolated","Firm",1);
      t.Commit();
     }

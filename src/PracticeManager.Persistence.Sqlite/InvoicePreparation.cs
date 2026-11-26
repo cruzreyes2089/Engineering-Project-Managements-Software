@@ -106,12 +106,13 @@ public sealed partial class LocalPractice
   foreach(var l in lines)Exec(c,t,"INSERT INTO invoice_draft_lines(draft_id,source_id,line_type,description,minutes,rate_cents,amount_cents) VALUES($d,$s,$k,$n,$m,$r,$a)",("$d",id),("$s",l.SourceId),("$k",l.Kind),("$n",l.Description),("$m",l.Minutes),("$r",l.BillingRate.HasValue?BillingCents(l.BillingRate.Value):null),("$a",BillingCents(l.Amount,true)));
   Audit(c,t,actor,"Create","InvoiceDraft",id);t.Commit();return id;
  }
- public string DecideInvoiceDraft(long project,long id,string expectedHash,bool approve,string note)
+ public string DecideInvoiceDraft(long project,long id,string expectedHash,bool approve,string note,bool confirmOwnerException=false)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,approve?"Billing.Invoices.Approve":"Billing.Invoices.Edit");ProjectRow(c,t,project);
   var draft=InvoiceDetail(c,t,project,id);if(draft.Summary.PayloadHash!=expectedHash)throw new ArgumentException("Draft changed or wrong selection.");
   if(draft.Summary.State!="Draft")return "Already"+draft.Summary.State;
+  long? exception=null;if(approve&&Equals(Scalar(c,t,"SELECT created_by FROM invoice_drafts WHERE id=$i",("$i",id)),actor))exception=RequireOwnerException(c,t,actor,confirmOwnerException);
   var n=Validation.Text(note,1000,"Decision evidence",true);var state=approve?"Approved":"Cancelled";
-  Exec(c,t,"INSERT INTO invoice_draft_decisions(draft_id,decision,note,actor_id,decided_utc) VALUES($i,$s,$n,$a,$u)",("$i",id),("$s",state),("$n",n),("$a",actor),("$u",UtcNow()));Audit(c,t,actor,state,"InvoiceDraft",id);t.Commit();return state;
+  Exec(c,t,"INSERT INTO invoice_draft_decisions(draft_id,decision,note,actor_id,decided_utc,owner_exception_event_id) VALUES($i,$s,$n,$a,$u,$x)",("$i",id),("$s",state),("$n",n),("$a",actor),("$u",UtcNow()),("$x",exception));Audit(c,t,actor,exception.HasValue?"OwnerSelfApprove":state,"InvoiceDraft",id);t.Commit();return state;
  }
 }
