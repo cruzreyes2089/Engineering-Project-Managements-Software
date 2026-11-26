@@ -36,7 +36,9 @@ internal static class LegacyCrmTests
   var imported=s.ImportLegacyCrm(data,p.Sha256,true,"Synthetic reviewed mapping and counts");
   check(imported.Outcome=="Imported"&&s.SearchClients("").Count==2&&Count("SELECT count(*) FROM contacts")==2,"legacy CRM atomic import");
   check(Count("SELECT count(*) FROM legacy_client_map WHERE legacy_number='OLD-1'")==2&&Count("SELECT count(*) FROM legacy_contact_map")==2,"original IDs and numbers retained without merging");
-  check(s.SearchClients("").Any(x=>x.Status=="Inactive")&&s.SearchClients("").Any(x=>x.Phone=="(805) 555-0100"),"legacy statuses and normalized phones preserved");
+  check(s.SearchClients("").Count(x=>x.Status=="Inactive")==1&&s.SearchClients("").Count(x=>x.Status=="Active")==1,"legacy client statuses preserved");
+  check(s.SearchClients("").All(x=>x.Phone=="(805)555-0100")&&Count("SELECT count(*) FROM clients WHERE phone='(805)555-0100'")==2,"legacy phones match native storage and display format");
+  var inactive=s.SearchClients("").Single(x=>x.Status=="Inactive");check(s.Contacts(inactive.Id).Single().Primary,"historical contact for inactive client preserved");
   check(s.PreviewLegacyCrm(data).TargetStatus=="AlreadyImported"&&s.ImportLegacyCrm(data,p.Sha256,true,"Synthetic repeat").Outcome=="AlreadyImported"&&Count("SELECT count(*) FROM clients")==2,"legacy import cannot duplicate rows");
   var changed=Package(phone:"8055550101");var p2=s.PreviewLegacyCrm(changed);check(p2.TargetStatus=="DifferentPackageAlreadyImported","changed package blocked");
   Invalid(()=>s.ImportLegacyCrm(changed,p2.Sha256,true,"Synthetic"),"different legacy package cannot merge");
