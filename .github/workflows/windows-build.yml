@@ -28,6 +28,14 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, node24
         with:
           python-version: '3.12'
+      - name: Parse legacy Access inventory script (no database access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/Inspect-LegacyAccessSchema.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Legacy inventory PowerShell syntax checked; Access DAO execution not qualified.'
       - name: SQLite schema tests
         run: python -m unittest discover -s tests/schema -v
       - name: Build, smoke test and publish
