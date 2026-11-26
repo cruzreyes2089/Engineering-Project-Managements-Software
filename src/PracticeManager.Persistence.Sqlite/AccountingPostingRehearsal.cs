@@ -79,7 +79,7 @@ public sealed partial class LocalPractice
   if(row==null)return new("NotReserved");
   if(!MatchesIntent(row,scope.Marker!.Value,intent,hash))return new("IntentConflict",row.State);
   if(row.State!="Reserved")return new("DispatchNotAllowed",row.State);
-  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_posting_rehearsals WHERE state IN ('InFlight','Uncertain')"))!=0)return new("UnresolvedRehearsal",row.State);
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_posting_rehearsals WHERE state IN ('InFlight','Uncertain')"))!=0||HasUnresolvedWireAttempt(c,t))return new("UnresolvedRehearsal",row.State);
   if(!ValidRehearsalApproval(c,t,row))return new("ApprovalRequired",row.State);
   var attempt=Guid.NewGuid();
   if(Exec(c,t,"UPDATE accounting_posting_rehearsals SET state='InFlight',attempt_key=$x,updated_by=$a,updated_utc=$u WHERE id=$i AND state='Reserved'",("$x",attempt.ToString("D")),("$a",scope.Actor),("$u",UtcNow()),("$i",row.Id))!=1)return new("StateChanged");

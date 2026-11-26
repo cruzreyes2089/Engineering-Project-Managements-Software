@@ -71,7 +71,7 @@ public sealed partial class LocalPractice
   var p=ReconstructWireDraft(row);if(p==null)return new("StoredPayloadInvalid",row.State);
   // Inspection remains possible during holds; validity is not send authority.
   var scope=RehearsalScope(c,t);
-  return new("Recorded",row.State,p,scope.Block==null&&scope.Marker==p.Intent.MarkerKey&&WireApprovalValid(c,t,row));
+  return new("Recorded",row.State,p,scope.Block==null&&scope.Marker==p.Intent.MarkerKey&&WireApprovalValid(c,t,row)&&ReadAttempt(c,t,row.Id)==null);
  }
  public WireDraftResult ApproveSyntheticWireDraft(Guid operation,string expectedFingerprint)
  {
@@ -96,6 +96,7 @@ public sealed partial class LocalPractice
   if(row.Marker!=scope.Marker!.Value.ToString("D"))return new("MarkerMismatch",row.State);
   var p=ReconstructWireDraft(row);if(p==null)return new("StoredPayloadInvalid",row.State);
   if(p.Fingerprint!=expectedFingerprint)return new("IntentConflict",row.State);
+  if(ReadAttempt(c,t,row.Id)!=null)return new("AttemptAlreadyRecorded",row.State);
   if(row.State=="Approved")Require(c,t,"Accounting.WireDraft.Approve");
   if(row.State=="Cancelled")return new("AlreadyCancelled",row.State);
   if(Exec(c,t,"UPDATE accounting_wire_drafts SET state='Cancelled',cancelled_by=$a,cancelled_utc=$u WHERE id=$i AND state IN ('Draft','Approved')",("$a",scope.Actor),("$u",UtcNow()),("$i",row.Id))!=1)return new("StateChanged");
