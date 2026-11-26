@@ -64,9 +64,12 @@ internal static class SyntheticPostingPipelineTests
    var reopened=new LocalPractice(dbPath);check(reopened.Login("admin",pw),"pipeline draft reopens from SQLite");
    var loaded=reopened.ReadSyntheticWireDraft(intent.OperationKey);
    check(loaded.ApprovalCurrentlyValid&&loaded.Payload?.Fingerprint==expected.Fingerprint&&!loaded.MaySend,"pipeline uses restored approved candidate without granting live send authority");
-   var payload=loaded.Payload!;var attempt=Guid.NewGuid();
-   var recorded=witness.Record(payload.Intent,attempt);
-   check(recorded.Outcome=="RecordedForReview"&&!recorded.MaySend,"pipeline witness recorded without real send authority");
+   var payload=loaded.Payload!;
+   var reserved=reopened.ReserveSyntheticWireAttempt(intent.OperationKey,payload.Fingerprint);
+   check(reserved.Outcome=="ReservedForSimulation"&&reserved.AttemptKey.HasValue&&!reserved.MaySend,"pipeline durable single attempt reserved");
+   var attempt=reserved.AttemptKey!.Value;
+   var recorded=reopened.WitnessSyntheticWireAttempt(intent.OperationKey,attempt,witness);
+   check(recorded.State=="Witnessed"&&!recorded.MaySend,"pipeline witness recorded without real send authority");
    // Test code alone exercises the fake provider; this is NOT production dispatch.
    provider.Mode=mode;int? status=null;Guid? returned=null;bool complete=false;
    try{
@@ -80,6 +83,9 @@ internal static class SyntheticPostingPipelineTests
    var match=second.Candidates.SingleOrDefault(x=>x.DetailReference==payload.Reference)?.ExternalKey;
    var assessment=SyntheticDispatchReview.Evaluate(new(true,true,status,complete,returned,first.Complete&&second.Complete,review,match));
    check(!assessment.MayAutomaticallyRetry&&!assessment.MayMarkPosted,"pipeline never authorizes real retry or posting");
+   var durable=reopened.AssessSyntheticWireAttempt(intent.OperationKey,attempt,new(true,true,status,complete,returned,false,null),first,second);
+   check(durable.State==assessment.State.ToString()&&!durable.MaySend,"pipeline durable state matches independent classifier");
+   if(assessment.State==SyntheticDispatchState.ConfirmationForReview)check(reopened.ReviewSyntheticWireAttempt(intent.OperationKey,payload.Fingerprint).State=="ReviewedSimulation","pipeline explicit simulated review");
    check(witness.Record(intent,Guid.NewGuid()).Outcome=="AttemptConflictOrUnreadable","pipeline original operation cannot be recreated after simulated attempt");
    return assessment;
   }
@@ -91,7 +97,11 @@ internal static class SyntheticPostingPipelineTests
   var payment=new SyntheticWireIntent(Guid.NewGuid(),marker,RehearsalKind.ExpensePayment,Guid.NewGuid(),20m,day,"USD",CashAccountKey:bank,VendorContact:"Synthetic vendor");
   var third=await Exercise(payment,"expense","TimeoutAfterCommit");
   check(third.State==SyntheticDispatchState.Uncertain&&provider.Sends==3&&provider.Sweep(marker).Candidates.Count==3,"pipeline timeout after remote commit retains one attempt and one synthetic document");
-  var fourth=await Exercise(payment with{OperationKey=Guid.NewGuid()},"expense","WrongIdentity");
-  check(fourth.State==SyntheticDispatchState.Uncertain&&provider.Sends==4,"pipeline conflicting 201 response identity remains uncertain");
+  var next=payment with{OperationKey=Guid.NewGuid()};var hash=SyntheticWireCompiler.Compile(next).Fingerprint;
+  check(drafts.PrepareSyntheticWireDraft(next).Outcome=="Prepared"&&drafts.ApproveSyntheticWireDraft(next.OperationKey,hash).Outcome=="Approved","pipeline next draft remains preparable");
+  check(drafts.ReserveSyntheticWireAttempt(next.OperationKey,hash).Outcome=="UnresolvedRehearsal"&&provider.Sends==3,"pipeline uncertainty blocks all later sends");
+  check(drafts.ReadSyntheticWireAttemptStatus()==new WireAttemptStatus(0,0,1,0,2),"pipeline durable outcomes retained");
+  // Wrong-response GUID classification remains covered by the independent
+  // dispatch unit tests; never bypass the global uncertainty gate here.
  }
 }

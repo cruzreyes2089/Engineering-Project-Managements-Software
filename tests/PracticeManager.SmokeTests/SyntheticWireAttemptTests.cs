@@ -30,7 +30,10 @@ internal static class SyntheticWireAttemptTests
   check(peer.WitnessSyntheticWireAttempt(intent.OperationKey,key,witness).Outcome=="AttemptNotAvailable","witness transition cannot repeat");
   var match=new SyntheticRecoveryAssessment(SyntheticRecoveryFinding.MatchedForReview,"Synthetic");var external=Guid.NewGuid();
   var observed=new SyntheticDispatchObservation(true,true,201,true,external,true,match,external);
-  check(s.AssessSyntheticWireAttempt(intent.OperationKey,key,observed).State=="ConfirmationForReview","matching simulation awaits explicit review");
+  var payload=SyntheticWireCompiler.Compile(intent);
+  var sweep=new SyntheticRecoverySweep(marker,true,true,new[]{new SyntheticRecoveryCandidate(external,intent.Kind,payload.Reference,hash)});
+  check(s.AssessSyntheticWireAttempt(intent.OperationKey,key,observed,sweep,sweep).State=="ConfirmationForReview","matching simulation awaits explicit review");
+  check(s.ReadSyntheticWireAttemptStatus()==new WireAttemptStatus(0,0,0,1,0),"review status counts accurately");
   check(s.ReviewSyntheticWireAttempt(intent.OperationKey,"wrong").Outcome=="ApprovalOrPayloadInvalid","review requires exact fingerprint");
   check(s.ReviewSyntheticWireAttempt(intent.OperationKey,hash).State=="ReviewedSimulation","explicit offline review only");
   check(s.ReserveSyntheticWireAttempt(intent.OperationKey,hash).Outcome=="AttemptAlreadyRecorded","reviewed simulation permanently consumes key");
@@ -45,5 +48,6 @@ internal static class SyntheticWireAttemptTests
   var third=intent with{OperationKey=Guid.NewGuid()};var thirdHash=SyntheticWireCompiler.Compile(third).Fingerprint;
   check(s.PrepareSyntheticWireDraft(third).Outcome=="Prepared"&&s.ApproveSyntheticWireDraft(third.OperationKey,thirdHash).Outcome=="Approved"&&s.ReserveSyntheticWireAttempt(third.OperationKey,thirdHash).Outcome=="UnresolvedRehearsal","uncertainty blocks subsequent dispatch reservations");
   check(s.DeclareAccountingLifecycleHold(LifecycleHoldReason.Restore).Outcome=="LifecycleHold"&&s.ReadSyntheticWireAttempt(other.OperationKey).State=="Uncertain","hold preserves uncertain attempt history");
+  check(s.ReadSyntheticWireAttemptStatus()==new WireAttemptStatus(0,0,1,0,1),"reviewed and uncertain attempt counts retained");
  }
 }

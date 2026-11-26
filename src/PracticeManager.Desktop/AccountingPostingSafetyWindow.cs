@@ -7,6 +7,7 @@ internal sealed class AccountingPostingSafetyWindow:Window
 {
  readonly LocalPractice service;
  readonly TextBlock report=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,12,0,8)};
+ readonly TextBlock attemptReport=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)};
  readonly TextBlock wireReport=new(){TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)};
  readonly ComboBox reason=new(){Margin=new Thickness(0,8,0,8)};
  readonly Button declare=new(){Content="Declare lifecycle hold",Padding=new Thickness(12,8,12,8)};
@@ -19,6 +20,8 @@ internal sealed class AccountingPostingSafetyWindow:Window
   panel.Children.Add(report);
   panel.Children.Add(new TextBlock{Text="Full-wire draft history (offline only)",FontWeight=FontWeights.SemiBold,Margin=new Thickness(0,8,0,0)});
   panel.Children.Add(wireReport);
+  panel.Children.Add(new TextBlock{Text="Synthetic attempt history (offline only)",FontWeight=FontWeights.SemiBold});
+  panel.Children.Add(attemptReport);
   panel.Children.Add(new TextBlock{Text="Declare a hold only if a clone, restore or suspected identity change has occurred. This is sticky; there is no reset in this version. Read-only inspection remains available.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)});
   reason.ItemsSource=Enum.GetValues<LifecycleHoldReason>();reason.SelectedIndex=-1;
   panel.Children.Add(reason);panel.Children.Add(declare);
@@ -40,6 +43,11 @@ internal sealed class AccountingPostingSafetyWindow:Window
    wireReport.Text=$"Drafts: {w.Draft}\nHistorically approved: {w.Approved}\nCancelled: {w.Cancelled}\nApproval counts are not posting authorization.";
   }catch(UnauthorizedAccessException){wireReport.Text="Draft history access denied.";}
    catch(Exception){wireReport.Text="Draft history unavailable.";}
+  try{
+   var a=service.ReadSyntheticWireAttemptStatus();
+   attemptReport.Text=$"Reserved: {a.Reserved}\nWitnessed: {a.Witnessed}\nUncertain: {a.Uncertain}\nAwaiting review: {a.ConfirmationForReview}\nReviewed simulations: {a.ReviewedSimulation}\nNo real posting authority.";
+  }catch(UnauthorizedAccessException){attemptReport.Text="Attempt history access denied.";}
+   catch(Exception){attemptReport.Text="Attempt history unavailable.";}
  }
  void Declare()
  {

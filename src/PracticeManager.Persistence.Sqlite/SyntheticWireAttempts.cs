@@ -10,8 +10,15 @@ public sealed record WireAttemptResult(string Outcome,string? State=null,Guid? A
  public bool MayRetry=>false;
  public override string ToString()=>$"Synthetic attempt: {Outcome}, {State}";
 }
+public sealed record WireAttemptStatus(int Reserved,int Witnessed,int Uncertain,int ConfirmationForReview,int ReviewedSimulation);
 public sealed partial class LocalPractice
 {
+ public WireAttemptStatus ReadSyntheticWireAttemptStatus()
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireWireAttempt(c,t);
+  int Count(string state)=>Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM accounting_wire_attempts WHERE state=$s",("$s",state)));
+  return new(Count("Reserved"),Count("Witnessed"),Count("Uncertain"),Count("ConfirmationForReview"),Count("ReviewedSimulation"));
+ }
  private sealed record WireAttemptRow(long Id,string Key,string State);
  private static WireAttemptRow? ReadAttempt(SqliteConnection c,SqliteTransaction t,long draftId)
  {
@@ -58,7 +65,7 @@ public sealed partial class LocalPractice
   ChangeAttempt(c,t,a,scope.Actor,state,state=="Witnessed"?"NewWitnessRecorded":"WitnessUnavailableOrExisting");
   t.Commit();return new(state,state);
  }
- public WireAttemptResult AssessSyntheticWireAttempt(Guid operation,Guid attempt,SyntheticDispatchObservation observation)
+ public WireAttemptResult AssessSyntheticWireAttempt(Guid operation,Guid attempt,SyntheticDispatchObservation observation,SyntheticRecoverySweep first,SyntheticRecoverySweep second)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);
   RequireWireAttempt(c,t);var scope=RehearsalScope(c,t);if(scope.Block!=null)return new(scope.Block);
@@ -66,7 +73,12 @@ public sealed partial class LocalPractice
   var a=ReadAttempt(c,t,d.Id);
   if(a==null||a.Key!=attempt.ToString("D")||a.State!="Witnessed")return new("AttemptNotAvailable",a?.State);
   var p=ReconstructWireDraft(d);if(p==null||p.Intent.MarkerKey!=scope.Marker)return new("IntentConflict");
-  var result=SyntheticDispatchReview.Evaluate(observation);
+  // Derive the recovery assessment from this stored target and the two
+  // synthetic sweeps, not a caller-supplied positive classification.
+  var recovery=SyntheticRecoveryReview.Evaluate(p.RecoveryTarget(observation.ReturnedExternalKey),first,second);
+  var matched=recovery.Finding==SyntheticRecoveryFinding.MatchedForReview?second.Candidates.FirstOrDefault(x=>x.DetailReference==p.Reference)?.ExternalKey:null;
+  var bound=observation with{AttemptDurablyRecorded=true,IndependentReadbackComplete=recovery.Finding==SyntheticRecoveryFinding.MatchedForReview,Recovery=recovery,IndependentlyMatchedExternalKey=matched};
+  var result=SyntheticDispatchReview.Evaluate(bound);
   var state=result.State==SyntheticDispatchState.ConfirmationForReview?"ConfirmationForReview":"Uncertain";
   ChangeAttempt(c,t,a,scope.Actor,state,result.Reason);t.Commit();return new(state,state);
  }
