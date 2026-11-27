@@ -172,6 +172,7 @@ try{
   NamedFolderTemplateTests.Run(Path.GetDirectoryName(path)!,pw,Check);
   PreferredFolderTemplateTests.Run(Path.GetDirectoryName(path)!,pw,Check);
   ProjectStorageBindingTests.Run(Path.GetDirectoryName(path)!,pw,Check);
+  ProjectStorageReadinessTests.Run(Path.GetDirectoryName(path)!,pw,Check);
   if(OperatingSystem.IsWindows())SyntheticWindowsStorageAclTests.Run(Path.GetDirectoryName(path)!,Check);
   else Console.WriteLine("NOT QUALIFIED: Windows storage ACL checks unavailable.");
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);
