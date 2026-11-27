@@ -8,6 +8,7 @@ public sealed record AttendanceReviewRow(long Id,long EmployeeId,string Employee
 public sealed record AttendanceVoid(long SessionId,long? CorrectionId,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public long SubmitHistoricalWork(WorkSubmissionInput input,long closureId,string reason,bool confirmed)=>throw new NotImplementedException("Closed-project historical work not implemented.");
  public long RecordMissingAttendance(Guid operation,long employee,DateTimeOffset clockIn,DateTimeOffset clockOut,string reason,bool confirmed)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireWorkCorrection(c,t);
