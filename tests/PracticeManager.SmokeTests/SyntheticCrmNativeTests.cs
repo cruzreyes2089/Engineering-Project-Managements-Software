@@ -132,6 +132,8 @@ internal static class SyntheticCrmNativeTests
                 check((value with {Id=0,ClientId=0})==ExpectedContact(contact.LegacyId),"DAO fixture all contact values");
             }
         }
+        check(Count("SELECT count(*) FROM clients WHERE (zip='00501' OR zip='00999') AND phone=''")==2,
+            "DAO fixture raw stored postal and phone fields");
         check(Count("SELECT count(*) FROM contacts")==parsed.Contacts.Count,"DAO fixture stored contact count");
         check(Count("SELECT count(*) FROM legacy_client_map")==2&&Count("SELECT count(*) FROM legacy_contact_map")==parsed.Contacts.Count,
             "DAO fixture stored mapping counts");
