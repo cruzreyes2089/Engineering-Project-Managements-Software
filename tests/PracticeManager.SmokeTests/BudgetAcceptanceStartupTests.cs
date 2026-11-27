@@ -17,14 +17,26 @@ internal static class BudgetAcceptanceStartupTests
   check(service.Login("admin",pw)&&service.Can("Projects.Budget.View")&&service.Can("Projects.Budget.Record"),"synthetic budget bootstrap atomically creates budget schema and grants");
   var role=service.ReadStaffRoles().Single(x=>x.Name=="Engineer");
   service.SetStaffGrant(role.Id,"Projects.Budget.View",true,false);
-  check(service.ReadStaffGrants(role.Id).Single(x=>x.Code=="Projects.Budget.View").Allowed,"budget viewer grant persisted via staff administration");
+  check(service.ReadStaffGrants(role.Id).Single(x=>x.Permission=="Projects.Budget.View").Allowed,"budget viewer grant persisted via staff administration");
+  var client=service.SaveClient(new Client(0,"","Business / Company","Synthetic restart client","","","","","","","","","","","","Active"));
+  var proposal=service.CreateProposal(new(client,"Synthetic restart project","Site","Scope",100m));
+  var proposalHash=ConflictReviewTests.Issue(service,proposal,1);
+  var project=service.RecordProposalDecision(proposal,proposalHash,true,"Synthetic").ProjectId!.Value;
+  var employee=service.CreateEmployee(new("Synthetic","Restart worker","","",true));
+  var day=new DateOnly(2026,11,26);var phase=service.CreateProjectPhase(project,"Design",day,day);
+  var task=service.CreateProjectTask(project,new ProjectTaskPlan(phase,employee,"Synthetic design",day,day,120));
+  var snapshot=ProjectBudgetReview.SnapshotHash(project,service.ReadProjectEffort(project));
+  var first=service.RecordProjectBudgetRevision(project,Guid.NewGuid(),null,snapshot,120,"FirstRecorded","Synthetic restart baseline",true);
+  var forecast=service.RecordProjectEffortForecast(project,Guid.NewGuid(),null,first.Entry.Model.Hash,snapshot,new[]{new TaskRemainingInput(task,130)},"Synthetic restart forecast",true);
   service.Logout();
   var reopen=DevelopmentWorkspace.Resolve(local,new[]{"--budget-acceptance-session",id});
   check(reopen.DatabasePath==workspace.DatabasePath&&reopen.IsBudgetAcceptance,"budget acceptance reopens exact marked path");
   var next=LocalPractice.OpenBudgetAcceptance(local,id,false);
   check(next.Login("admin",pw)&&next.Can("Projects.Budget.Record"),"budget acceptance restart validates schema and grants");
+  var history=next.ReadProjectBudgetHistory(project);
+  check(history.Budgets.Single().Model.Hash==first.Entry.Model.Hash&&history.Forecasts.Single().Hash==forecast.Entry.Hash,"budget acceptance restart preserves populated history");
   next.SetStaffGrant(role.Id,"Projects.Budget.View",false,true);
-  check(!next.ReadStaffGrants(role.Id).Single(x=>x.Code=="Projects.Budget.View").Allowed,"budget viewer grant revocation persisted");
+  check(!next.ReadStaffGrants(role.Id).Single(x=>x.Permission=="Projects.Budget.View").Allowed,"budget viewer grant revocation persisted");
   next.Logout();
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}catch(InvalidOperationException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   Invalid(()=>new LocalPractice(workspace.DatabasePath),"normal constructor refuses schema 48");
