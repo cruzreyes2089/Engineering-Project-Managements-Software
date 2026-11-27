@@ -30,6 +30,11 @@ public sealed partial class LocalPractice
         if(batches!=1||seals!=1||count is <1 or >10000||
             Convert.ToInt64(Scalar(c,t,"SELECT expected_count FROM historical_project_batches WHERE id=1"))!=count)
             throw new InvalidOperationException("Incomplete historical archive.");
+        var crm=LegacyHistory(c,t);
+        var archivedCrm=Scalar(c,t,"SELECT crm_transfer_hash FROM historical_project_batches WHERE id=1");
+        if(crm==null||archivedCrm is not string hash||!string.Equals(crm.Sha256,hash,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Historical archive CRM provenance mismatch.");
+        var parents=crm.Mappings.Where(x=>x.Kind=="Client").ToDictionary(x=>x.LegacyId,x=>x.NativeId,StringComparer.OrdinalIgnoreCase);
         var result=new List<HistoricalArchiveItem>();
         using(var q=Command(c,t,@"SELECT native_client_id,legacy_id,legacy_client_id,legacy_number,title,site,
             legacy_status,legacy_authorization_status,authorization_evidence_ref FROM historical_project_register
@@ -37,7 +42,8 @@ public sealed partial class LocalPractice
         using(var r=q.ExecuteReader())
             while(r.Read())result.Add(new(r.GetInt64(0),new(r.GetString(1),r.GetString(2),r.GetString(3),
                 r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8))));
-        if(result.Count!=count)throw new InvalidOperationException("Historical archive reconciliation failed.");
+        if(result.Count!=count||result.Any(x=>!parents.TryGetValue(x.Source.LegacyClientId,out var id)||id!=x.NativeClientId))
+            throw new InvalidOperationException("Historical archive reconciliation failed.");
         return result.AsReadOnly();
     }
     private static void VerifyHistoricalParents(SqliteConnection c,SqliteTransaction t,HistoricalProjectPackage p)
