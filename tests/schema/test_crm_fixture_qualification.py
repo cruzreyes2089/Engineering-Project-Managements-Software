@@ -79,3 +79,38 @@ class SyntheticQualificationTests(unittest.TestCase):
         plan = q.plans.prepare(inv, fixture.digest, rules, "c"*64)
         for entity in ("clients", "contacts"):
             self.assertNotIn("Ignored", {c["name"] for c in plan[entity]["columns"]})
+
+    def test_shared_key_expected_fixture_preserves_text_identifiers(self):
+        expected = q.expected_transfer(False, shared=True)
+        self.assertEqual([(r["legacyId"], r["legacyClientId"]) for r in expected["contacts"]],
+                         [("001", "001"), ("002", "002")])
+        q.compare_values(copy.deepcopy(expected), expected)
+        with self.assertRaises(ValueError):
+            q.compare_values(q.expected_transfer(False), expected)
+        self.assertEqual(q.expected_transfer(True, shared=True)["contacts"], [])
+
+    def test_shared_key_mapping_uses_single_source_column(self):
+        fixture = fixtures.CrmMappingTests()
+        fixture.setUp()
+        inv = fixture.inv
+        clients, contacts = inv["localTables"]
+        for f in clients["fields"]:
+            if f["name"] == "Id": f["daoType"] = 10
+            if f["name"] == "Kind": f["daoType"] = 4
+            if f["name"] == "Status": f["daoType"] = 1
+        clients["fields"].append({"name": "Postal", "daoType": 10})
+        contacts["fields"] = [f for f in contacts["fields"] if f["name"] != "Parent"]
+        for f in contacts["fields"]:
+            if f["name"] == "Id": f["daoType"] = 10
+            if f["name"] == "Primary": f["name"] = "PrimaryFlag"
+        inv["localRelations"][0]["fields"][0]["foreignField"] = "Id"
+        rules = q.fixture_mapping(inv, fixture.digest, shared=True)
+        plan = q.plans.prepare(inv, fixture.digest, rules, "c"*64)
+        self.assertEqual(plan["contacts"]["identities"],
+                         {"legacyId": "Id", "legacyClientId": "Id"})
+        self.assertEqual({c["name"] for c in plan["contacts"]["columns"]},
+                         {"Id", "Name", "PrimaryFlag"})
+
+    def test_shared_key_native_mode_fails_before_running_subprocess(self):
+        with self.assertRaisesRegex(ValueError, "Shared-key native fixture not yet qualified"):
+            q.qualify(None, None, False, native_smoke=True, shared=True)
