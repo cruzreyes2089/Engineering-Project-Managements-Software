@@ -22,7 +22,7 @@ public sealed partial class LocalPractice
   return new(project,submission,hash,evidence.AsReadOnly(),eligible);
  }
  public WorkInvalidation ReconcileCancelledWorkAllocations(long project,long submission,string expectedHash,long? closureId,string reason,bool confirmed)
- {if(project<=0||submission<=0||string.IsNullOrWhiteSpace(expectedHash)||expectedHash.Length!=64)throw new ArgumentException("Exact allocation review required.");return InvalidateWorkCore(submission,reason,confirmed,closureId,project,expectedHash);}
+ =>InvalidateWorkCore(submission,reason,confirmed,closureId,project,expectedHash);
  private const long MaxBillingCents=999999999999;
  private static long BillingCents(decimal value,bool positive=false)
  {
