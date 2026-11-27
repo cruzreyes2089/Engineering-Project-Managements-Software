@@ -221,7 +221,14 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"",true),"invalidation requires reason");
   Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"Duplicate",false),"invalidation requires confirmation");
   check(admin.ReadFirmTimeMix(correctionDay,correctionDay).ApprovedMinutes==1440,"approved erroneous overhead initially counted");
-  var invalidOverhead=admin.InvalidateApprovedOverhead(erroneousOverhead,"Verified erroneous duplicate duration",true);
+  ReplacementSql("CREATE TRIGGER test_overhead_invalidation_abort BEFORE INSERT ON audit_events WHEN NEW.action='InvalidateApprovedOverhead' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{admin.InvalidateApprovedOverhead(erroneousOverhead,"Synthetic rollback",true);throw new Exception("FAIL: overhead invalidation rollback");}catch(SqliteException){check(admin.ReadOverheadInvalidation(erroneousOverhead)==null&&admin.ReadFirmTimeMix(correctionDay,correctionDay).ApprovedMinutes==1440,"failed audit preserves overhead approval and time totals");}
+  ReplacementSql("DROP TRIGGER test_overhead_invalidation_abort");
+  OverheadInvalidation? TryInvalidateOverhead(LocalPractice service){try{return service.InvalidateApprovedOverhead(erroneousOverhead,"Verified erroneous duplicate duration",true);}catch(ArgumentException){return null;}}
+  var invalidations=await Task.WhenAll(Task.Run(()=>TryInvalidateOverhead(admin)),Task.Run(()=>TryInvalidateOverhead(closePeer)));
+  check(invalidations.Count(x=>x!=null)==1,"concurrent overhead invalidation records one decision");
+  var invalidOverhead=invalidations.Single(x=>x!=null)!;
+  foreach(var sql in new[]{$"UPDATE overhead_invalidations SET reason='Changed' WHERE submission_id={erroneousOverhead}",$"DELETE FROM overhead_invalidations WHERE submission_id={erroneousOverhead}",$"INSERT INTO overhead_invalidations(submission_id,reason,actor_id,recorded_utc) VALUES({ownerEntry},'Self',1,'synthetic')",$"INSERT INTO overhead_invalidations(submission_id,reason,actor_id,recorded_utc) VALUES({rejected},'Rejected',1,'synthetic')"}){try{ReplacementSql(sql);throw new Exception("FAIL: overhead invalidation SQL guard");}catch(SqliteException){check(true,"database protects overhead invalidation evidence and independent approved source");}}
   check(admin.ReadOverheadInvalidation(erroneousOverhead)==invalidOverhead,"overhead invalidation evidence retained");
   check(worker.ReadMyOverheadTime(correctionDay,correctionDay).Single().ReviewState=="Invalidated"&&admin.ReadOverheadReview(correctionDay,correctionDay,false).Single().ReviewState=="Invalidated","effective overhead invalidation shown to employee and reviewer");
   var invalidMix=admin.ReadFirmTimeMix(correctionDay,correctionDay);
@@ -230,7 +237,9 @@ internal static class WorkEntriesTests
   check(worker.SubmitOverheadTime(duplicateOverhead)==erroneousOverhead,"original operation replay preserves invalidated fact");
   var actualOverhead=duplicateOverhead with{OperationKey=Guid.NewGuid(),Minutes=30,Description="Correct actual overhead duration"};
   Invalid(()=>worker.ReplaceRejectedOverheadTime(erroneousOverhead,actualOverhead),"invalidated overhead requires explicit replacement path");
-  var correctedOverhead=worker.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead);
+  var correctedOverheadIds=await Task.WhenAll(Task.Run(()=>worker.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead)),Task.Run(()=>peer.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead)));
+  check(correctedOverheadIds.Distinct().Count()==1,"concurrent identical invalidated overhead replacement creates one fact");
+  var correctedOverhead=correctedOverheadIds[0];
   check(worker.ReadMyOverheadReplacement(erroneousOverhead)?.ReplacementId==correctedOverhead&&peer.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead)==correctedOverhead,"linked overhead correction is idempotent");
   Invalid(()=>worker.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead with{OperationKey=Guid.NewGuid()}),"one successor for invalidated overhead");
   Invalid(()=>worker.ReplaceRejectedOverheadTime(erroneousOverhead,actualOverhead),"wrong correction path cannot replay");

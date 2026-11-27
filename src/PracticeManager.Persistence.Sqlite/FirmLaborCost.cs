@@ -10,7 +10,7 @@ public sealed partial class LocalPractice
   using var q=Command(c,t,@"WITH facts AS (
    SELECT s.employee_id,s.work_date,s.minutes,CASE coalesce(b.classification,'Unclassified') WHEN 'Billable' THEN 'Project billable' WHEN 'Nonbillable' THEN 'Project nonbillable' ELSE 'Project unclassified' END category
    FROM work_submissions s JOIN work_reviews r ON r.submission_id=s.id LEFT JOIN work_billing_classifications b ON b.submission_id=s.id WHERE s.kind='Time' AND r.decision='Approved' AND NOT EXISTS(SELECT 1 FROM work_invalidations z WHERE z.submission_id=s.id) AND s.work_date BETWEEN $s AND $e
-   UNION ALL SELECT s.employee_id,s.work_date,s.minutes,'Overhead: '||s.category FROM overhead_time s JOIN overhead_reviews r ON r.submission_id=s.id WHERE r.decision='Approved' AND s.work_date BETWEEN $s AND $e
+   UNION ALL SELECT s.employee_id,s.work_date,s.minutes,'Overhead: '||s.category FROM overhead_time s JOIN overhead_reviews r ON r.submission_id=s.id WHERE r.decision='Approved' AND NOT EXISTS(SELECT 1 FROM overhead_invalidations z WHERE z.submission_id=s.id) AND s.work_date BETWEEN $s AND $e
   ) SELECT f.category,f.minutes,(SELECT z.cost_cents FROM employee_rates z WHERE z.employee_id=f.employee_id AND z.effective_on<=f.work_date ORDER BY z.effective_on DESC LIMIT 1) FROM facts f LIMIT 100001",("$s",PlanDate(start)),("$e",PlanDate(end)));
   using var r=q.ExecuteReader();var rows=new Dictionary<string,FirmLaborCostRow>(StringComparer.Ordinal);int count=0;
   while(r.Read()){

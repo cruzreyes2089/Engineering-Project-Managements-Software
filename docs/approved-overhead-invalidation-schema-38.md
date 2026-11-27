@@ -7,3 +7,5 @@ Base 1d265ef (verified schema 37). Match the controlled erroneous-fact correctio
 - Employee may submit one explicitly linked corrected fact; same employee, new operation, complete intent comparison with predecessor state, new independent review, valid date/category/minutes and shared daily cap. Exact replay of original returns original ID. Reject other correction path or standalone replay. Immutable lineage and insert safeguards.
 - Desktop action for authorized reviewer and employee, explicit confirmation; preserve original evidence. Migration/restore, direct SQL and regression tests. Actual payroll correction and attendance correction remain separate.
 - Test-first stubs deliberately fail. Full Windows qualification required before promotion; no production data, posting, main merge or executable distribution.
+
+Candidate implementation adds immutable overhead invalidation evidence, existing Work.Correct authorization, daily time and report projections, explicit correction UI and linked replacement. Concurrent invalidation/replacement, SQL guards and audit rollback regressions added. Windows verification and interactive acceptance pending.
