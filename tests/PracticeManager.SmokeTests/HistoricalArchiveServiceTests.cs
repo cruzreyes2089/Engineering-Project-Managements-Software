@@ -54,6 +54,19 @@ internal static class HistoricalArchiveServiceTests
         audit=Count("SELECT count(*) FROM audit_events");
         check(Preview().TargetStatus=="AlreadyImported"&&Import()=="AlreadyImported"&&Count("SELECT count(*) FROM audit_events")==audit,"Archive replay is read-only");
         Reject<SqliteException>(()=>Sql("UPDATE historical_project_rows SET title='Changed'"),"Archive historical rows immutable");
+        check(s.CanImportHistoricalProjects(),"Archive import administrator capability");
+        check(rows.Any(x=>!string.IsNullOrEmpty(x.Source.AuthorizationEvidenceRef)),"Archive reviewed fixture contains restricted evidence");
+        Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Administration.HistoricalProjectImport' AND role_id=1");
+        check(!s.CanImportHistoricalProjects(),"Archive revoked capability denied");
+        var restricted=s.ReadHistoricalProjects();
+        check(restricted.Count==rows.Count&&restricted.All(x=>x.Source.AuthorizationEvidenceRef=="")&&restricted.All(x=>!x.WorkAuthorized),"Archive view-only projection redacts evidence");
+        Reject<UnauthorizedAccessException>(()=>Preview(),"Archive view-only preview denied");
+        Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Administration.HistoricalProjectImport' AND role_id=1");
+        check(s.ReadHistoricalProjects().Select(x=>x.Source).ToHashSet().SetEquals(p.Rows),"Archive restored grant recovers restricted projection");
+        Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Clients.View' AND role_id=1");
+        Reject<UnauthorizedAccessException>(()=>s.ReadHistoricalProjects(),"Archive requires client view permission");
+        check(!s.CanImportHistoricalProjects(),"Archive client-view revocation denies import capability");
+        Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Clients.View' AND role_id=1");
         s.Logout();
         Reject<UnauthorizedAccessException>(()=>s.ReadHistoricalProjects(),"Archive logout enforced");
     }
