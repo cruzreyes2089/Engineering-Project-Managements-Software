@@ -50,7 +50,7 @@ internal sealed class ProjectEffortWindow:Window
   {
    if(snapshot is not ProjectEffortReview r)throw new ArgumentException("Refresh snapshot first.");
    var fresh=service.ReadProjectEffort(project);
-   if(fresh.ProjectNumber!=r.ProjectNumber||!fresh.Tasks.SequenceEqual(r.Tasks)){Clear();result.Text="Project effort changed. Refresh and review assumptions again.";return;}
+   if(fresh.ProjectId!=r.ProjectId||fresh.ProjectNumber!=r.ProjectNumber||fresh.SourceEvidenceHash!=r.SourceEvidenceHash||!fresh.Tasks.SequenceEqual(r.Tasks)){Clear();result.Text="Project effort changed. Refresh and review assumptions again.";return;}
    if(r.Tasks.Count==0)throw new ArgumentException("No task estimates available.");
    var f=ProjectEffort.Forecast(r,ProjectEffort.ParseRemaining(remaining.Text));
    result.Text=$"Entered remaining {Hours(f.EnteredRemainingMinutes)} | Missing open estimates: {f.MissingOpenTasks} | Provisional current scope total {Hours(f.CurrentForecastMinutes)} | Variance from current estimate {Hours(f.CurrentForecastVarianceMinutes)} | Provisional total including historical effort {Hours(f.TotalProjectForecastMinutes)}.";

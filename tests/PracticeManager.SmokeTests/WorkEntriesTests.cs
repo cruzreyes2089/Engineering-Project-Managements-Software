@@ -111,12 +111,16 @@ internal static class WorkEntriesTests
   worker.AdvanceMyTask(task,1,"InProgress");
   Invalid(()=>worker.SubmitWork(entry with{Minutes=0}),"zero minutes rejected");
   Invalid(()=>worker.SubmitWork(entry with{Date=day.AddDays(1)}),"future time rejected");
+  var beforeTime=admin.ReadProjectEffort(project);
   var record=worker.SubmitWork(entry);check(peer.SubmitWork(entry)==record,"work submission operation idempotent");
+  var pendingEffort=admin.ReadProjectEffort(project);
+  check(pendingEffort.SourceEvidenceHash is {Length:64}&&pendingEffort.SourceEvidenceHash!=beforeTime.SourceEvidenceHash&&pendingEffort.CurrentPendingMinutes==60,"raw time evidence digest changes upon submission");
   Invalid(()=>worker.SubmitWork(entry with{Minutes=61}),"same operation changed content rejected");
   Invalid(()=>worker.SubmitWork(entry with{OperationKey=Guid.NewGuid(),Minutes=1400}),"daily time cap enforced");
   var expense=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Expense",null,20m,"Supplies","Synthetic receipt reference");
   Invalid(()=>worker.SubmitWork(expense with{Amount=20.001m}),"fractional expense cents rejected");
   var expenseId=worker.SubmitWork(expense);check(worker.ReadMySubmissions(day,day).Count==2,"employee sees submitted facts only");
+  check(admin.ReadProjectEffort(project).SourceEvidenceHash==pendingEffort.SourceEvidenceHash,"effort evidence excludes expense submissions");
   var pendingCloseout=admin.ReadProjectCloseoutReview(project);check(pendingCloseout.OpenTasks==1&&pendingCloseout.PendingTimeSubmissions==1&&pendingCloseout.PendingExpenseSubmissions==1,"closeout distinguishes pending time and expenses");
   Denied(()=>worker.ReadBillingWork(day,day),"ordinary employee cannot access billing decisions");
   check(admin.ReadBillingWork(day,day).Count==0&&admin.ClassifyWork(record,true,"Synthetic")=="ApprovalRequired","unapproved work not billable");
@@ -127,6 +131,8 @@ internal static class WorkEntriesTests
   check(admin.ReadWorkReview(day,day).Count==2,"review queue contains both facts");
   check(admin.ReviewWork(record,true,"Verified")=="Approved"&&admin.ReviewWork(expenseId,false,"Missing evidence")=="Rejected","independent fact review");
   check(admin.ReviewWork(record,false,"Changed")=="AlreadyApproved","review decision retained");
+  var reviewedEffort=admin.ReadProjectEffort(project);
+  check(reviewedEffort.SourceEvidenceHash!=pendingEffort.SourceEvidenceHash&&reviewedEffort.CurrentApprovedMinutes==60&&reviewedEffort.CurrentPendingMinutes==0,"raw time evidence digest binds review decision");
   var reviewedCloseout=admin.ReadProjectCloseoutReview(project);check(reviewedCloseout.PendingTimeSubmissions==0&&reviewedCloseout.PendingExpenseSubmissions==0,"reviewed submissions leave closeout pending counts");
   check(admin.ReadBillingWork(day,day).Single().Id==record&&admin.ClassifyWork(expenseId,true,"Synthetic")=="ApprovalRequired","rejected expense excluded from billing");
   check(admin.ClassifyWork(record,false,"Nonbillable administration")=="Nonbillable","approved time explicitly classified");

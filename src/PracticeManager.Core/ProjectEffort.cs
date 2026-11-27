@@ -17,6 +17,8 @@ public sealed record TaskEffort(long TaskId,string Phase,string Title,string Sta
 public sealed record ProjectEffortReview(string ProjectNumber,IReadOnlyList<TaskEffort> Tasks)
 {
  public long ProjectId{get;init;}
+ // Digest of the underlying project plan and time evidence, not a signature.
+ public string? SourceEvidenceHash{get;init;}
  public long CurrentPlanMinutes=>Tasks.Where(t=>!t.Historical).Sum(t=>(long)t.EstimateMinutes);
  public long CurrentApprovedMinutes=>Tasks.Where(t=>!t.Historical).Sum(t=>t.ApprovedMinutes);
  public long CurrentPendingMinutes=>Tasks.Where(t=>!t.Historical).Sum(t=>t.PendingMinutes);

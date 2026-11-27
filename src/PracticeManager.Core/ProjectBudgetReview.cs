@@ -34,7 +34,7 @@ public static class ProjectBudgetReview
       t.ApprovedMinutes<0||t.PendingMinutes<0||t.RejectedMinutes<0||t.InvalidatedMinutes<0||
       t.Phase.Length>120||t.Title.Length>200)
     throw new ArgumentException("Invalid effort snapshot.");
-  return Digest("CRC-ProjectEffortSnapshot-v1",new{ProjectId=project,effort.ProjectNumber,Tasks=effort.Tasks.OrderBy(t=>t.TaskId).Select(t=>new
+  return Digest("CRC-ProjectEffortSnapshot-v1",new{ProjectId=project,effort.ProjectNumber,effort.SourceEvidenceHash,Tasks=effort.Tasks.OrderBy(t=>t.TaskId).Select(t=>new
   {t.TaskId,t.Phase,t.Title,t.State,t.Revision,t.EstimateMinutes,t.ApprovedMinutes,t.PendingMinutes,t.RejectedMinutes,t.InvalidatedMinutes}).ToArray()});
  }
  static string RevisionHash(BudgetRevision r)=>Digest("CRC-ProjectBudgetRevision-v1",new

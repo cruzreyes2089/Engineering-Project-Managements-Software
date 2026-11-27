@@ -57,17 +57,22 @@ WHEN EXISTS(SELECT 1 FROM effort_budget_revisions WHERE operation_key=NEW.operat
  AND a.action='RecordEffortBudgetRevision' AND a.entity='Project' AND a.entity_id=NEW.project_id)
 BEGIN SELECT RAISE(ABORT,'Invalid budget revision chain or audit'); END;
 CREATE TRIGGER effort_forecast_insert_guard BEFORE INSERT ON effort_forecast_records
-WHEN EXISTS(SELECT 1 FROM effort_forecast_records WHERE operation_key=NEW.operation_key OR audit_id=NEW.audit_id
+BEGIN
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM effort_forecast_records WHERE operation_key=NEW.operation_key OR audit_id=NEW.audit_id
  OR (project_id=NEW.project_id AND (sequence=NEW.sequence OR record_hash=NEW.record_hash)))
  OR EXISTS(SELECT 1 FROM effort_budget_revisions WHERE operation_key=NEW.operation_key OR audit_id=NEW.audit_id)
- OR NEW.sequence!=1+coalesce((SELECT max(sequence) FROM effort_forecast_records WHERE project_id=NEW.project_id),0)
+ THEN RAISE(ABORT,'Forecast duplicate identity') END;
+ SELECT CASE WHEN NEW.sequence!=1+coalesce((SELECT max(sequence) FROM effort_forecast_records WHERE project_id=NEW.project_id),0)
  OR NEW.previous_hash IS NOT (SELECT record_hash FROM effort_forecast_records WHERE project_id=NEW.project_id ORDER BY sequence DESC LIMIT 1)
- OR NEW.budget_hash IS NOT (SELECT record_hash FROM effort_budget_revisions WHERE project_id=NEW.project_id ORDER BY revision DESC LIMIT 1)
+ THEN RAISE(ABORT,'Forecast predecessor mismatch') END;
+ SELECT CASE WHEN NEW.budget_hash IS NOT (SELECT record_hash FROM effort_budget_revisions WHERE project_id=NEW.project_id ORDER BY revision DESC LIMIT 1)
  OR NEW.current_budget_minutes IS NOT (SELECT minutes FROM effort_budget_revisions WHERE project_id=NEW.project_id ORDER BY revision DESC LIMIT 1)
  OR NEW.first_budget_minutes IS NOT (SELECT minutes FROM effort_budget_revisions WHERE project_id=NEW.project_id AND revision=1)
- OR NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.id=NEW.audit_id AND a.actor_id=NEW.actor_id
+ THEN RAISE(ABORT,'Forecast budget mismatch') END;
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.id=NEW.audit_id AND a.actor_id=NEW.actor_id
  AND a.action='RecordEffortForecast' AND a.entity='Project' AND a.entity_id=NEW.project_id)
-BEGIN SELECT RAISE(ABORT,'Invalid forecast chain, budget or audit'); END;
+ THEN RAISE(ABORT,'Forecast audit mismatch') END;
+END;
 CREATE TRIGGER effort_budget_no_update BEFORE UPDATE ON effort_budget_revisions BEGIN SELECT RAISE(ABORT,'Budget revision immutable'); END;
 CREATE TRIGGER effort_budget_no_delete BEFORE DELETE ON effort_budget_revisions BEGIN SELECT RAISE(ABORT,'Budget revision immutable'); END;
 CREATE TRIGGER effort_forecast_no_update BEFORE UPDATE ON effort_forecast_records BEGIN SELECT RAISE(ABORT,'Forecast record immutable'); END;

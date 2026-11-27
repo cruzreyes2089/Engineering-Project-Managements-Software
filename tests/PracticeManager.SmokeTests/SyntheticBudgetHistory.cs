@@ -50,8 +50,8 @@ internal sealed class SyntheticBudgetHistory(SqliteConnection db)
   =>Hash(new{Format="CRC-SyntheticEffortForecastRecord-v1",model.Hash,Sequence=sequence,Previous=prior,Reason=reason,Operation=operation,Actor=actor,Utc=utc,AuditId=audit});
  long Audit(SqliteTransaction t,long project,long actor,string action)
  {
-  Exec(t,"INSERT INTO audit_events(actor_id,action,entity,entity_id) VALUES($a,$x,'Project',$p)",("$a",actor),("$x",action),("$p",project));
-  return Count(t,"SELECT last_insert_rowid()");
+  using var q=Q(t,"INSERT INTO audit_events(actor_id,action,entity,entity_id) VALUES($a,$x,'Project',$p) RETURNING id",("$a",actor),("$x",action),("$p",project));
+  return Convert.ToInt64(q.ExecuteScalar());
  }
  void AuditCount(SqliteTransaction t,long project,string action,int expected)
  {
@@ -163,7 +163,7 @@ internal sealed class SyntheticBudgetHistory(SqliteConnection db)
   var model=ProjectBudgetReview.PrepareForecast(project,budgets.Select(x=>x.Model).ToArray(),expectedBudget,snapshot,snapshotHash,ordered);
   int sequence=history.Count+1;var utc=Utc();var audit=Audit(t,project,actor,"RecordEffortForecast");
   var hash=ForecastHash(model,sequence,expectedForecast,reason,key,actor,utc,audit);
-  Exec(t,@"INSERT INTO effort_forecast_records VALUES($p,$seq,$o,$prev,$h,$b,$s,$bytes,$remaining,$first,$current,$approved,$pending,$m,$total,$reason,$a,$u,$audit)",
+  Exec(t,@"INSERT INTO effort_forecast_records(project_id,sequence,operation_key,previous_hash,record_hash,budget_hash,snapshot_hash,snapshot_bytes,remaining_bytes,first_budget_minutes,current_budget_minutes,approved_minutes,pending_minutes,remaining_minutes,total_minutes,reason,actor_id,recorded_utc,audit_id) VALUES($p,$seq,$o,$prev,$h,$b,$s,$bytes,$remaining,$first,$current,$approved,$pending,$m,$total,$reason,$a,$u,$audit)",
    ("$p",project),("$seq",sequence),("$o",key),("$prev",expectedForecast),("$h",hash),("$b",expectedBudget),("$s",snapshotHash),("$bytes",SnapshotBytes(snapshot)),("$remaining",Encode(ordered)),
    ("$first",model.FirstBudgetMinutes),("$current",model.CurrentBudgetMinutes),("$approved",snapshot.CurrentApprovedMinutes+snapshot.HistoricalApprovedMinutes),("$pending",snapshot.CurrentPendingMinutes+snapshot.HistoricalPendingMinutes),
    ("$m",ordered.Sum(x=>(long)x.Minutes)),("$total",model.TotalForecastMinutes),("$reason",reason),("$a",actor),("$u",utc),("$audit",audit));
