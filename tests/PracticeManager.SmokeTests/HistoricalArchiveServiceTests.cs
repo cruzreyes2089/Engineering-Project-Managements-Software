@@ -121,7 +121,7 @@ internal static class HistoricalArchiveServiceTests
         Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive staff revocation immediately enforced");
         s.SetStaffGrant(role,"HistoricalProjects.View",true,false);
         var account=s.ReadStaffAccounts().Single(x=>x.Id==staffId);
-        s.ResetStaffPassword(staffId,account.CredentialRevision,temporary);
+        s.ResetStaffPassword(staffId,account.Revision,temporary);
         Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive credential revision invalidates existing session");
         staff.Logout();
         s.Logout();
