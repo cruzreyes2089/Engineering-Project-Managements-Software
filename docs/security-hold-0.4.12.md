@@ -1,0 +1,5 @@
+# Security hold: v0.4.12
+
+Owner reported repeated Chrome dangerous-file blocking of build #28, including directly from GitHub. Do not override, run or redistribute this artifact. Keep the exact archive available only as investigation evidence until expiry. SHA256 of the archive reported by GitHub: c5840d6dcc5944483ef8b6a254a635dbf247b0155069f814256bc6a8a5ec9a14. A digest checks integrity, not safety.
+
+The accounting branch no longer uploads Windows binaries while this hold is in place. The isolated Linux audit job retrieves the exact archive by artifact ID, checks its digest and scans without execution or redistribution. If retrieval, signature refresh, digest verification, or scan fails, no clean result is assumed. Even a no-detection result is not proof of safety or a reason to bypass browser protection. No changes to packaging or file names to evade detection. Further independent analysis and resolution with the browser/security vendor are required before release. Public repository code only, no business files, credentials or local records.
