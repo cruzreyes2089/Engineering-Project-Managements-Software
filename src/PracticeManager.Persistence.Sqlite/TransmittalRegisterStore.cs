@@ -78,7 +78,10 @@ internal sealed class TransmittalRegisterStore(SqliteConnection db,Func<SqliteTr
  }
  internal IReadOnlyList<StoredTransmittal> List(long project)
  {
-  using var t=db.BeginTransaction(deferred:true);_=Actor(t,project,"Read");
+  using var t=db.BeginTransaction(deferred:true);_=Actor(t,project,"Read");return ListCore(t,project);
+ }
+ internal IReadOnlyList<StoredTransmittal> ListCore(SqliteTransaction t,long project)
+ {
   var ids=new List<long>();
   using(var q=Q(t,"SELECT id FROM project_transmittal_intents WHERE project_id=$p ORDER BY id DESC LIMIT 101",("$p",project)))
   using(var r=q.ExecuteReader())while(r.Read()){if(ids.Count==100)throw new ArgumentException("Transmittal review limit exceeded.");ids.Add(r.GetInt64(0));}

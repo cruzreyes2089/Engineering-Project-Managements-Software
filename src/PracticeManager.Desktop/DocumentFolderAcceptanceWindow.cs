@@ -15,15 +15,15 @@ internal sealed class DocumentFolderAcceptanceWindow:Window
   this.service=service;this.project=project;Title="SYNTHETIC — Project folder configuration and register";Width=1000;Height=780;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var body=new StackPanel{Margin=new Thickness(16)};
   void Label(string x)=>body.Children.Add(new TextBlock{Text=x,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,4)});
-  Label("Synthetic local paths only. Existing folders are referenced, not created, opened, moved or deleted. Consultant MEP belongs in Reference Documents. QA-QC is standard.");
-  var actions=new WrapPanel();WorkWindowFields.Button(actions,"Reload current records",()=>Refresh());body.Children.Add(actions);
+  Label("Synthetic local paths only. Existing directories are never renamed, deleted or moved. Directory creation is limited to the dedicated synthetic workspace. Consultant MEP belongs in Reference Documents. QA-QC is standard.");
+  var actions=new WrapPanel();WorkWindowFields.Button(actions,"Reload current records",()=>Refresh());WorkWindowFields.Button(actions,"Prepare synthetic root",PrepareRoot);body.Children.Add(actions);
   Label("Reviewed dedicated project root (existing local folder)");body.Children.Add(rootPath);
   Label("Template: one folder per line; prefix optional/unselected labels with '- '");body.Children.Add(template);
   Label("Reason for configuration or folder change");body.Children.Add(reason);
   var configBar=new WrapPanel();WorkWindowFields.Button(configBar,"Record configuration revision",SaveConfig);body.Children.Add(configBar);
   configurations.Height=125;WorkWindowFields.Columns(configurations,("Revision","Revision"),("Root","RootPath"),("Reason","Reason"),("Recorded UTC","Utc"));body.Children.Add(configurations);
   Label("Relative path of existing project folder (within current root)");body.Children.Add(relative);
-  var folderBar=new WrapPanel();WorkWindowFields.Button(folderBar,"Register existing folder",Register);WorkWindowFields.Button(folderBar,"Retire current reference",Retire);body.Children.Add(folderBar);
+  var folderBar=new WrapPanel();WorkWindowFields.Button(folderBar,"Prepare synthetic project directory",PrepareParent);WorkWindowFields.Button(folderBar,"Register existing folder",Register);WorkWindowFields.Button(folderBar,"Preview / create template folders",CreateChildren);WorkWindowFields.Button(folderBar,"Retire current reference",Retire);body.Children.Add(folderBar);
   folders.Height=150;WorkWindowFields.Columns(folders,("Revision","Revision"),("State","State"),("Folder","DisplayPath"),("Configuration","ConfigurationHash"),("Reason","Reason"));body.Children.Add(folders);body.Children.Add(status);
   Content=new ScrollViewer{Content=body};Closed+=(_,_)=>{closed=true;Clear();};Refresh();
  }
@@ -68,4 +68,24 @@ internal sealed class DocumentFolderAcceptanceWindow:Window
   if(!Confirm("Retire reference without deleting files?\n"+record.DisplayPath))return;
   service.SaveAcceptanceProjectFolder(project,Guid.NewGuid(),record.Hash,record.ConfigurationHash,"Retired",record.PathKey,why,true);if(Refresh())status.Text="Reference retired; directory unchanged.";
  });
+ void PrepareRoot()=>Act(()=>{
+  if(!Confirm("Prepare the dedicated synthetic test directory? No real project directory will be created."))return;
+  rootPath.Text=service.PrepareAcceptanceFolderRoot(true);status.Text="Synthetic root prepared. Review and record its configuration.";
+ });
+ void PrepareParent()=>Act(()=>{
+  var config=current??throw new ArgumentException("Record the dedicated synthetic root configuration first.");
+  if(!Confirm("Prepare the application-named synthetic project directory? Existing contents will remain untouched."))return;
+  relative.Text=service.PrepareAcceptanceProjectDirectory(project,config.Hash,true);status.Text="Synthetic parent prepared. Register the reference separately.";
+ });
+ void CreateChildren()=>Act(()=>{
+  var config=current??throw new ArgumentException("Record the reviewed template first.");
+  var folder=prior is {State:"Registered"} p?p:throw new ArgumentException("Register the synthetic project folder first.");
+  var selection=config.Template.ToArray();
+  var plan=service.PreviewAcceptanceFolderCreation(project,folder.Hash,config.Hash,selection);
+  if(plan.Missing.Count==0){status.Text="All selected template folders already exist; nothing to create.";return;}
+  if(!Confirm("Create only the following missing folders?\n"+plan.ProjectFolder+"\n"+string.Join("\n",plan.Missing)+"\nExisting folders preserved: "+plan.Existing.Count))return;
+  var created=service.CreateAcceptanceFolders(project,folder.Hash,config.Hash,selection,plan.PlanHash,true);
+  if(Refresh())status.Text=$"{created.Count} new synthetic template folders created. Existing contents preserved.";
+ });
+
 }
