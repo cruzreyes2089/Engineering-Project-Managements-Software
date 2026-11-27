@@ -24,6 +24,8 @@ static class RecoveryCopyTests
   try{s.CreateRecoveryCopy(Path.Combine(Path.GetDirectoryName(path)!,"bad:stream.db"));throw new Exception("ADS destination allowed");}
   catch(ArgumentException){check(true,"recovery rejects alternate stream destination");}
   var result=s.CreateRecoveryCopy(target);
+  if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(target),"published recovery copy has protected explicit file ACL");
+  check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"successful backup removes private staging directory");
   check(result.Bytes>0&&result.Sha256==Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant(),"recovery copy file hash verified");
   using(var db=new SqliteConnection($"Data Source={target};Mode=ReadOnly;Pooling=False")){
    db.Open();using var q=db.CreateCommand();
@@ -46,7 +48,10 @@ static class RecoveryCopyTests
   Directory.CreateDirectory(target+"-wal");
   try{try{s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);throw new Exception("Source sidecar allowed");}catch(ArgumentException){check(!File.Exists(isolated),"restore refuses source sidecar directory");}}
   finally{Directory.Delete(target+"-wal");}
+  check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"rejected restore removes private staging directory");
   var restored=s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);
+  if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(isolated),"published isolated restore has protected explicit file ACL");
+  check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"successful restore removes private staging directory");
   check(restored.Clients==1&&restored.Projects==0&&restored.Documents==0&&restored.Sha256==result.Sha256,"isolated restore verified counts and exact bytes");
   var reopened=new LocalPractice(isolated);check(reopened.Login("admin",password)&&reopened.SearchClients("").Single().Id==client,"isolated restored copy opens independently");
   try{s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);throw new Exception("Restore overwrite allowed");}catch(ArgumentException){check(true,"restore refuses overwrite");}

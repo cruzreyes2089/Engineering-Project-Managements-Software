@@ -21,10 +21,8 @@ public sealed partial class LocalPractice
    Audit(c,t,actor,"RecoveryCopyRequested","Firm",1);
    t.Commit();
   }
-  var temporary=Path.Combine(folder,".crc-recovery-"+Guid.NewGuid().ToString("N")+".partial");
-  bool owned=false;
-  try{
-   using(var file=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None)){owned=true;}
+  using var stage=new RecoveryStaging(target);var temporary=stage.FilePath;
+  using(var file=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None)){}
    using(var copy=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=temporary,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString())){
     copy.Open();
     // SQLite backup API takes a consistent database image, including committed journal data.
@@ -52,17 +50,7 @@ public sealed partial class LocalPractice
     Audit(c,t,actor,"RecoveryCopyPrepared","Firm",1);
     t.Commit();
    }
-   // Recheck path and sidecars before exclusive publication.
-   LocalStoragePath.FilePath(temporary,mustExist:true,rejectSidecars:true);
-   LocalStoragePath.FilePath(target,mustExist:false,mustBeNew:true,rejectSidecars:true);
-   File.Move(temporary,target,false);
-   owned=false;
+   stage.Publish();
    return new(target,hash,bytes);
-  }finally{
-   if(owned){
-    foreach(var file in new[]{temporary,temporary+"-journal",temporary+"-wal",temporary+"-shm"})
-     if(File.Exists(file))File.Delete(file);
-   }
-  }
  }
 }

@@ -66,4 +66,47 @@ public static class WorkspaceConfidentiality
   }
   return seen.SetEquals(trusted);
  }
+ // Only for a newly created, application-owned staging file. Never call this
+ // on the original recovery source or a pre-existing database.
+ public static void ProtectOwnedStagingFile(string path)
+ {
+  var full=LocalStoragePath.FilePath(path,mustExist:true,rejectSidecars:true);
+  if(!OperatingSystem.IsWindows())return;
+  ProtectWindowsFile(full);
+ }
+ [SupportedOSPlatform("windows")]
+ static void ProtectWindowsFile(string full)
+ {
+  if(!HasRestrictedDirectoryAcl(Path.GetDirectoryName(full)!))
+   throw new ArgumentException("Recovery staging directory permissions not qualified.");
+  using var identity=WindowsIdentity.GetCurrent();
+  var security=new FileSecurity();
+  security.SetOwner(identity.User??throw new InvalidOperationException("Current Windows identity unavailable."));
+  security.SetAccessRuleProtection(true,false);
+  foreach(var sid in TrustedPrincipals())
+   security.AddAccessRule(new FileSystemAccessRule(sid,FileSystemRights.FullControl,AccessControlType.Allow));
+  new FileInfo(full).SetAccessControl(security);
+  if(!HasRestrictedFileAcl(full))throw new ArgumentException("Recovery file permissions could not be verified.");
+ }
+ public static bool HasRestrictedFileAcl(string path)
+ {
+  var full=LocalStoragePath.FilePath(path,mustExist:true,rejectSidecars:true);
+  return OperatingSystem.IsWindows()&&CheckWindowsFile(full);
+ }
+ [SupportedOSPlatform("windows")]
+ static bool CheckWindowsFile(string full)
+ {
+  var trusted=TrustedPrincipals();
+  var security=new FileInfo(full).GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
+  var raw=new RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(),0);
+  if(raw.DiscretionaryAcl is null||!security.AreAccessRulesProtected||!security.AreAccessRulesCanonical||
+     security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner||!trusted.Contains(owner))return false;
+  var seen=new HashSet<SecurityIdentifier>();
+  foreach(FileSystemAccessRule rule in security.GetAccessRules(true,true,typeof(SecurityIdentifier)))
+   if(rule.IdentityReference is not SecurityIdentifier sid||!trusted.Contains(sid)||!seen.Add(sid)||
+      rule.IsInherited||rule.AccessControlType!=AccessControlType.Allow||rule.FileSystemRights!=FileSystemRights.FullControl||
+      rule.InheritanceFlags!=InheritanceFlags.None||rule.PropagationFlags!=PropagationFlags.None)return false;
+  return seen.SetEquals(trusted);
+ }
+
 }

@@ -25,13 +25,11 @@ public sealed partial class LocalPractice
   var folder=Path.GetDirectoryName(target)??throw new ArgumentException("Destination folder required.");
   if(!Directory.Exists(folder)||File.Exists(target)||Directory.Exists(target))throw new ArgumentException("Choose a new file; no existing file will be replaced.");
   foreach(var suffix in new[]{"-wal","-shm","-journal"})if(File.Exists(input+suffix)||File.Exists(target+suffix))throw new ArgumentException("Database sidecar files present; use a closed recovery copy and empty destination.");
-  var staging=Path.Combine(folder,".crc-restore-"+Guid.NewGuid().ToString("N")+".partial");
-  bool owned=false;
-  try{
+  using var stage=new RecoveryStaging(target);var staging=stage.FilePath;
    long bytes;string hash;
    using(var src=new FileStream(input,FileMode.Open,FileAccess.Read,FileShare.Read)){
     bytes=src.Length;if(bytes<512||bytes>4L*1024*1024*1024)throw new ArgumentException("Recovery copy outside supported size (512 bytes–4 GiB).");
-    using var dst=new FileStream(staging,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None);owned=true;
+    using var dst=new FileStream(staging,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None);
     using var h=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);var buffer=new byte[65536];long count=0;
     while(true){var n=src.Read(buffer,0,buffer.Length);if(n==0)break;count+=n;if(count>bytes)throw new InvalidOperationException("Recovery file changed.");h.AppendData(buffer,0,n);dst.Write(buffer,0,n);}
     if(count!=bytes||src.Length!=bytes)throw new InvalidOperationException("Recovery file changed.");
@@ -57,13 +55,7 @@ public sealed partial class LocalPractice
     if(generation!=sessionGeneration||RequireAdministration(active,t)!=actor)throw new UnauthorizedAccessException();
     Require(active,t,"Administration.RecoveryCopy");Audit(active,t,actor,"IsolatedRestorePrepared","Firm",1);t.Commit();
    }
-   foreach(var suffix in new[]{"-wal","-shm","-journal"})if(File.Exists(staging+suffix)||File.Exists(target+suffix))throw new InvalidOperationException("Unexpected database sidecar files.");
-   LocalStoragePath.FilePath(staging,mustExist:true,rejectSidecars:true);
-   LocalStoragePath.FilePath(target,mustExist:false,mustBeNew:true,rejectSidecars:true);
-   File.Move(staging,target,false);owned=false;
+   stage.Publish();
    return new(target,hash,bytes,clients,projects,documents){HistoricalProjects=historicalProjects};
-  }finally{
-   if(owned)foreach(var file in new[]{staging,staging+"-wal",staging+"-shm",staging+"-journal"})if(File.Exists(file))File.Delete(file);
-  }
  }
 }
