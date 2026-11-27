@@ -30,6 +30,7 @@ public sealed partial class LocalPractice
     c.BackupDatabase(copy);
     using(var t=copy.BeginTransaction(deferred:false)){
      if(Require(copy,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
+     _=HistoricalRows(copy,t); // Refuse incomplete or inconsistent sealed archive before publishing.
      Exec(copy,t,"PRAGMA secure_delete=ON");
      Exec(copy,t,"DELETE FROM accounting_profiles");
      Exec(copy,t,"INSERT OR IGNORE INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) VALUES(1,'Restore',$a,$u)",("$a",actor),("$u",UtcNow()));
