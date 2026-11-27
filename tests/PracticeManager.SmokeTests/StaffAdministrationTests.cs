@@ -43,11 +43,35 @@ internal static class StaffAdministrationTests
   var e=s.ReadEmployees().Single();check(e.Number=="EMP-000001"&&e.UserId==user,"employee link and number persisted");
   Invalid(()=>s.CreateEmployee(new("Duplicate","Employee","","",true),user),"duplicate account link denied");
   var day=new DateOnly(2026,11,26);s.CreateEmployeeLicense(employee,"CA","Civil Engineer","SYNTHETIC",day.AddDays(15));
+  var other=s.CreateEmployee(new("Synthetic","Other","","Engineer",true));
+  var expired=s.CreateEmployeeLicense(other,"CA","Structural Engineer","PRIVATE-EXPIRED",day.AddDays(-1));
+  s.CreateEmployeeLicense(other,"CA","Civil Engineer","PRIVATE-TODAY",day);
+  s.CreateEmployeeLicense(other,"NV","Civil Engineer","PRIVATE-EDGE",day.AddDays(30));
+  s.CreateEmployeeLicense(other,"OR","Civil Engineer","PRIVATE-LATER",day.AddDays(31));
+  var review=s.ReadEmployeeLicenseExpiry(day);
+  check(review.Expired==1&&review.DueToday==1&&review.Upcoming==2&&review.Items.Count==4,"firm license review includes overdue and inclusive horizon");
+  check(review.Items.Select(x=>x.DaysRemaining).SequenceEqual(new[]{-1,0,15,30}),"firm license review sorts by recorded expiration");
+  check(review.Items.All(x=>!x.ToString().Contains("PRIVATE-",StringComparison.Ordinal)),"license alert omits license numbers");
+  check(s.ReadEmployeeLicenseExpiry(day,31).Items.Count==5,"custom horizon includes next boundary");
+  Invalid(()=>s.ReadEmployeeLicenseExpiry(day,0),"invalid license horizon rejected");
+  Invalid(()=>s.ReadEmployeeLicenseExpiry(DateOnly.MaxValue,30),"overflowing license horizon rejected");
+  var denied=new LocalPractice(path);Denied(()=>denied.ReadEmployeeLicenseExpiry(day),"unauthenticated expiry review denied");
+  check(replacement.Login("synthetic-engineer","Synthetic-permanent-0002"),"staff login for license review");
+  Denied(()=>replacement.ReadEmployeeLicenseExpiry(day),"missing employee grant denies expiry review");
+  s.SetStaffGrant(role.Id,"Employees.View",true,false);
+  check(replacement.ReadEmployeeLicenseExpiry(day).Items.Count==4,"employee view grant allows limited expiry review");
+  s.SetStaffGrant(role.Id,"Employees.View",false,true);
+  Denied(()=>replacement.ReadEmployeeLicenseExpiry(day),"revoked employee grant denies expiry review");
+  var otherRow=s.ReadEmployees().Single(x=>x.Id==other);
+  s.EditEmployee(other,otherRow.Revision,new(otherRow.First,otherRow.Last,otherRow.Email,otherRow.Title,false));
+  check(s.ReadEmployeeLicenseExpiry(day).Items.Single().EmployeeId==employee,"inactive staff excluded from current license alerts");
+
   var license=s.ReadEmployeeLicenses(employee).Single();check(license.ExpiryStatus(day)=="Due within 30 days"&&license.ExpiryStatus(day.AddDays(16))=="Expired","license date boundaries");
   s.RenewEmployeeLicense(employee,license.Id,license.Revision,day.AddYears(1));check(s.ReadEmployeeLicenses(employee).Single().ExpiryStatus(day)=="Current","license renewal recorded");
+  check(s.ReadEmployeeLicenseExpiry(day).Items.Count==0,"renewed license exits current alert window");
   Invalid(()=>s.RenewEmployeeLicense(employee,license.Id,license.Revision,day),"stale license renewal rejected");
-  s.EditEmployee(employee,e.Revision,new(e.First,e.Last,e.Email,e.Title,false));check(!s.ReadEmployees().Single().Active,"employee status persisted");
+  s.EditEmployee(employee,e.Revision,new(e.First,e.Last,e.Email,e.Title,false));check(!s.ReadEmployees().Single(x=>x.Id==employee).Active,"employee status persisted");
   Invalid(()=>s.CreateEmployeeLicense(employee,"CA","Other","SYNTHETIC2",day),"inactive employee cannot receive license");
-  check(!s.ReadEmployees().Single().ToString().Contains("password",StringComparison.OrdinalIgnoreCase),"employee view has no credentials or rates");
+  check(!s.ReadEmployees().Single(x=>x.Id==employee).ToString().Contains("password",StringComparison.OrdinalIgnoreCase),"employee view has no credentials or rates");
  }
 }
