@@ -53,6 +53,28 @@ internal static class HistoricalArchiveRecoveryTests
         check(!File.Exists(refused),"Archive invalid backup never published");
         check(Hash(copy)==backup.Sha256&&service.ReadHistoricalProjects().ToHashSet().SetEquals(original),
             "Archive failure tests preserve valid source and recovery");
+        foreach(var (label,mutation) in new[]{
+            ("missing-audit","DELETE FROM audit_events WHERE action='ImportHistoricalProjects'"),
+            ("duplicate-audit","INSERT INTO audit_events(actor_id,action,entity,entity_id) SELECT actor_id,action,entity,entity_id FROM audit_events WHERE action='ImportHistoricalProjects'"),
+            ("wrong-actor","UPDATE audit_events SET actor_id=NULL WHERE action='ImportHistoricalProjects'"),
+            ("wrong-entity","UPDATE audit_events SET entity='Firm' WHERE action='ImportHistoricalProjects'")})
+        {
+            var corrupt=Path.Combine(root,"historical-"+label+".db");File.Copy(copy,corrupt);
+            Mutate(corrupt,mutation);
+            var destination=Path.Combine(root,"historical-"+label+"-refused.db");
+            Reject(()=>service.RestoreRecoveryCopyToNewFile(corrupt,Hash(corrupt),destination),
+                "Archive restore rejects "+label+" despite matching file digest");
+            check(!File.Exists(destination),"Archive invalid audit restore not published: "+label);
+            Reject(()=>UpgradeRehearsal.Run(corrupt,Hash(corrupt),true),"Archive rehearsal rejects "+label);
+            var damagedSession=new LocalPractice(corrupt);
+            check(damagedSession.Login("admin",password),"Archive disposable audit corruption login: "+label);
+            Reject(()=>damagedSession.ReadHistoricalProjects(),"Archive read rejects "+label);
+            Reject(()=>damagedSession.CreateRecoveryCopy(destination),"Archive backup rejects "+label);
+            check(!File.Exists(destination),"Archive invalid audit backup not published: "+label);
+            damagedSession.Logout();
+        }
+        check(Hash(copy)==backup.Sha256&&service.ReadHistoricalProjects().ToHashSet().SetEquals(original),
+            "Archive audit corruption exercises preserve original records and backup");
         HistoricalAssociationTests.Run(reopened,target,check);
     }
 }
