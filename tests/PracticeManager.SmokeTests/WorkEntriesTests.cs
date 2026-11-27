@@ -143,6 +143,22 @@ internal static class WorkEntriesTests
   var replacementTask=admin.CreateProjectTask(project,new(phase,employee,"After reopen",day,day,60));
   check(replacementTask>0,"reopened project permits new task plan");
   admin.CancelPlannedTask(project,replacementTask,1,"Synthetic no longer required",true);
+  var startedTask=admin.CreateProjectTask(project,new(phase,employee,"Interrupted design",day.AddDays(-1),day.AddDays(1),90));
+  worker.AdvanceMyTask(startedTask,1,"InProgress");
+  var actual=new WorkSubmissionInput(Guid.NewGuid(),startedTask,day.AddDays(-1),"Time",20,null,null,"Actual work before discontinuation");
+  var actualId=worker.SubmitWork(actual);
+  var stopped=admin.DiscontinueStartedTask(project,startedTask,2,"Synthetic remaining work stopped",true);
+  check(admin.ReadProjectCloseoutReview(project).OpenTasks==0&&admin.ReadProjectCloseoutReview(project).PendingTimeSubmissions==1,"discontinuation does not conceal outstanding work review");
+  check(worker.SubmitWork(actual)==actualId,"exact historical work retry remains idempotent");
+  var late=actual with{OperationKey=Guid.NewGuid(),Date=day,Minutes=10,Description="Actual work on stop date reported late"};
+  var lateId=worker.SubmitWork(late);
+  check(worker.ReadMySubmissions(day.AddDays(-1),day).Any(x=>x.Id==lateId),"actual historical work on stop date remains reportable");
+  Invalid(()=>worker.SubmitWork(late with{OperationKey=Guid.NewGuid(),Date=day.AddDays(1)}),"future work after discontinuation is not permitted");
+  Invalid(()=>admin.RecordProjectLifecycle(project,reopened.Id,true,"Synthetic premature closure",true),"unreviewed discontinued-task work still blocks closure");
+  check(admin.ReviewWork(actualId,true,"Reviewed actual work")=="Approved"&&admin.ReviewWork(lateId,true,"Reviewed late actual work")=="Approved","discontinued assignment facts remain reviewable");
+  check(admin.ClassifyWork(actualId,true,"Synthetic actual billable work")=="Billable","discontinuation does not void approved billable work");
+  var financialAfterStop=admin.ReadProjectFinancialReport(project,day.AddDays(-1),day);
+  check(financialAfterStop.ApprovedMinutes==120&&financialAfterStop.BillableMinutes==50,"financial report retains discontinued-task work without retroactive adjustment");
   var reclosed=admin.RecordProjectLifecycle(project,reopened.Id,true,"Synthetic closure after cancellation",true);
   check(reclosed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).OpenTasks==0,"cancelled unstarted task does not block operational reclosure");
 

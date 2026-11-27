@@ -81,6 +81,26 @@ internal static class WorkPlanningTests
   try{Sql($"INSERT INTO task_cancellations(task_id,plan_revision,reason,actor_id,recorded_utc) VALUES({extra},2,'Invalid',1,'synthetic')");throw new Exception("FAIL: direct cancellation of started task");}catch(SqliteException){check(true,"database rejects cancellation of started task");}
   Invalid(()=>worker.AdvanceMyTask(baseCancel,1,"InProgress"),"cancelled base task cannot start");
   Denied(()=>worker.ReadTaskCancellation(project,rejectedTask),"ordinary employee cannot read management cancellation evidence");
+  check(s.ReadTaskDiscontinuation(project,extra)==null,"started task has no invented discontinuation");
+  Denied(()=>worker.DiscontinueStartedTask(project,extra,2,"Unauthorized",true),"employee cannot discontinue assignment");
+  Invalid(()=>s.DiscontinueStartedTask(project2,extra,2,"Wrong project",true),"cross-project discontinuation denied");
+  Invalid(()=>s.DiscontinueStartedTask(project,extra,1,"Stale",true),"stale started-task revision denied");
+  Invalid(()=>s.DiscontinueStartedTask(project,extra,2,"Not confirmed",false),"discontinuation requires explicit confirmation");
+  Invalid(()=>s.DiscontinueStartedTask(project,task,4,"Completed task",true),"completed work cannot be relabeled discontinued");
+  Invalid(()=>s.DiscontinueStartedTask(project,otherTask,1,"Planned task",true),"planned task uses cancellation rather than discontinuation");
+  Invalid(()=>s.DiscontinueStartedTask(project,rejectedTask,1,"Cancelled task",true),"cancelled task cannot be discontinued");
+  var currentScreen=s.ReadConflictHistory(project).First();
+  var hold=s.RecordConflictReview(project,currentScreen.Id,new("Synthetic jurisdiction","No","No","No","Yes","Synthetic new concern"),true);
+  check(s.ReadProjectConflictStatus(project)=="Hold","conflict hold exists before discontinuation");
+  var stopped=s.DiscontinueStartedTask(project,extra,2,"Stop assignment because of concern",true);
+  check(stopped.TaskId==extra&&stopped.TaskRevision==2&&stopped.StoppedOn==DateOnly.FromDateTime(DateTime.Today)&&s.ReadTaskDiscontinuation(project,extra)==stopped,"discontinuation records immutable reviewed revision and stop date despite conflict hold");
+  check(s.ReadProjectTasks(project).Single(x=>x.Id==extra).State=="Discontinued"&&worker.ReadMyWork(day,day.AddDays(10)).Single(x=>x.Id==extra).State=="Discontinued","discontinued assignment remains visible to manager and assigned worker");
+  Invalid(()=>worker.AdvanceMyTask(extra,2,"Completed"),"discontinued task cannot be marked completed");
+  Invalid(()=>s.DiscontinueStartedTask(project,extra,2,"Repeat",true),"duplicate discontinuation denied");
+  Denied(()=>worker.ReadTaskDiscontinuation(project,extra),"management discontinuation evidence restricted");
+  check(s.ReadProjectCloseoutReview(project).OpenTasks==1,"discontinued task is not outstanding");
+  var afterStop=s.ReadProjectOperations(project,day,day.AddDays(10));
+  check(afterStop.DiscontinuedTasks==1&&afterStop.CancelledTasks==2&&afterStop.StartedTasks==0&&afterStop.EstimatedMinutes==300,"report separates discontinued task and excludes its original estimate");
   var employee=s.ReadEmployees().Single(x=>x.Id==e);s.EditEmployee(e,employee.Revision,new(employee.First,employee.Last,employee.Email,employee.Title,false));Denied(()=>worker.ReadMyWork(day,day.AddDays(10)),"inactive linked employee denied work access");
  }
 }

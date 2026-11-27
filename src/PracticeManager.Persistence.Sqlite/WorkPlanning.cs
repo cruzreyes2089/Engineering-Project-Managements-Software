@@ -3,8 +3,11 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record TaskCancellation(long TaskId,int PlanRevision,string Reason,long ActorId,string RecordedUtc);
+public sealed record TaskDiscontinuation(long TaskId,int TaskRevision,DateOnly StoppedOn,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public TaskDiscontinuation? ReadTaskDiscontinuation(long project,long task)=>throw new NotImplementedException("Started-task discontinuation history not implemented.");
+ public TaskDiscontinuation DiscontinueStartedTask(long project,long task,int expectedRevision,string reason,bool confirmed)=>throw new NotImplementedException("Started-task discontinuation not implemented.");
  public TaskCancellation? ReadTaskCancellation(long project,long task)
  {
   using var c=Open();using var t=c.BeginTransaction();RequirePlan(c,t);ProjectRow(c,t,project);
