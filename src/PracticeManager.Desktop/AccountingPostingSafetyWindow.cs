@@ -35,22 +35,17 @@ internal sealed class AccountingPostingSafetyWindow:Window
  }
  void Refresh()
  {
+  report.Text=wireReport.Text=attemptReport.Text="";
+  declare.IsEnabled=reason.IsEnabled=false;
   try{
-   var s=service.ReadPostingRehearsalStatus();
-   report.Text=$"Posting: DISABLED\nLifecycle: {(s.Held?"HOLD — "+s.HoldReason:"No incident declared; identity not certified")}\nReserved: {s.Reserved}\nIn flight (treat as uncertain after interruption): {s.InFlight}\nUncertain: {s.Uncertain}\nSimulated confirmed: {s.SimulatedConfirmed}\nCancelled: {s.Cancelled}";
-   reason.IsEnabled=!s.Held;declare.IsEnabled=!s.Held&&reason.SelectedItem is LifecycleHoldReason;
-  }catch(UnauthorizedAccessException){report.Text="Access denied.";declare.IsEnabled=reason.IsEnabled=false;}
-   catch(Exception){report.Text="Status unavailable. No authorization assumed.";declare.IsEnabled=reason.IsEnabled=false;}
-  try{
-   var w=service.ReadSyntheticWireDraftStatus();
+   var overview=service.ReadAccountingSafetyOverview();
+   var s=overview.Rehearsals;var w=overview.Drafts;var a=overview.Attempts;
+   report.Text=$"Posting: DISABLED\nStatus: {overview.Status}\nLifecycle: {(s.Held?"HOLD — "+s.HoldReason:"No incident declared; identity not certified")}\nUnresolved simulated attempts: {overview.Unresolved}\nSaved profile: {(overview.ProfilePresent?"Present":"Absent")}\nMarker: {(overview.MarkerPresent?"Present":"Absent")}\nLegacy rehearsal reserved: {s.Reserved}\nIn flight: {s.InFlight}\nUncertain: {s.Uncertain}\nSimulated confirmed: {s.SimulatedConfirmed}\nCancelled: {s.Cancelled}";
    wireReport.Text=$"Drafts: {w.Draft}\nHistorically approved: {w.Approved}\nCancelled: {w.Cancelled}\nApproval counts are not posting authorization.";
-  }catch(UnauthorizedAccessException){wireReport.Text="Draft history access denied.";}
-   catch(Exception){wireReport.Text="Draft history unavailable.";}
-  try{
-   var a=service.ReadSyntheticWireAttemptStatus();
    attemptReport.Text=$"Reserved: {a.Reserved}\nWitnessed: {a.Witnessed}\nUncertain: {a.Uncertain}\nAwaiting review: {a.ConfirmationForReview}\nReviewed simulations: {a.ReviewedSimulation}\nNo real posting authority.";
-  }catch(UnauthorizedAccessException){attemptReport.Text="Attempt history access denied.";}
-   catch(Exception){attemptReport.Text="Attempt history unavailable.";}
+   reason.IsEnabled=!s.Held;declare.IsEnabled=!s.Held&&reason.SelectedItem is LifecycleHoldReason;
+  }catch(UnauthorizedAccessException){report.Text="Access denied.";}
+   catch(Exception){report.Text="Status unavailable. No authorization assumed.";}
  }
  void Declare()
  {

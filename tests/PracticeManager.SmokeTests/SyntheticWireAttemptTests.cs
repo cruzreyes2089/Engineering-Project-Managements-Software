@@ -71,6 +71,10 @@ internal static class SyntheticWireAttemptTests
   check(page.Items.Count==2&&page.NextBeforeId.HasValue&&page.Items[0].Reference==SyntheticWireCompiler.Compile(third).Reference&&page.Items[0].AttemptState=="NotAttempted","history newest first and bounded");
   var tail=s.ReadSyntheticWireHistory(beforeId:page.NextBeforeId,pageSize:2);
   check(tail.Items.Count==1&&tail.NextBeforeId==null&&tail.Items[0].AttemptState=="ReviewedSimulation","history pagination no duplicate or omission");
+  var overview=s.ReadAccountingSafetyOverview();
+  check(overview.Status=="LifecycleHold"&&overview.Unresolved==1&&overview.Attempts==s.ReadSyntheticWireAttemptStatus()&&overview.Rehearsals.Held&&overview.ProfilePresent&&overview.MarkerPresent,
+   "unified accounting overview preserves hold and unresolved counts");
+  check(!overview.MayPost&&!overview.MayRetry&&!overview.MayReleaseHold,"accounting overview cannot grant posting or release authority");
   var heldEvidence=s.CompareSyntheticAttemptWitness(root,store);
   check(heldEvidence.Exact==2&&heldEvidence.Unresolved==1&&heldEvidence.Outcome=="WitnessReviewRequired","matching evidence cannot release unresolved attempt or lifecycle hold");
   var orphan=Path.Combine(root,Guid.NewGuid().ToString("N")+".attempt");File.WriteAllText(orphan,"Synthetic orphan");
@@ -81,6 +85,7 @@ internal static class SyntheticWireAttemptTests
   check(!pending.Items[0].ToString().Contains(second.AttemptKey!.Value.ToString("D")),"history never returns attempt capability");
   try{s.ReadSyntheticWireHistory(pageSize:101);throw new Exception("FAIL: history bounds");}catch(ArgumentOutOfRangeException){check(true,"history page size capped");}
   s.Logout();
+  try{s.ReadAccountingSafetyOverview();throw new Exception("FAIL: overview authorization");}catch(UnauthorizedAccessException){check(true,"unified accounting overview requires authentication");}
   try{s.CompareSyntheticAttemptWitness(root,store);throw new Exception("FAIL: witness authorization");}catch(UnauthorizedAccessException){check(true,"witness comparison requires accounting grants");}
   try{s.ReadSyntheticWireHistory();throw new Exception("FAIL: history authorization");}catch(UnauthorizedAccessException){check(true,"history requires authenticated accounting grants");}
  }

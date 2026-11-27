@@ -70,6 +70,9 @@ internal static class SyntheticAccountingRestoreTests
   check(old.PrepareSyntheticWireDraft(replacement).Outcome=="LifecycleHold","older restore cannot prepare replacement transaction");
   var recent=Restore(after,"restored-after.db");
   check(recent.ReadSyntheticWireAttempt(intent.OperationKey).State=="Uncertain","recent restore retains uncertainty");
+  var overview=recent.ReadAccountingSafetyOverview();
+  check(overview.Status=="LifecycleHold"&&overview.Unresolved==1&&!overview.ProfilePresent&&overview.MarkerPresent&&!overview.MayReleaseHold,
+   "restored accounting overview reports missing credentials and preserved uncertainty");
   var comparison=recent.CompareSyntheticAttemptWitness(retained,store);
   check(comparison.Outcome=="WitnessReviewRequired"&&comparison.Exact==1&&comparison.Unresolved==1&&!comparison.MayReleaseHold,
    "matching retained witness cannot clear uncertainty or release hold");
