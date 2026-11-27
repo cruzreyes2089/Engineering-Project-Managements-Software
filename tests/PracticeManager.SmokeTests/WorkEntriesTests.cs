@@ -219,6 +219,11 @@ internal static class WorkEntriesTests
   check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
   var effort=admin.ReadProjectEffort(project);
   check(effort.Tasks.Single().TaskId==task&&effort.CurrentPlanMinutes==120&&effort.CurrentApprovedMinutes==90&&effort.CurrentPendingMinutes==0,"whole-project effort matches approved time without overhead or expenses");
+  check(effort.ProjectId==project&&effort.Tasks.Single().Revision==2,"project effort carries stable project identity and task revision");
+  var effortHash=ProjectBudgetReview.SnapshotHash(project,effort);
+  var initialBudget=ProjectBudgetReview.PrepareRevision(project,Array.Empty<BudgetRevision>(),null,effort,effortHash,120,"FirstRecorded","Synthetic internal review",true);
+  check(ProjectBudgetReview.PrepareForecast(project,new[]{initialBudget},initialBudget.Hash,effort,effortHash,new[]{new TaskRemainingInput(task,60)}).VarianceFromCurrentMinutes==30,"native effort snapshot supports explicit budget review");
+
   check(ProjectEffort.Forecast(effort,Array.Empty<TaskRemainingInput>()).CurrentForecastMinutes==null,"open task effort requires explicit forecast");
   check(ProjectEffort.Forecast(effort,new[]{new TaskRemainingInput(task,60)}).CurrentForecastMinutes==150,"explicit remaining effort can exceed original estimate");
   Denied(()=>worker.ReadProjectEffort(project),"own work grant cannot read project effort report");

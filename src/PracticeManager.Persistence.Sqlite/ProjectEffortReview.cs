@@ -16,7 +16,7 @@ public sealed partial class LocalPractice
    WHERE h.project_id=$p AND s.kind='Time' GROUP BY s.task_id
   )
   SELECT w.id,h.name,w.title,CASE WHEN x.task_id IS NOT NULL THEN 'Cancelled' WHEN d.task_id IS NOT NULL THEN 'Discontinued' ELSE w.state END,
-   w.estimate_minutes,coalesce(f.approved,0),coalesce(f.pending,0),coalesce(f.rejected,0),coalesce(f.invalidated,0)
+   w.estimate_minutes,coalesce(f.approved,0),coalesce(f.pending,0),coalesce(f.rejected,0),coalesce(f.invalidated,0),w.revision
   FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id LEFT JOIN task_cancellations x ON x.task_id=w.id
   LEFT JOIN task_discontinuations d ON d.task_id=w.id LEFT JOIN facts f ON f.task_id=w.id
   WHERE h.project_id=$p ORDER BY h.start_on,h.id,w.start_on,w.id LIMIT 501",("$p",project));
@@ -24,11 +24,11 @@ public sealed partial class LocalPractice
   while(r.Read())
   {
    if(rows.Count==500)throw new ArgumentException("Project effort register exceeds 500 tasks.");
-   var row=new TaskEffort(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt32(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8));
+   var row=new TaskEffort(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt32(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8)){Revision=r.GetInt32(9)};
    if(row.State is not ("Planned" or "InProgress" or "Completed" or "Cancelled" or "Discontinued")||row.EstimateMinutes is <1 or >600000||
       row.ApprovedMinutes<0||row.PendingMinutes<0||row.RejectedMinutes<0||row.InvalidatedMinutes<0)throw new ArgumentException("Invalid task effort evidence.");
    rows.Add(row);
   }
-  return new(p.Number,rows.AsReadOnly());
+  return new ProjectEffortReview(p.Number,rows.AsReadOnly()){ProjectId=project};
  }
 }

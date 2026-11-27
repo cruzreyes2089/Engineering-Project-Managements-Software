@@ -4,6 +4,7 @@ namespace PracticeManager.Core;
 public sealed record TaskEffort(long TaskId,string Phase,string Title,string State,int EstimateMinutes,
  long ApprovedMinutes,long PendingMinutes,long RejectedMinutes,long InvalidatedMinutes)
 {
+ public int Revision{get;init;}
  public bool Open=>State is "Planned" or "InProgress";
  public bool Historical=>State is "Cancelled" or "Discontinued";
  public long? ApprovedVarianceMinutes=>Historical?null:ApprovedMinutes-EstimateMinutes;
@@ -15,6 +16,7 @@ public sealed record TaskEffort(long TaskId,string Phase,string Title,string Sta
 }
 public sealed record ProjectEffortReview(string ProjectNumber,IReadOnlyList<TaskEffort> Tasks)
 {
+ public long ProjectId{get;init;}
  public long CurrentPlanMinutes=>Tasks.Where(t=>!t.Historical).Sum(t=>(long)t.EstimateMinutes);
  public long CurrentApprovedMinutes=>Tasks.Where(t=>!t.Historical).Sum(t=>t.ApprovedMinutes);
  public long CurrentPendingMinutes=>Tasks.Where(t=>!t.Historical).Sum(t=>t.PendingMinutes);
