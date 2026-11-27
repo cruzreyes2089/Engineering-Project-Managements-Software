@@ -7,9 +7,33 @@ public sealed record AttendanceCorrection(long Id,long SessionId,DateTimeOffset 
 public sealed record AttendanceReviewRow(long Id,long EmployeeId,string Employee,DateTimeOffset OriginalIn,DateTimeOffset? OriginalOut,DateTimeOffset ClockIn,DateTimeOffset? ClockOut,long? CorrectionId);
 public sealed partial class LocalPractice
 {
- public IReadOnlyList<AttendanceReviewRow> ReadAttendanceReview(DateOnly start,DateOnly end)=>throw new NotImplementedException("Attendance review not implemented.");
- public IReadOnlyList<AttendanceCorrection> ReadAttendanceCorrections(long session)=>throw new NotImplementedException("Attendance correction history not implemented.");
- public AttendanceCorrection CorrectAttendance(long session,long? expectedCorrection,DateTimeOffset clockIn,DateTimeOffset clockOut,string reason,bool confirmed)=>throw new NotImplementedException("Attendance correction not implemented.");
+ private static DateTimeOffset AttendanceTime(SqliteDataReader r,int i)=>DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(i));
+ private static DateTimeOffset? OptionalAttendanceTime(SqliteDataReader r,int i)=>r.IsDBNull(i)?null:AttendanceTime(r,i);
+ public IReadOnlyList<AttendanceReviewRow> ReadAttendanceReview(DateOnly start,DateOnly end)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireWorkCorrection(c,t);DateRange(start,end,366);
+  var a=new DateTimeOffset(start.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero).ToUnixTimeSeconds();var b=new DateTimeOffset(end.ToDateTime(TimeOnly.MaxValue),TimeSpan.Zero).ToUnixTimeSeconds();
+  using var q=Command(c,t,@"SELECT a.id,a.employee_id,trim(e.first_name||' '||e.last_name),a.original_in,a.original_out,a.clock_in,a.clock_out,a.correction_id FROM effective_attendance a JOIN employees e ON e.id=a.employee_id WHERE (a.clock_in<=$b AND (a.clock_out IS NULL OR a.clock_out>=$a)) OR (a.original_in<=$b AND coalesce(a.original_out,CASE WHEN a.clock_out IS NULL THEN 9223372036854775807 ELSE a.original_in END)>=$a) ORDER BY a.clock_in DESC,a.id DESC LIMIT 501",("$a",a),("$b",b));
+  using var r=q.ExecuteReader();var rows=new List<AttendanceReviewRow>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Narrow attendance review date range.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),AttendanceTime(r,3),OptionalAttendanceTime(r,4),AttendanceTime(r,5),OptionalAttendanceTime(r,6),ReadOptionalId(r,7)));}return rows.AsReadOnly();
+ }
+ public IReadOnlyList<AttendanceCorrection> ReadAttendanceCorrections(long session)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireWorkCorrection(c,t);
+  if(Scalar(c,t,"SELECT id FROM employee_attendance WHERE id=$i",("$i",session))==null)throw new ArgumentException("Attendance session unavailable.");
+  using var q=Command(c,t,"SELECT id,session_id,clock_in,clock_out,reason,actor_id,recorded_utc FROM attendance_corrections WHERE session_id=$i ORDER BY id DESC LIMIT 501",("$i",session));using var r=q.ExecuteReader();var rows=new List<AttendanceCorrection>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Attendance history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),AttendanceTime(r,2),AttendanceTime(r,3),r.GetString(4),r.GetInt64(5),r.GetString(6)));}return rows.AsReadOnly();
+ }
+ public AttendanceCorrection CorrectAttendance(long session,long? expectedCorrection,DateTimeOffset clockIn,DateTimeOffset clockOut,string reason,bool confirmed)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireWorkCorrection(c,t);
+  if(!confirmed)throw new ArgumentException("Explicit attendance correction confirmation required.");
+  var note=Validation.Text(reason,1000,"Attendance correction evidence",true);
+  var a=clockIn.ToUnixTimeSeconds();var b=clockOut.ToUnixTimeSeconds();
+  if(clockIn!=DateTimeOffset.FromUnixTimeSeconds(a)||clockOut!=DateTimeOffset.FromUnixTimeSeconds(b)||a< -2208988800L||b<a||b>DateTimeOffset.UtcNow.ToUnixTimeSeconds())throw new ArgumentException("Valid UTC-second interval from 1900 through present required.");
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM effective_attendance a JOIN employees e ON e.id=a.employee_id WHERE a.id=$i AND (a.actor_id=$u OR e.user_id=$u)",("$i",session),("$u",actor)))!=0)throw new UnauthorizedAccessException("Self attendance correction prohibited.");
+  if(Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM effective_attendance a WHERE a.id=$i AND a.correction_id IS $x AND NOT EXISTS(SELECT 1 FROM effective_attendance b WHERE b.employee_id=a.employee_id AND b.id!=a.id AND $a<coalesce(b.clock_out,9223372036854775807) AND $b>b.clock_in)",("$i",session),("$x",expectedCorrection),("$a",a),("$b",b)))!=1)throw new ArgumentException("Current attendance revision and nonoverlapping interval required.");
+  var utc=UtcNow();Exec(c,t,"INSERT INTO attendance_corrections(session_id,expected_correction_id,clock_in,clock_out,reason,actor_id,recorded_utc) VALUES($i,$x,$a,$b,$n,$u,$t)",("$i",session),("$x",expectedCorrection),("$a",a),("$b",b),("$n",note),("$u",actor),("$t",utc));
+  var id=Last(c,t);Audit(c,t,actor,"CorrectAttendance","Attendance",session);t.Commit();return new(id,session,DateTimeOffset.FromUnixTimeSeconds(a),DateTimeOffset.FromUnixTimeSeconds(b),note,actor,utc);
+ }
  private long RequireWorkCorrection(SqliteConnection c,SqliteTransaction t)
  {var actor=RequireWorkReview(c,t,"Work.Review");Require(c,t,"Work.Correct");return actor;}
  public WorkInvalidation? ReadWorkInvalidation(long id)
@@ -40,21 +64,21 @@ public sealed partial class LocalPractice
  public AttendanceSession? ReadMyOpenAttendance()
  {
   using var c=Open();using var t=c.BeginTransaction();var employee=OwnEmployee(c,t);
-  using var q=Command(c,t,"SELECT id,clock_in FROM employee_attendance WHERE employee_id=$e AND clock_out IS NULL",("$e",employee));using var r=q.ExecuteReader();return r.Read()?new(r.GetInt64(0),DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)),null):null;
+  using var q=Command(c,t,"SELECT id,clock_in FROM effective_attendance WHERE employee_id=$e AND clock_out IS NULL",("$e",employee));using var r=q.ExecuteReader();return r.Read()?new(r.GetInt64(0),DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)),null):null;
  }
  public string ClockIn()
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var employee=OwnEmployee(c,t);var actor=Require(c,t,"Work.Own");
-  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM employee_attendance WHERE employee_id=$e AND clock_out IS NULL",("$e",employee)))!=0)return "AlreadyClockedIn";
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM effective_attendance WHERE employee_id=$e AND clock_out IS NULL",("$e",employee)))!=0)return "AlreadyClockedIn";
   var now=DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-  var last=Scalar(c,t,"SELECT max(clock_out) FROM employee_attendance WHERE employee_id=$e",("$e",employee));
+  var last=Scalar(c,t,"SELECT max(clock_out) FROM effective_attendance WHERE employee_id=$e",("$e",employee));
   if(last is long previous&&now<previous)return "ClockReviewRequired";
   Exec(c,t,"INSERT INTO employee_attendance(employee_id,clock_in,actor_id) VALUES($e,$u,$a)",("$e",employee),("$u",now),("$a",actor));Audit(c,t,actor,"ClockIn","Attendance",Last(c,t));t.Commit();return "ClockedIn";
  }
  public string ClockOut(long expectedSession)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var employee=OwnEmployee(c,t);var actor=Require(c,t,"Work.Own");
-  var start=Scalar(c,t,"SELECT clock_in FROM employee_attendance WHERE id=$i AND employee_id=$e AND clock_out IS NULL",("$i",expectedSession),("$e",employee));
+  var start=Scalar(c,t,"SELECT clock_in FROM effective_attendance WHERE id=$i AND employee_id=$e AND clock_out IS NULL",("$i",expectedSession),("$e",employee));
   if(start is not long begin)return "SessionUnavailable";
   var now=DateTimeOffset.UtcNow.ToUnixTimeSeconds();if(now<begin)return "ClockReviewRequired";
   if(Exec(c,t,"UPDATE employee_attendance SET clock_out=$u WHERE id=$i AND employee_id=$e AND clock_out IS NULL",("$u",now),("$i",expectedSession),("$e",employee))!=1)return "SessionUnavailable";
@@ -65,7 +89,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();var employee=OwnEmployee(c,t);DateRange(start,end,366);
   // Explicit UTC date range; include sessions which overlap it.
   var a=new DateTimeOffset(start.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero).ToUnixTimeSeconds();var b=new DateTimeOffset(end.ToDateTime(TimeOnly.MaxValue),TimeSpan.Zero).ToUnixTimeSeconds();
-  using var q=Command(c,t,"SELECT id,clock_in,clock_out FROM employee_attendance WHERE employee_id=$e AND clock_in<=$b AND (clock_out IS NULL OR clock_out>=$a) ORDER BY clock_in DESC,id DESC LIMIT 501",("$e",employee),("$a",a),("$b",b));using var r=q.ExecuteReader();var rows=new List<AttendanceSession>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Narrow attendance date range.");rows.Add(new(r.GetInt64(0),DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)),r.IsDBNull(2)?null:DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(2))));}return rows.AsReadOnly();
+  using var q=Command(c,t,"SELECT id,clock_in,clock_out,correction_id FROM effective_attendance WHERE employee_id=$e AND clock_in<=$b AND (clock_out IS NULL OR clock_out>=$a) ORDER BY clock_in DESC,id DESC LIMIT 501",("$e",employee),("$a",a),("$b",b));using var r=q.ExecuteReader();var rows=new List<AttendanceSession>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Narrow attendance date range.");rows.Add(new(r.GetInt64(0),DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(1)),r.IsDBNull(2)?null:DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(2)),ReadOptionalId(r,3)));}return rows.AsReadOnly();
  }
  public static IReadOnlyList<string> ExpenseCategories{get;}=Array.AsReadOnly(new[]{"Travel","Meals","Supplies","Permit","Other"});
  public long SubmitWork(WorkSubmissionInput input)=>SubmitWorkCore(input,null);

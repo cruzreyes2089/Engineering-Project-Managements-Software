@@ -23,7 +23,15 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.CorrectAttendance(open.Id,null,originalAttendance.ClockIn,DateTimeOffset.UtcNow.AddDays(1),"Future",true),"future attendance rejected");
   Invalid(()=>admin.CorrectAttendance(open.Id,null,originalAttendance.ClockIn,originalAttendance.ClockOut!.Value,"",true),"attendance reason required");
   Invalid(()=>admin.CorrectAttendance(open.Id,null,originalAttendance.ClockIn,originalAttendance.ClockOut!.Value,"Unconfirmed",false),"attendance confirmation required");
-  var correction=admin.CorrectAttendance(open.Id,null,originalAttendance.ClockIn.AddMinutes(-10),originalAttendance.ClockOut!.Value,"Verified missed initial clock-in time",true);
+  void AttendanceSql(string sql){using var db=new SqliteConnection($"Data Source={path};Pooling=False");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
+  AttendanceSql("CREATE TRIGGER test_attendance_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='CorrectAttendance' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{admin.CorrectAttendance(open.Id,null,originalAttendance.ClockIn.AddMinutes(-10),originalAttendance.ClockOut!.Value,"Synthetic rollback",true);throw new Exception("FAIL: attendance rollback");}catch(SqliteException){check(admin.ReadAttendanceCorrections(open.Id).Count==0&&worker.ReadMyAttendance(utc,utc).Single()==originalAttendance,"failed audit preserves original attendance");}
+  AttendanceSql("DROP TRIGGER test_attendance_audit_abort");
+  var attendancePeer=new LocalPractice(path);check(attendancePeer.Login("admin",pw),"concurrent attendance reviewer authenticated");
+  AttendanceCorrection? TryCorrect(LocalPractice service){try{return service.CorrectAttendance(open.Id,null,originalAttendance.ClockIn.AddMinutes(-10),originalAttendance.ClockOut!.Value,"Verified missed initial clock-in time",true);}catch(ArgumentException){return null;}}
+  var corrections=await Task.WhenAll(Task.Run(()=>TryCorrect(admin)),Task.Run(()=>TryCorrect(attendancePeer)));
+  check(corrections.Count(x=>x!=null)==1,"concurrent correction records one revision");
+  var correction=corrections.Single(x=>x!=null)!;
   var projected=worker.ReadMyAttendance(utc.AddDays(-1),utc).Single();
   check(projected.ClockIn==correction.ClockIn&&projected.ClockOut==correction.ClockOut&&projected.CorrectionId==correction.Id,"own attendance shows effective corrected interval");
   var managerAttendance=admin.ReadAttendanceReview(utc.AddDays(-1),utc).Single();
@@ -37,6 +45,7 @@ internal static class WorkEntriesTests
   var recovered=admin.CorrectAttendance(missed.Id,null,missed.ClockIn,DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.ToUnixTimeSeconds()),"Verified missed clock-out",true);
   check(worker.ReadMyOpenAttendance()==null&&worker.ClockOut(missed.Id)=="SessionUnavailable","administrative clock-out correction closes effective session without ordinary replay");
   check(admin.ReadAttendanceReview(utc.AddDays(-1),utc).Single(x=>x.Id==missed.Id).OriginalOut==null,"missed clock-out retains raw open evidence");
+  foreach(var sql in new[]{$"UPDATE attendance_corrections SET reason='Changed' WHERE id={recovered.Id}",$"DELETE FROM attendance_corrections WHERE id={recovered.Id}",$"UPDATE employee_attendance SET clock_out=unixepoch() WHERE id={missed.Id}",$"INSERT INTO attendance_corrections(session_id,expected_correction_id,clock_in,clock_out,reason,actor_id,recorded_utc) SELECT id,NULL,clock_in,clock_in,'Stale',1,'synthetic' FROM employee_attendance WHERE id={missed.Id}"}){try{AttendanceSql(sql);throw new Exception("FAIL: attendance SQL guard");}catch(SqliteException){check(true,"database preserves attendance and current correction revision");}}
   check(worker.ClockIn()=="ClockedIn","effective recovered session permits new clock-in");
   var fresh=worker.ReadMyOpenAttendance()!;check(worker.ClockOut(fresh.Id)=="ClockedOut","ordinary clock-out works after recovered session");
   var client=admin.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
