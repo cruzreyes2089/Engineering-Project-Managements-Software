@@ -2,8 +2,12 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record OverheadReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
+public sealed record OverheadInvalidation(long SubmissionId,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public OverheadInvalidation? ReadOverheadInvalidation(long id)=>throw new NotImplementedException("Approved overhead invalidation history not implemented.");
+ public OverheadInvalidation InvalidateApprovedOverhead(long id,string reason,bool confirmed)=>throw new NotImplementedException("Approved overhead invalidation not implemented.");
+ public long ReplaceInvalidatedOverheadTime(long original,OverheadTimeInput input)=>throw new NotImplementedException("Invalidated overhead replacement not implemented.");
  public OverheadReplacement? ReadMyOverheadReplacement(long original)
  {
   using var c=Open();using var t=c.BeginTransaction();var employee=OwnEmployee(c,t);

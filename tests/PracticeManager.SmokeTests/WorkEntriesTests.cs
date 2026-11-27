@@ -209,6 +209,34 @@ internal static class WorkEntriesTests
   var reclosed=admin.RecordProjectLifecycle(project,reopened.Id,true,"Synthetic closure after cancellation",true);
   check(reclosed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).OpenTasks==0,"cancelled unstarted task does not block operational reclosure");
 
+  var correctionDay=day.AddDays(-2);
+  var duplicateOverhead=new OverheadTimeInput(Guid.NewGuid(),correctionDay,1440,"Administration","Synthetic duplicate duration");
+  var erroneousOverhead=worker.SubmitOverheadTime(duplicateOverhead);
+  check(admin.ReadOverheadInvalidation(erroneousOverhead)==null,"overhead has no invented invalidation");
+  Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"Pending",true),"pending overhead cannot be invalidated");
+  Invalid(()=>admin.InvalidateApprovedOverhead(rejected,"Rejected",true),"rejected overhead cannot be invalidated");
+  check(admin.ReviewOverheadTime(erroneousOverhead,true,"Approved in error")=="Approved","synthetic erroneous overhead approved");
+  Denied(()=>worker.InvalidateApprovedOverhead(erroneousOverhead,"Unauthorized",true),"ordinary employee cannot invalidate overhead");
+  Denied(()=>admin.InvalidateApprovedOverhead(ownerEntry,"Own entry",true),"founding owner exception cannot authorize self invalidation");
+  Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"",true),"invalidation requires reason");
+  Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"Duplicate",false),"invalidation requires confirmation");
+  check(admin.ReadFirmTimeMix(correctionDay,correctionDay).ApprovedMinutes==1440,"approved erroneous overhead initially counted");
+  var invalidOverhead=admin.InvalidateApprovedOverhead(erroneousOverhead,"Verified erroneous duplicate duration",true);
+  check(admin.ReadOverheadInvalidation(erroneousOverhead)==invalidOverhead,"overhead invalidation evidence retained");
+  check(worker.ReadMyOverheadTime(correctionDay,correctionDay).Single().ReviewState=="Invalidated"&&admin.ReadOverheadReview(correctionDay,correctionDay,false).Single().ReviewState=="Invalidated","effective overhead invalidation shown to employee and reviewer");
+  var invalidMix=admin.ReadFirmTimeMix(correctionDay,correctionDay);
+  check(invalidMix.ApprovedMinutes==0&&invalidMix.InvalidatedMinutes==1440&&invalidMix.Rows.Single().InvalidatedOverheadMinutes==1440&&admin.ReadFirmLaborCost(correctionDay,correctionDay).ApprovedMinutes==0,"firm time and labor cost exclude erroneous overhead and reconcile invalidated minutes");
+  Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"Duplicate decision",true),"repeat overhead invalidation denied");
+  check(worker.SubmitOverheadTime(duplicateOverhead)==erroneousOverhead,"original operation replay preserves invalidated fact");
+  var actualOverhead=duplicateOverhead with{OperationKey=Guid.NewGuid(),Minutes=30,Description="Correct actual overhead duration"};
+  Invalid(()=>worker.ReplaceRejectedOverheadTime(erroneousOverhead,actualOverhead),"invalidated overhead requires explicit replacement path");
+  var correctedOverhead=worker.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead);
+  check(worker.ReadMyOverheadReplacement(erroneousOverhead)?.ReplacementId==correctedOverhead&&peer.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead)==correctedOverhead,"linked overhead correction is idempotent");
+  Invalid(()=>worker.ReplaceInvalidatedOverheadTime(erroneousOverhead,actualOverhead with{OperationKey=Guid.NewGuid()}),"one successor for invalidated overhead");
+  Invalid(()=>worker.ReplaceRejectedOverheadTime(erroneousOverhead,actualOverhead),"wrong correction path cannot replay");
+  check(admin.ReadFirmTimeMix(correctionDay,correctionDay).PendingMinutes==30&&admin.ReadFirmLaborCost(correctionDay,correctionDay).ApprovedMinutes==0,"replacement releases daily cap but does not recognize cost before review");
+  check(admin.ReviewOverheadTime(correctedOverhead,true,"Verified actual minutes")=="Approved","corrected overhead independently reviewed");
+  check(admin.ReadFirmTimeMix(correctionDay,correctionDay).ApprovedOverheadMinutes==30&&admin.ReadFirmLaborCost(correctionDay,correctionDay).ApprovedMinutes==30,"only approved correction enters labor cost");
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE overhead_time SET minutes=1";try{q.ExecuteNonQuery();throw new Exception("FAIL: mutable overhead");}catch(SqliteException){check(true,"SQL prevents overhead history edits");}}
  }
 }
