@@ -166,6 +166,8 @@ try{
   SyntheticFolderJournalTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderBackupTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderCrashTests.Run(Check);
+  if(OperatingSystem.IsWindows())SyntheticWindowsStorageAclTests.Run(Path.GetDirectoryName(path)!,Check);
+  else Console.WriteLine("NOT QUALIFIED: Windows storage ACL checks unavailable.");
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);
  RecoveryCopyTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"recovery-source.db"),pw,Check);
  OwnerApprovalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"owner-approval.db"),pw,Check);
