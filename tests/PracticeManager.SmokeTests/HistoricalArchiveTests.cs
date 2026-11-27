@@ -154,5 +154,26 @@ internal static class HistoricalArchiveTests
     // Recovery may legitimately add audit events; operational tables must not change.
     check(Snapshot()==before,"failed replay leaves operational data unchanged");
     p.Logout();
+    // Explicit synthetic v46 fixture: remove only the v47 objects before rehearsing upgrade.
+    var priorPath=Path.Combine(root,"prior-v46.db");
+    var prior=new LocalPractice(priorPath);
+    prior.Bootstrap("Synthetic prior archive schema","admin",pw,"CL");
+    check(prior.Login("admin",pw),"prior schema fixture authenticated");
+    check(prior.ImportLegacyCrm(crm,ch.ToUpperInvariant(),true,"Synthetic prior CRM review").Outcome=="Imported","prior schema CRM prerequisite");
+    prior.Logout();
+    using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=priorPath,ForeignKeys=true,Pooling=false}.ToString()))
+    {
+        db.Open();using var q=db.CreateCommand();
+        q.CommandText="DROP VIEW historical_project_register; DROP TABLE historical_project_seals; DROP TABLE historical_project_rows; DROP TABLE historical_project_batches; DELETE FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport'); DELETE FROM permissions WHERE code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport'); UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Clients.View'; PRAGMA user_version=46;";
+        q.ExecuteNonQuery();
+    }
+    var priorHash=Digest(File.ReadAllBytes(priorPath));
+    var rehearsal=UpgradeRehearsal.Run(priorPath,priorHash,true);
+    check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==47&&rehearsal.Clients==2&&rehearsal.SourceUnchanged&&Digest(File.ReadAllBytes(priorPath))==priorHash,"schema 46 rehearsal preserves original and client identities");
+    var upgradedPath=Path.Combine(root,"upgraded-v47.db");File.Copy(priorPath,upgradedPath);
+    var upgraded=new LocalPractice(upgradedPath);
+    check(upgraded.Login("admin",pw)&&upgraded.Can("HistoricalProjects.View")&&upgraded.Can("Administration.HistoricalProjectImport")&&!upgraded.Can("Clients.View"),"archive upgrade adds only new administrator grants and preserves revoked CRM access");
+    Reject<UnauthorizedAccessException>(()=>upgraded.ReadHistoricalProjects(),"upgrade does not bypass client permission");
+    upgraded.Logout();
  }
 }

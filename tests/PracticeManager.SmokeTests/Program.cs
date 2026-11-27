@@ -151,6 +151,7 @@ try{
  ReviewDocxTests.Run(Check);
  LegacyCrmTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"legacy-crm.db"),pw,Check);
  HistoricalProjectTransferTests.Run(Check);
+  HistoricalArchivePreviewFileTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-preview-files"),Check);
   HistoricalArchiveTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-archive"),pw,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-populated.db"),SyntheticCrmNativeTests.Fixture(false),false,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-empty.db"),SyntheticCrmNativeTests.Fixture(true),true,Check);
