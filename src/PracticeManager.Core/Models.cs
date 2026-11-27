@@ -6,8 +6,36 @@ public sealed record Contact(long Id,long ClientId,string First,string Last,stri
 public static class PasswordCodec
 {
  const int Iterations=600_000;
- public static string Hash(string password){ if(password.Length<14 || password.Length>256)throw new ArgumentException("Use a password of 14–256 characters."); var salt=RandomNumberGenerator.GetBytes(16);var hash=Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32);return $"pbkdf2-sha256${Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}"; }
- public static bool Verify(string password,string encoded){ if(password.Length>256)return false;try{var p=encoded.Split('$');if(p.Length!=4||p[0]!="pbkdf2-sha256"||p[1]!=Iterations.ToString())return false;var salt=Convert.FromBase64String(p[2]);var hash=Convert.FromBase64String(p[3]);if(salt.Length!=16||hash.Length!=32)return false;return CryptographicOperations.FixedTimeEquals(hash,Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32));}catch(FormatException){return false;}}
+ const string Prefix="pbkdf2-sha256$600000$";
+ public static string Hash(string password)
+ {
+  if(password is null||password.Length is <14 or >256)throw new ArgumentException("Use a password of 14–256 characters.");
+  var salt=RandomNumberGenerator.GetBytes(16);
+  var derived=Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32);
+  try{return Prefix+Convert.ToBase64String(salt)+"$"+Convert.ToBase64String(derived);}
+  finally{CryptographicOperations.ZeroMemory(derived);}
+ }
+ public static bool Verify(string password,string encoded)
+ {
+  // Bound parsing and derivation work before any allocation based on persisted input.
+  if(password is null||password.Length>256||encoded is null||
+     encoded.Length!=Prefix.Length+24+1+44||!encoded.StartsWith(Prefix,StringComparison.Ordinal)||
+     encoded[Prefix.Length+24]!='$')return false;
+  Span<byte> salt=stackalloc byte[16];Span<byte> expected=stackalloc byte[32];
+  try
+  {
+   var saltText=encoded.AsSpan(Prefix.Length,24);
+   var hashText=encoded.AsSpan(Prefix.Length+25,44);
+   if(!Convert.TryFromBase64Chars(saltText,salt,out var saltBytes)||saltBytes!=16||
+      !Convert.TryFromBase64Chars(hashText,expected,out var hashBytes)||hashBytes!=32||
+      !saltText.SequenceEqual(Convert.ToBase64String(salt).AsSpan())||
+      !hashText.SequenceEqual(Convert.ToBase64String(expected).AsSpan()))return false;
+   var derived=Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32);
+   try{return CryptographicOperations.FixedTimeEquals(expected,derived);}
+   finally{CryptographicOperations.ZeroMemory(derived);}
+  }
+  finally{CryptographicOperations.ZeroMemory(expected);CryptographicOperations.ZeroMemory(salt);}
+ }
 }
 public static class Validation
 {

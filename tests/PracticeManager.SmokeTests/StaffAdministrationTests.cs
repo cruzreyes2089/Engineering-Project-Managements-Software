@@ -11,11 +11,13 @@ internal static class StaffAdministrationTests
   check(s.ReadStaffGrants(role.Id).All(g=>!g.Allowed),"new non-admin role denies all grants by default");
   Invalid(()=>s.SetStaffGrant(role.Id,"Administration.Manage",true,false),"administration grant protected");
   Invalid(()=>s.SetStaffGrant(admin.Id,"Clients.View",false,true),"administrator grants protected");
+  Denied(()=>new LocalPractice(path).FirmName(),"unauthenticated firm identity denied");
   var user=s.CreateStaffAccount("synthetic-engineer",role.Id,"Synthetic-temporary-0001");
   var staff=new LocalPractice(path);check(!staff.Login("synthetic-engineer","Synthetic-temporary-0001"),"temporary password cannot open session");
   check(!staff.ChangeRequiredPassword("synthetic-engineer","wrong","Synthetic-permanent-0001"),"incorrect temporary password denied");
   check(staff.ChangeRequiredPassword("synthetic-engineer","Synthetic-temporary-0001","Synthetic-permanent-0001")&&!staff.Can("Clients.View"),"required password change creates no session");
   check(staff.Login("synthetic-engineer","Synthetic-permanent-0001"),"new password authenticates");
+  check(staff.FirmName()=="Synthetic Staff Firm","authenticated staff may read firm identity without domain grants");
   Denied(()=>staff.ReadStaffAccounts(),"ordinary account cannot enumerate users");
   Denied(()=>staff.ReadEmployees(),"ordinary account cannot enumerate employees without grant");
   s.SetStaffGrant(role.Id,"Clients.View",true,false);check(staff.Can("Clients.View"),"grant becomes effective on existing session");
@@ -24,10 +26,12 @@ internal static class StaffAdministrationTests
   s.SetStaffGrant(role.Id,"Clients.View",true,false);
   var row=s.ReadStaffAccounts().Single(a=>a.Id==user);s.ResetStaffPassword(user,row.Revision,"Synthetic-temporary-0002");
   check(!staff.Can("Clients.View"),"reset invalidates existing session");
+  Denied(()=>staff.FirmName(),"reset invalidates firm identity read");
   var replacement=new LocalPractice(path);check(replacement.ChangeRequiredPassword("synthetic-engineer","Synthetic-temporary-0002","Synthetic-permanent-0002"),"reset temporary password replaced");
   check(!staff.Can("Clients.View"),"old session remains invalid after password changed");
   check(replacement.Login("synthetic-engineer","Synthetic-permanent-0002")&&replacement.Can("Clients.View"),"replacement session authorized");
   row=s.ReadStaffAccounts().Single(a=>a.Id==user);s.SetStaffAccount(user,row.Revision,role.Id,false);
+  Denied(()=>replacement.FirmName(),"disabled account cannot read firm identity");
   check(!replacement.Can("Clients.View")&&!replacement.Login("synthetic-engineer","Synthetic-permanent-0002"),"disabled account denied");
   Invalid(()=>s.SetStaffAccount(user,row.Revision,role.Id,true),"stale account change denied");
   Invalid(()=>s.ResetStaffPassword(s.ReadStaffAccounts().Single(a=>a.Role=="Administrator").Id,1,"Synthetic-temporary-0003"),"administrator reset protected");

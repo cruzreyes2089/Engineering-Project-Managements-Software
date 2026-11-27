@@ -141,6 +141,7 @@ try{
  await EngagementTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"engagement.db"),pw,Check);
  await ProjectHandoffTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-handoff.db"),pw,Check);
  StaffAdministrationTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"staff.db"),pw,Check);
+ CredentialSessionTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"credential-session.db"),pw,Check);
  WorkPlanningTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-planning.db"),pw,Check);
  await WorkEntriesTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-entries.db"),pw,Check);
  ProjectEvidenceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-evidence.db"),pw,Check);
