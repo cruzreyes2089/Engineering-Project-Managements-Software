@@ -73,7 +73,7 @@ function Due-Fields($obj) {
         if ($null -eq $v) { $result[$p.Name] = $null }
         elseif ($v -is [datetime]) { $result[$p.Name] = $v.ToString('yyyy-MM-ddTHH:mm:ss',[Globalization.CultureInfo]::InvariantCulture) }
         elseif ($v -is [bool] -or $v -is [int] -or $v -is [long] -or $v -is [decimal] -or $v -is [double]) { $result[$p.Name] = $v }
-        elseif ($v -is [string] -and $v -match '^[A-Za-z0-9 _:+.\-]{0,80}$') { $result[$p.Name] = $v }
+        elseif ($v -is [string] -and $v -notmatch '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' -and $v -match '^[A-Za-z0-9 _:+.\-]{0,80} { $result[$p.Name] = $v }
         else { $result[$p.Name] = '[nonprimitive omitted]' }
     }
     return $result
@@ -84,6 +84,7 @@ function Sweep {
     $rows = @(Get-Field $r 'salesInvoices')
     Need ((Get-Field $r 'skip') -eq 0 -and (Get-Field $r 'totalRecords') -eq 3 -and (Get-Field $r 'pageSize') -ge 3 -and $rows.Count -eq 3) 'Exactly three synthetic invoices required.'
     $seen = [Collections.Generic.HashSet[guid]]::new()
+    $referenceKeys = [Collections.Generic.List[string]]::new()
     $customers = [Collections.Generic.HashSet[guid]]::new()
     $evidence = [Collections.Generic.List[object]]::new()
     foreach ($ref in $expected.Keys) {
@@ -93,6 +94,7 @@ function Sweep {
         Need ((Get-Field $row 'reference') -ceq $ref) 'Reference case differs.'
         $key = Id (Get-Field $row 'key')
         Need ($seen.Add($key)) 'Duplicate invoice identifier.'
+        $referenceKeys.Add($ref+':'+$key.ToString('D'))
         $amount = Get-Field $row 'invoiceAmount'; $balance = Get-Field $row 'balanceDue'
         Need ($null -eq (Get-Field $amount 'currency') -and $null -eq (Get-Field $balance 'currency') -and (Get-Field $amount 'value') -eq 100 -and (Get-Field $balance 'value') -eq 100) 'Unexpected synthetic invoice amount, currency or balance.'
         $detail = Read-Json ('/sales-invoice-form/'+$key.ToString('D'))
@@ -104,8 +106,80 @@ function Sweep {
         $evidence.Add([ordered]@{ reference=$ref; expectedDueDate=$expected[$ref]; registerFields=(Due-Fields $row); formFields=(Due-Fields $detail) })
     }
     Need ($customers.Count -eq 1) 'Expected one synthetic customer.'
-    # Full JSON is kept in memory only to compare consecutive reads, not printed.
-    return [pscustomobject]@{ report=$evidence.ToArray(); internalKeys=(@($seen | Sort-Object) -join ','); internalCustomer=(@($customers) -join ',') }
+    # Compare normalized selected fields and exact reference-to-key associations, not full JSON.
+    return [pscustomobject]@{ report=$evidence.ToArray(); internalKeys=($referenceKeys.ToArray() -join ','); internalCustomer=(@($customers) -join ',') }
+}
+$http = $null; $handler = $null; $secret = $null; $bstr = [IntPtr]::Zero
+try {
+    Need ((Read-Host 'Type CRC DUE DATE TEST to confirm the NEW synthetic business is open') -ceq $businessName) 'Synthetic scope not confirmed.'
+    Need ((Read-Host 'Type USD to confirm this test business uses USD only') -ceq 'USD') 'Currency scope not confirmed.'
+    $port = 0
+    Need ([int]::TryParse((Read-Host 'Manager API2 loopback port'),[ref]$port) -and $port -ge 1 -and $port -le 65535) 'Invalid port.'
+    $endpoint = 'http://127.0.0.1:'+$port+'/api2'
+    $secret = Read-Host 'API token for the synthetic business (not displayed)' -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+    $clear = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    Need ($clear -match '^[!-~]{1,4096}$') 'Invalid token shape.'
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false; $handler.UseProxy = $false; $handler.UseCookies = $false
+    $http = [Net.Http.HttpClient]::new($handler,$false)
+    $http.DefaultRequestHeaders.Add('X-API-KEY',$clear)
+    $http.DefaultRequestHeaders.Accept.ParseAdd('application/json')
+    $clear = $null
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr); $bstr = [IntPtr]::Zero
+    $marker = Read-Marker
+    $first = Sweep; $second = Sweep
+    Need ((Read-Marker) -eq $marker) 'Marker changed during review.'
+    Need ((ConvertTo-Json $first -Depth 10 -Compress) -ceq (ConvertTo-Json $second -Depth 10 -Compress)) 'Observed invoice identity or due-date fields changed.'
+    Write-Output 'CRC DUE DATE QUALIFICATION — READ ONLY'
+    Write-Output (ConvertTo-Json -InputObject $second.report -Depth 8)
+    Write-Output 'Three synthetic invoice records observed twice; no POST, PUT, DELETE, receipt or payment created.'
+    Write-Output 'Expected dates are operator setup targets, not yet verified API interpretations. Compare with Manager UI before approval.'
+} catch {
+    # Never emit request bodies, raw responses, URLs, keys or tokens from exception details.
+    Write-Output 'DIAGNOSTIC STOPPED. No successful qualification assumed. No records written. Verify the exact synthetic setup, local connection and API token.'
+} finally {
+    if ($null -ne $http) { $http.Dispose() }
+    if ($null -ne $handler) { $handler.Dispose() }
+    if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+    if ($null -ne $secret) { $secret.Dispose() }
+    $clear = $null
+}
+) { $result[$p.Name] = $v }
+        else { $result[$p.Name] = '[nonprimitive omitted]' }
+    }
+    return $result
+}
+function Sweep {
+    $r = Read-Json '/sales-invoices?skip=0&pageSize=20'
+    Identity $r
+    $rows = @(Get-Field $r 'salesInvoices')
+    Need ((Get-Field $r 'skip') -eq 0 -and (Get-Field $r 'totalRecords') -eq 3 -and (Get-Field $r 'pageSize') -ge 3 -and $rows.Count -eq 3) 'Exactly three synthetic invoices required.'
+    $seen = [Collections.Generic.HashSet[guid]]::new()
+    $referenceKeys = [Collections.Generic.List[string]]::new()
+    $customers = [Collections.Generic.HashSet[guid]]::new()
+    $evidence = [Collections.Generic.List[object]]::new()
+    foreach ($ref in $expected.Keys) {
+        $matches = @($rows | Where-Object { (Get-Field $_ 'reference') -ieq $ref })
+        Need ($matches.Count -eq 1) 'Missing or duplicate test reference.'
+        $row = $matches[0]
+        Need ((Get-Field $row 'reference') -ceq $ref) 'Reference case differs.'
+        $key = Id (Get-Field $row 'key')
+        Need ($seen.Add($key)) 'Duplicate invoice identifier.'
+        $referenceKeys.Add($ref+':'+$key.ToString('D'))
+        $amount = Get-Field $row 'invoiceAmount'; $balance = Get-Field $row 'balanceDue'
+        Need ($null -eq (Get-Field $amount 'currency') -and $null -eq (Get-Field $balance 'currency') -and (Get-Field $amount 'value') -eq 100 -and (Get-Field $balance 'value') -eq 100) 'Unexpected synthetic invoice amount, currency or balance.'
+        $detail = Read-Json ('/sales-invoice-form/'+$key.ToString('D'))
+        Need ((Id (Get-Field $detail 'Key')) -eq $key -and (Id (Get-Field $detail 'id')) -eq $key -and (Get-Field $detail 'Reference') -ceq $ref) 'Detail identity mismatch.'
+        $null = $customers.Add((Id (Get-Field $detail 'Customer')))
+        $issue = Get-Field $detail 'IssueDate'
+        if ($issue -is [datetime]) { $issue = $issue.ToString('yyyy-MM-ddTHH:mm:ss',[Globalization.CultureInfo]::InvariantCulture) }
+        Need ($issue -ceq '2026-11-01T00:00:00') 'Synthetic issue date differs.'
+        $evidence.Add([ordered]@{ reference=$ref; expectedDueDate=$expected[$ref]; registerFields=(Due-Fields $row); formFields=(Due-Fields $detail) })
+    }
+    Need ($customers.Count -eq 1) 'Expected one synthetic customer.'
+    # Compare normalized selected fields and exact reference-to-key associations, not full JSON.
+    return [pscustomobject]@{ report=$evidence.ToArray(); internalKeys=($referenceKeys.ToArray() -join ','); internalCustomer=(@($customers) -join ',') }
 }
 $http = $null; $handler = $null; $secret = $null; $bstr = [IntPtr]::Zero
 try {
