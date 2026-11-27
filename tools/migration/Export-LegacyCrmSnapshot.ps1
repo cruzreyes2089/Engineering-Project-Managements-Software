@@ -19,7 +19,8 @@ function Quote-Name([string]$Name) {
 }
 function Check-LocalPath([string]$Path,[bool]$Existing) {
     $full = [IO.Path]::GetFullPath($Path)
-    Assert-Condition (-not $full.StartsWith('\\') -and [IO.DriveInfo]::new([IO.Path]::GetPathRoot($full)).DriveType -eq [IO.DriveType]::Fixed) 'Use a private local fixed drive.'
+    $driveRoot = [IO.Path]::GetPathRoot($full)
+    Assert-Condition (-not $full.StartsWith('\\') -and [IO.DriveInfo]::new($driveRoot).DriveType -eq [IO.DriveType]::Fixed -and -not $full.Substring($driveRoot.Length).Contains(':')) 'Use a private local fixed drive without alternate data streams.'
     $cursor = if ($Existing) { $full } else { [IO.Path]::GetDirectoryName($full) }
     while ($cursor) {
         $item = Get-Item -LiteralPath $cursor -Force
@@ -78,10 +79,10 @@ function Read-Projection($Database,$Choice,[string]$Entity,[bool]$IdentityOnly,[
         $parent = $null
         if ($Entity -eq 'contacts') {
             $parent = [string]$Choice.identities.legacyClientId
-            Assert-Condition ($types.ContainsKey($parent) -and $types[$parent] -in @(2,3,4,10,12,16) -and $parent -cne $id) 'Invalid parent column.'
+            Assert-Condition ($types.ContainsKey($parent) -and $types[$parent] -in @(2,3,4,10,12,16)) 'Invalid parent column.'
         }
         $selected = @($types.Keys | Sort-Object)
-        if ($IdentityOnly) { $selected = @($id); if ($null -ne $parent) { $selected += $parent } }
+        if ($IdentityOnly) { $selected = @($id); if ($null -ne $parent -and $parent -cne $id) { $selected += $parent } }
         $projection = ($selected | ForEach-Object { Quote-Name $_ }) -join ','
         $sql = 'SELECT ' + $projection + ' FROM ' + (Quote-Name $name)
         # dbOpenSnapshot=4, dbReadOnly=4. Only validated local table and projected columns.

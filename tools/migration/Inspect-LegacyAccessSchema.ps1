@@ -10,12 +10,31 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Windows with the installed Access DAO engine is required.' }
 if (-not $ConfirmTrustedCopy) { throw 'Confirm that this is a trusted, closed local database copy, not the original or a live database.' }
-$source = Get-Item -LiteralPath $DatabaseCopy
+function Check-PrivateLocalPath([string]$Path,[bool]$Existing) {
+    $full = [IO.Path]::GetFullPath($Path)
+    $driveRoot = [IO.Path]::GetPathRoot($full)
+    if ($full.StartsWith('\\') -or [IO.DriveInfo]::new($driveRoot).DriveType -ne [IO.DriveType]::Fixed -or $full.Substring($driveRoot.Length).Contains(':')) {
+        throw 'Use a private local fixed drive without alternate data streams.'
+    }
+    $checkout = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')).TrimEnd('\')
+    if ($full.TrimEnd('\').Equals($checkout,[StringComparison]::OrdinalIgnoreCase) -or $full.StartsWith($checkout + '\',[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Private inventory files must remain outside checkout.'
+    }
+    $cursor = if ($Existing) { $full } else { [IO.Path]::GetDirectoryName($full) }
+    while ($cursor) {
+        $item = Get-Item -LiteralPath $cursor -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse-point path denied.' }
+        $parent = [IO.Path]::GetDirectoryName($cursor)
+        if ($parent -eq $cursor) { break }
+        $cursor = $parent
+    }
+    return $full
+}
+$sourcePath = Check-PrivateLocalPath $DatabaseCopy $true
+$target = Check-PrivateLocalPath $OutputFile $false
+$source = Get-Item -LiteralPath $sourcePath
 if ($source.PSIsContainer -or $source.Extension -notin @('.accdb','.mdb')) { throw 'Select an Access database copy.' }
-if ($source.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse-point input is not supported.' }
-if ($source.FullName.StartsWith('\\') -or [IO.DriveInfo]::new([IO.Path]::GetPathRoot($source.FullName)).DriveType -ne [IO.DriveType]::Fixed) { throw 'Use a trusted copy on a local fixed drive.' }
-$target = [IO.Path]::GetFullPath($OutputFile)
-if ([IO.Path]::GetExtension($target) -ne '.json' -or (Test-Path -LiteralPath $target)) { throw 'Choose a new .json report path.' }
+if ([IO.Path]::GetExtension($target) -ne '.json' -or (Test-Path -LiteralPath $target) -or $sourcePath -ieq $target) { throw 'Choose a distinct new .json report path.' }
 $folder = [IO.Path]::GetDirectoryName($target)
 if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'Output directory must already exist.' }
 foreach ($lockExtension in @('.laccdb','.ldb')) {
@@ -32,8 +51,8 @@ $skippedCount = 0
 try {
     try { $engine = New-Object -ComObject DAO.DBEngine.120 }
     catch { throw 'Access DAO engine unavailable. Use Windows PowerShell matching installed Access bitness; do not install unknown providers.' }
-    # Options=False: shared opening. ReadOnly=True: no database changes.
-    $db = $engine.OpenDatabase($source.FullName,$false,$true)
+    # Exclusive read-only opening, consistent with the extraction candidate.
+    $db = $engine.OpenDatabase($source.FullName,$true,$true)
     if ($db.Updatable) { throw 'Database did not open read-only.' }
     if ($db.TableDefs.Count -gt 2000 -or $db.Relations.Count -gt 4000) { throw 'Schema exceeds inventory limits.' }
     for ($i=0; $i -lt $db.TableDefs.Count; $i++) {
