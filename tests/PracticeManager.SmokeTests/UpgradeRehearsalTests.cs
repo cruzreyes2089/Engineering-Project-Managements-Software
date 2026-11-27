@@ -21,6 +21,11 @@ internal static class UpgradeRehearsalTests
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=newer,Pooling=false}.ToString())){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version=999";q.ExecuteNonQuery();}
   var futureHash=Hash(newer);Invalid(()=>UpgradeRehearsal.Run(newer,futureHash,true),"unsupported future schema rejected");
   check(Hash(newer)==futureHash,"unsupported source unchanged");
+  var collision=Path.Combine(root,"upgrade-collision.db");File.Copy(legacyPath,collision);
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=collision,Pooling=false}.ToString())){db.Open();using var q=db.CreateCommand();q.CommandText="CREATE TABLE accounting_profiles(synthetic INTEGER)";q.ExecuteNonQuery();}
+  var collisionHash=Hash(collision);
+  try{UpgradeRehearsal.Run(collision,collisionHash,true);throw new Exception("FAIL: injected upgrade collision");}
+  catch(SqliteException ex) when(ex.Message.Contains("already exists",StringComparison.OrdinalIgnoreCase)){check(Hash(collision)==collisionHash,"migration failure leaves source bytes unchanged");}
   File.WriteAllText(legacyPath+"-wal","synthetic sidecar");
   try{Invalid(()=>UpgradeRehearsal.Run(legacyPath,hash,true),"closed source with sidecar rejected");}finally{File.Delete(legacyPath+"-wal");}
   check(!Directory.EnumerateDirectories(root,".crc-upgrade-*").Any(),"no owned disposable upgrade database left beside source");
