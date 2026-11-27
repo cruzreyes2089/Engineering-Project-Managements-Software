@@ -150,6 +150,7 @@ try{
  ConflictReviewTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"conflict-review.db"),pw,Check);
  ReviewDocxTests.Run(Check);
  LegacyCrmTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"legacy-crm.db"),pw,Check);
+ HistoricalProjectTransferTests.Run(Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-populated.db"),SyntheticCrmNativeTests.Fixture(false),false,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-empty.db"),SyntheticCrmNativeTests.Fixture(true),true,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
