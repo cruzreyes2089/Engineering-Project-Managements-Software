@@ -81,17 +81,33 @@ internal static class ProjectEvidenceTests
   Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",true),"superseded document cannot enter release review");
   check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"verified document staging cleaned");
   Denied(()=>s.ReadCandidateFolderConfiguration(),"ordinary database cannot access inactive document register");
-  // Test-only provisioning on this disposable real-project fixture, not a migration.
+  // Actual internal additive migrations, on this disposable fixture only.
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
   {
-   db.Open();using var t=db.BeginTransaction(deferred:false);
-   foreach(var resource in new[]{"SyntheticFolderConfiguration.sql","SyntheticDocumentRegister.sql"})
+   db.Open();
+   using(var t=db.BeginTransaction(deferred:false)){_=EffortBudgetMigrationCandidate.Apply(db,t);t.Commit();}
+   try
    {
-    using var stream=typeof(ProjectEvidenceTests).Assembly.GetManifestResourceStream(resource)!;
-    using var reader=new StreamReader(stream);using var cmd=db.CreateCommand();cmd.Transaction=t;cmd.CommandText=reader.ReadToEnd();cmd.ExecuteNonQuery();
+    using var bad=db.BeginTransaction(deferred:false);
+    var prior=DocumentRegisterMigrationCandidate.Apply(db,bad);
+    using(var q=db.CreateCommand()){q.Transaction=bad;q.CommandText="UPDATE users SET failed_attempts=failed_attempts+1";q.ExecuteNonQuery();}
+    DocumentRegisterMigrationCandidate.VerifyPreservation(db,bad,prior);
+    throw new Exception("FAIL: changed migration evidence");
    }
-   using var version=db.CreateCommand();version.Transaction=t;version.CommandText="PRAGMA user_version=49";version.ExecuteNonQuery();t.Commit();
+   catch(InvalidOperationException){check(true,"document migration witness rejects altered pre-existing user row");}
+   using(var q=db.CreateCommand()){q.CommandText="SELECT (SELECT user_version FROM pragma_user_version)=48 AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='project_folder_configurations')";check(Convert.ToInt64(q.ExecuteScalar())==1,"failed document migration rolls back schema and version");}
+   using(var t=db.BeginTransaction(deferred:false)){check(DocumentRegisterMigrationCandidate.Apply(db,t).Length==64,"document additive migration preserves full prior schema and rows");t.Commit();}
   }
+  var syntheticRoot=Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(path)!)!,"crc-document-folder-fixture-"+Guid.NewGuid().ToString("N"));
+  var syntheticProject=Path.Combine(syntheticRoot,"Synthetic Project");
+  Directory.CreateDirectory(syntheticProject);
+  try
+  {
+   var config=s.RecordCandidateFolderConfiguration(Guid.NewGuid(),null,syntheticRoot,ProjectFolderTemplate.Defaults,"Synthetic root",true).Entry;
+   var folder=s.RecordCandidateProjectFolder(p.Id,Guid.NewGuid(),null,config.Hash,"Registered","Synthetic Project","Synthetic review",true).Entry;
+   check(s.ReadCandidateProjectFolders(p.Id).Single()==folder&&folder.DisplayPath==syntheticProject,"actual project folder service binds reviewed root and exact path");
+  }
+  finally{Directory.Delete(syntheticProject,false);Directory.Delete(syntheticRoot,false);}
   var currentPdf=s.ReadProjectDocuments(p.Id).Single(x=>x.Id==newPdf);
   var intent=DocumentTransmittalReview.Prepare(p.Id,"Synthetic recipient","Synthetic issue",new[]{new ReviewedIssueDocument(currentPdf.Id,currentPdf.Hash,currentPdf.FileName,currentPdf.Category,currentPdf.Bytes)});
   var issueQa=s.CreateQualityItem(p.Id,"Synthetic issue hold","Correction","Pending");
@@ -114,7 +130,7 @@ internal static class ProjectEvidenceTests
    source.Open();
    DocumentRegisterWitness Verify(SqliteConnection db){using var t=db.BeginTransaction(deferred:true);return DocumentRegisterVerification.Verify(db,t);}
    var original=Verify(source);
-   check(original.Transmittals==1&&original.Documents==1&&original.Events==3,"document witness reconciles actual project transmittal");
+   check(original.Configurations==1&&original.FolderRevisions==1&&original.Transmittals==1&&original.Documents==1&&original.Events==3,"document witness reconciles actual project transmittal");
    using(var copy=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False"))
    {copy.Open();source.BackupDatabase(copy);check(Verify(copy)==original,"SQLite backup preserves document register witness");}
    foreach(var fault in new[]{"INSERT INTO audit_events(actor_id,action,entity,entity_id) SELECT actor_id,'RecordTransmittalEvent','Project',entity_id FROM audit_events WHERE action='RecordTransmittalEvent' LIMIT 1",
@@ -128,6 +144,24 @@ internal static class ProjectEvidenceTests
    }
    check(Verify(source)==original,"document recovery witness tests leave source unchanged");
   }
+  var recovery=Path.Combine(Path.GetDirectoryName(path)!,"document-register-recovery.db");
+  var restored=Path.Combine(Path.GetDirectoryName(path)!,"document-register-restored.db");
+  var saved=s.CreateRecoveryCopy(recovery);
+  var result=s.RestoreRecoveryCopyToNewFile(recovery,saved.Sha256,restored);
+  check(result.Sha256==saved.Sha256,"actual isolated recovery restores exact schema-49 bytes");
+  DocumentRegisterWitness FileWitness(string file)
+  {
+   using var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=file,Mode=SqliteOpenMode.ReadOnly,ForeignKeys=true,Pooling=false}.ToString());db.Open();
+   using var t=db.BeginTransaction(deferred:true);DocumentRegisterMigrationCandidate.VerifyLayout(db,t);return DocumentRegisterVerification.Verify(db,t);
+  }
+  check(FileWitness(path)==FileWitness(recovery)&&FileWitness(recovery)==FileWitness(restored),"actual recovery and restore preserve configuration folder and transmittal witness");
+  var corrupted=Path.Combine(Path.GetDirectoryName(path)!,"document-register-corrupted.db");File.Copy(recovery,corrupted);
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=corrupted,Pooling=false}.ToString()))
+  {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TRIGGER project_transmittal_events_no_update;UPDATE project_transmittal_events SET note='Tampered'";q.ExecuteNonQuery();}
+  var corruptedHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(corrupted))).ToLowerInvariant();
+  var refused=Path.Combine(Path.GetDirectoryName(path)!,"document-register-refused.db");
+  try{s.RestoreRecoveryCopyToNewFile(corrupted,corruptedHash,refused);throw new Exception("FAIL: tampered document restore");}
+  catch(InvalidOperationException){check(!File.Exists(refused),"actual restore rejects tampered document register even with recomputed file hash");}
   s.Logout();Denied(()=>s.ReadCandidateTransmittal(p.Id,prep.Id),"signed-out candidate history denied");
 
 

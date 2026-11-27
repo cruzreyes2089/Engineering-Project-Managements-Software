@@ -35,7 +35,7 @@ internal static class EffortBudgetMigrationCandidate
  }
  internal static void VerifyLayout(SqliteConnection db,SqliteTransaction t)
  {
-  if(Count(db,t,"PRAGMA user_version")!=48)throw new ArgumentException("Budget layout requires candidate schema 48.");
+  if(Count(db,t,"PRAGMA user_version") is not (48 or 49))throw new ArgumentException("Budget layout requires candidate schema 48 or 49.");
   var expected=ExpectedAdditions();var actual=Objects(db,t);
   if(expected.Any(x=>!actual.TryGetValue(x.Key,out var value)||value!=x.Value)||
      actual.Keys.Any(k=>(k.Contains(":effort_",StringComparison.Ordinal)||k.Contains(":sqlite_autoindex_effort_",StringComparison.Ordinal))&&!expected.ContainsKey(k))||

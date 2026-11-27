@@ -213,7 +213,7 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
  internal static EffortBudgetVerification VerifyDatabase(SqliteConnection db,SqliteTransaction t)
  {
   var store=new EffortBudgetStore(db,(_,_,_)=>throw new UnauthorizedAccessException(),(_,_)=>throw new InvalidOperationException());
-  if(store.Count(t,"PRAGMA user_version")!=48)throw new ArgumentException("Budget verification requires candidate schema 48.");
+  if(store.Count(t,"PRAGMA user_version") is not (48 or 49))throw new ArgumentException("Budget verification requires candidate schema 48 or 49.");
   const string actions="('RecordEffortBudgetRevision','RecordEffortForecast')";
   if(store.Count(t,"SELECT count(*) FROM audit_events a WHERE a.action IN "+actions+" AND (a.entity!='Project' OR a.entity_id IS NULL OR NOT EXISTS(SELECT 1 FROM projects p WHERE p.id=a.entity_id))")!=0)
    throw new InvalidOperationException("Invalid budget audit project.");

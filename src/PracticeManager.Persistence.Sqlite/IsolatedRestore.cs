@@ -16,7 +16,7 @@ public sealed partial class LocalPractice
  public IsolatedRestoreResult RestoreRecoveryCopyToNewFile(string source,string expectedSha256,string destination)
  {
   using var active=Open();long actor;long schema;var generation=sessionGeneration;
-  using(var t=active.BeginTransaction()){actor=RequireAdministration(active,t);Require(active,t,"Administration.RecoveryCopy");schema=Convert.ToInt64(Scalar(active,t,"PRAGMA user_version"));if(schema is not (47 or 48))throw new ArgumentException("Unsupported active recovery schema.");}
+  using(var t=active.BeginTransaction()){actor=RequireAdministration(active,t);Require(active,t,"Administration.RecoveryCopy");schema=Convert.ToInt64(Scalar(active,t,"PRAGMA user_version"));if(schema is not (47 or 48 or 49))throw new ArgumentException("Unsupported active recovery schema.");}
   if(!Regex.IsMatch(expectedSha256??"",@"\A[0-9A-Fa-f]{64}\z"))throw new ArgumentException("Enter the original recorded SHA-256.");
   var input=LocalStoragePath.FilePath(source,mustExist:true,rejectSidecars:true);var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
   var live=Path.GetFullPath(new SqliteConnectionStringBuilder(connectionString).DataSource);
@@ -45,7 +45,7 @@ public sealed partial class LocalPractice
     using(var q=Command(db,null,"PRAGMA foreign_key_check"))using(var r=q.ExecuteReader()){if(r.Read())throw new InvalidOperationException("Recovery database foreign-key check failed.");}
     long Count(string sql)=>Convert.ToInt64(Scalar(db,null,sql));
     if(Count("SELECT count(*) FROM firms WHERE id=1")!=1||Count("SELECT count(*) FROM audit_events WHERE action='RecoveryCopyIsolated' AND entity='Firm' AND entity_id=1")<1||Count("SELECT count(*) FROM accounting_profiles")!=0||Count("SELECT count(*) FROM accounting_lifecycle_hold WHERE id=1")!=1||Count("SELECT coalesce((SELECT enabled FROM owner_approval_events ORDER BY id DESC LIMIT 1),0)")!=0)throw new ArgumentException("Recovery isolation evidence missing or invalid.");
-    using(var archiveCheck=db.BeginTransaction(deferred:true)){historicalProjects=HistoricalRows(db,archiveCheck).Count;if(schema==48){EffortBudgetMigrationCandidate.VerifyLayout(db,archiveCheck);_=EffortBudgetStore.VerifyDatabase(db,archiveCheck);}}
+    using(var archiveCheck=db.BeginTransaction(deferred:true)){historicalProjects=HistoricalRows(db,archiveCheck).Count;if(schema>=48){EffortBudgetMigrationCandidate.VerifyLayout(db,archiveCheck);_=EffortBudgetStore.VerifyDatabase(db,archiveCheck);}if(schema==49){DocumentRegisterMigrationCandidate.VerifyLayout(db,archiveCheck);_=DocumentRegisterVerification.Verify(db,archiveCheck);}}
     clients=Count("SELECT count(*) FROM clients");projects=Count("SELECT count(*) FROM projects");documents=Count("SELECT count(*) FROM project_documents")+Count("SELECT count(*) FROM project_agreements")+Count("SELECT count(*) FROM generated_review_documents");
    }
    using(var fs=new FileStream(staging,FileMode.Open,FileAccess.Read,FileShare.Read)){
