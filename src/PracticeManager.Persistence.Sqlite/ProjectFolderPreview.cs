@@ -15,7 +15,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();
   RequireAdministration(c,t);RequireDocuments(c,t,false);Require(c,t,"Documents.Restricted");
   var row=ProjectRow(c,t,project);
-  return ProjectStorageDrafting.Build(productionRoot,restrictedRoot,project,row.Number,includeCorrespondence);
+  return ProjectStorageDrafting.Build(productionRoot,restrictedRoot,project,row.Number,includeCorrespondence,CurrentFolderLayout(c,t));
  }
  public ProjectFolderPreview ReadProjectFolderPreview(long project,bool includeCorrespondence=false)
  {
@@ -25,7 +25,8 @@ public sealed partial class LocalPractice
   // An ordinary production viewer does not receive the restricted structure.
   var allowed=CanInTransaction(c,t,"Documents.Restricted");
   var restricted=allowed?ProjectFolderTemplate.Restricted():Array.Empty<ProjectFolderNode>();
-  var plan=ProjectFolderPlanning.Build(project,row.Number,includeCorrespondence,allowed);
-  return new(project,row.Number,ProjectFolderTemplate.Revision,ProjectFolderTemplate.Production(includeCorrespondence),restricted,plan);
+  var layout=CurrentFolderLayout(c,t);
+  var plan=ProjectFolderPlanning.Build(project,row.Number,includeCorrespondence,allowed,layout);
+  return new(project,row.Number,layout.Revision,layout.Production(includeCorrespondence),restricted,plan);
  }
 }

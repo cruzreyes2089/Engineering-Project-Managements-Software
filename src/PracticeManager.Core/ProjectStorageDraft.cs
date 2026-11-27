@@ -27,14 +27,15 @@ public static class ProjectStorageDrafting
      !char.IsAsciiLetter(value[0])||value[1]!=':'||value[2]!='\\')
    throw new ArgumentException("Use an absolute drive-letter path to a dedicated directory, not a drive root or network path.");
   var parts=value[3..].Split('\\');
-  foreach(var part in parts)
-  {
-   if(part.Length is <1 or >100||part!=part.Trim()||part.EndsWith('.')||
-      part.Any(c=>char.IsControl(c)||c is '/' or ':' or '<' or '>' or '"' or '|' or '?' or '*' or '~')||
-      Reserved.Contains(part.Split('.')[0].TrimEnd()))
-    throw new ArgumentException("Unsupported directory name or ambiguous path syntax.");
-  }
+  foreach(var part in parts)ValidateComponent(part);
   return char.ToUpperInvariant(value[0])+value[1..];
+ }
+ internal static void ValidateComponent(string part)
+ {
+  if(string.IsNullOrEmpty(part)||part.Length>100||part!=part.Trim()||part.EndsWith('.')||
+     part.Any(c=>char.IsControl(c)||c is '/' or '\\' or ':' or '<' or '>' or '"' or '|' or '?' or '*' or '~')||
+     Reserved.Contains(part.Split('.')[0].TrimEnd()))
+   throw new ArgumentException("Unsupported directory name or ambiguous path syntax.");
  }
  static bool Contains(string a,string b)=>string.Equals(a,b,StringComparison.OrdinalIgnoreCase)||
   b.StartsWith(a+"\\",StringComparison.OrdinalIgnoreCase);
@@ -45,10 +46,10 @@ public static class ProjectStorageDrafting
   return(p,r);
  }
  public static ProjectStorageDraft Build(string productionRoot,string restrictedRoot,long projectId,string projectNumber,
-  bool includeCorrespondence)
+  bool includeCorrespondence,ProjectFolderLayout? layout=null)
  {
   var (p,r)=ValidateRoots(productionRoot,restrictedRoot);
-  var plan=ProjectFolderPlanning.Build(projectId,projectNumber,includeCorrespondence,true);
+  var plan=ProjectFolderPlanning.Build(projectId,projectNumber,includeCorrespondence,true,layout);
   foreach(var entry in plan.Entries)
   {
    var root=entry.Boundary=="Production"?p:r;

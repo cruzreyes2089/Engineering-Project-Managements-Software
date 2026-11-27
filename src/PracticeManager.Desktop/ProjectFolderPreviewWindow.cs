@@ -16,7 +16,7 @@ internal sealed class ProjectFolderPreviewWindow:Window
   MinWidth=480;MinHeight=400;WindowStartupLocation=WindowStartupLocation.CenterOwner;ShowInTaskbar=false;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();
   head.Children.Add(new TextBlock{Text="Project folders",FontSize=24,FontWeight=FontWeights.SemiBold});
-  head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. Store MEP reference files directly in Reference Documents when needed. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
+  head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. The current business template is used; the standard preset has no MEP subdirectories. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
   head.Children.Add(correspondence);
   var bar=new WrapPanel();WorkWindowFields.Button(bar,"Refresh preview",Refresh);
   if(service.Can("Administration.Manage")&&service.Can("Documents.Restricted"))

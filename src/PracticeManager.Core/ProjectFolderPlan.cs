@@ -15,8 +15,9 @@ public sealed record ProjectFolderPlan(long ProjectId,string ProjectNumber,strin
 }
 public static class ProjectFolderPlanning
 {
- public static ProjectFolderPlan Build(long projectId,string projectNumber,bool includeCorrespondence,bool includeRestricted)
+ public static ProjectFolderPlan Build(long projectId,string projectNumber,bool includeCorrespondence,bool includeRestricted,ProjectFolderLayout? layout=null)
  {
+  layout??=ProjectFolderLayout.Default();
   if(projectId<=0||string.IsNullOrEmpty(projectNumber)||projectNumber.Length>64||
       !char.IsAsciiLetterOrDigit(projectNumber[0])||!char.IsAsciiLetterOrDigit(projectNumber[^1])||
       projectNumber.Any(c=>!char.IsAsciiLetterOrDigit(c)&&c!='-')||
@@ -39,13 +40,13 @@ public static class ProjectFolderPlanning
    }
    foreach(var node in nodes)Walk(node,projectNumber);
   }
-  Collect("Production",ProjectFolderTemplate.Production(includeCorrespondence));
+  Collect("Production",layout.Production(includeCorrespondence));
   if(includeRestricted)Collect("Restricted",ProjectFolderTemplate.Restricted());
   if(entries.GroupBy(x=>x.Boundary+"/"+x.RelativeDirectory,StringComparer.OrdinalIgnoreCase).Any(g=>g.Count()!=1))
    throw new InvalidOperationException("Duplicate logical folder path.");
-  var bytes=JsonSerializer.SerializeToUtf8Bytes(new{projectId,projectNumber,revision=ProjectFolderTemplate.Revision,
+  var bytes=JsonSerializer.SerializeToUtf8Bytes(new{projectId,projectNumber,revision=layout.Revision,
    includeCorrespondence,includeRestricted,entries});
-  return new(projectId,projectNumber,ProjectFolderTemplate.Revision,includeCorrespondence,
+  return new(projectId,projectNumber,layout.Revision,includeCorrespondence,
    entries.AsReadOnly(),Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant());
  }
 }

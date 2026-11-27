@@ -31,7 +31,13 @@ internal sealed class StaffWindow:Window
   tabs.Items.Add(new TabItem{Header="Accounts",Content=Page(accounts,Btn("Create account",()=>AccountEditor(null)),Btn("Edit account",()=>AccountEditor(accounts.SelectedItem as StaffAccount??throw new ArgumentException("Select an account."))),Btn("Reset temporary password",Reset),Btn("Refresh",RefreshAccounts))});
   tabs.Items.Add(new TabItem{Header="Role permissions",Content=Page(grants,roles,Btn("Grant selected",()=>SetGrant(true)),Btn("Revoke selected",()=>SetGrant(false)))});
   var policyPanel=new StackPanel{Margin=new Thickness(16)};policyPanel.Children.Add(new TextBlock{Text="Single-owner approval exception. Explicit opt-in only; automatically suspended when another active account receives an approval grant. Every owner self-approval requires a separate confirmation and justification.",TextWrapping=TextWrapping.Wrap});var policyStatus=new TextBlock{TextWrapping=TextWrapping.Wrap};policyPanel.Children.Add(policyStatus);void RefreshPolicy(){var p=service.ReadOwnerApprovalPolicy();policyStatus.Text=$"Enabled: {p.Enabled} • Eligible: {p.Eligible}\n{p.Reason}";}void ChangePolicy(bool enable){var p=service.ReadOwnerApprovalPolicy();var note=WorkWindowFields.Note(this,enable?"Enable single-owner exception":"Disable single-owner exception");if(note==null)return;service.SetOwnerApprovalPolicy(enable,p.EventId,note);RefreshPolicy();}policyPanel.Children.Add(Btn("Enable exception",()=>ChangePolicy(true)));policyPanel.Children.Add(Btn("Disable exception",()=>ChangePolicy(false)));policyPanel.Children.Add(Btn("Refresh policy",RefreshPolicy));policyPanel.Children.Add(Btn("View approval audit",()=>new OwnerApprovalHistoryWindow(service){Owner=this}.ShowDialog()));tabs.Items.Add(new TabItem{Header="Owner approval policy",Content=policyPanel});Run(RefreshPolicy);
-  if(service.Can("Documents.Restricted"))tabs.Items.Add(new TabItem{Header="Business storage",Content=Btn("Configure storage preferences",()=>new FirmStorageSettingsWindow(service){Owner=this}.ShowDialog())});
+  if(service.Can("Documents.Restricted"))
+  {
+   var storage=new StackPanel{Margin=new Thickness(16)};
+   storage.Children.Add(Btn("Configure storage preferences",()=>new FirmStorageSettingsWindow(service){Owner=this}.ShowDialog()));
+   storage.Children.Add(Btn("Customize production folder template",()=>new FirmFolderTemplateWindow(service){Owner=this}.ShowDialog()));
+   tabs.Items.Add(new TabItem{Header="Business storage",Content=storage});
+  }
   if(service.Can("Compliance.View"))tabs.Items.Add(new TabItem{Header="Jurisdiction policy",Content=Btn("Open jurisdiction register",()=>new JurisdictionPolicyWindow(service){Owner=this}.ShowDialog())});
   roles.ItemsSource=service.ReadStaffRoles();roles.SelectionChanged+=(_,_)=>Run(RefreshGrants);RefreshAccounts();
  }
