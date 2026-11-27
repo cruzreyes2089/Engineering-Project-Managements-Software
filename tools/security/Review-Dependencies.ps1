@@ -32,6 +32,8 @@ foreach ($project in $projects) {
     } else {
       if ($report.parameters -notmatch '(?:^|\s)--vulnerable(?:$|\s)' -or $report.parameters -notmatch '(?:^|\s)--include-transitive(?:$|\s)' -or @($report.sources) -notcontains 'https://api.nuget.org/v3/index.json') { throw 'Missing advisory scan scope or expected NuGet source.' }
     }
+    $reportDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.UTF8Encoding]::new($false).GetBytes($raw))).ToLowerInvariant()
+    Write-Host "Dependency report SHA-256 ($mode): $reportDigest"
     Write-Host $raw
     if ($mode -eq 'vulnerabilities') {
       foreach ($p in $report.projects) {

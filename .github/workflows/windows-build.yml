@@ -28,6 +28,9 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, node24
         with:
           python-version: '3.12'
+      - name: Verify exact source identity before build
+        shell: pwsh
+        run: ./tools/security/Assert-DevelopmentSource.ps1 -Stage BeforeBuild | Out-Null
       - name: Parse legacy Access inventory script (no database access)
         shell: pwsh
         run: |
