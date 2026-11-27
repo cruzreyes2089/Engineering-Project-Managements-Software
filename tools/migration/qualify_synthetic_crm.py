@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import uuid
 
 import validate_crm_mapping as mapping
 import prepare_crm_extraction_plan as plans
@@ -29,7 +30,7 @@ def write(path, value):
         json.dump(value, f, ensure_ascii=True, sort_keys=True)
         f.write("\n")
 
-def fixture_mapping(inv, ih):
+def fixture_mapping(inv, ih, shared=False):
     def fields(targets, selected):
         return {k: {"column": selected[k][0], "transform": selected[k][1]}
                 if k in selected else {"column": None, "transform": "blank"} for k in targets}
@@ -40,10 +41,11 @@ def fixture_mapping(inv, ih):
                 "type": ("Kind", "reviewed-enum"), "status": ("Status", "reviewed-enum"),
                 "zip": ("Postal", "text")})},
             "contacts": {"table": "SyntheticContacts", "fields": fields(mapping.CONTACT, {
-                "legacyId": ("Id", "integer-id"), "legacyClientId": ("Parent", "text-id"),
+                "legacyId": ("Id", "text-id" if shared else "integer-id"),
+                "legacyClientId": ("Id" if shared else "Parent", "text-id"),
                 "first": ("Name", "text"), "primary": ("PrimaryFlag", "boolean")})}}
 
-def expected_transfer(empty):
+def expected_transfer(empty, shared=False):
     def client(ident, name, kind, status, postal):
         row = dict.fromkeys(mapping.CLIENT, "")
         row.update(legacyId=ident, company=name, type=kind, status=status, zip=postal)
@@ -55,8 +57,8 @@ def expected_transfer(empty):
     return {"format": "CRC-Legacy-CRM-v1", "clients": [
         client("001", "Synthetic Alpha", "Business / Company", "Active", "00501"),
         client("002", "Synthetic Beta", "Architect / Designer", "Inactive", "00999")],
-        "contacts": [] if empty else [contact("11", "001", "Synthetic First", True),
-                                      contact("12", "002", "Synthetic Second", False)]}
+        "contacts": [] if empty else [contact("001" if shared else "11", "001", "Synthetic First", True),
+                                      contact("002" if shared else "12", "002", "Synthetic Second", False)]}
 
 def compare_values(actual, expected):
     mapping.exact(actual, {"format", "clients", "contacts"})
@@ -75,7 +77,8 @@ def compare_values(actual, expected):
                 sorted(wanted, key=lambda r: r["legacyId"]),
                 "Full normalized fixture field comparison: " + entity)
 
-def qualify(folder, powershell, empty, native_smoke=False):
+def qualify(folder, powershell, empty, native_smoke=False, shared=False):
+    require(not (shared and native_smoke), "Shared-key native fixture not yet qualified")
     checks = []
     def check(condition, label):
         require(condition, label)
@@ -89,6 +92,8 @@ def qualify(folder, powershell, empty, native_smoke=False):
     fixture_args = ["-OutputDirectory", folder, "-ConfirmSyntheticFixture"]
     if empty:
         fixture_args += ["-EmptyContacts"]
+    if shared:
+        fixture_args += ["-SharedContactKey"]
     ps("New-SyntheticLegacyCrmFixture.ps1", fixture_args)
     before = digest(source)
     ps("New-SyntheticLegacyCrmFixture.ps1", fixture_args, False)
@@ -98,7 +103,7 @@ def qualify(folder, powershell, empty, native_smoke=False):
                                          "-ConfirmTrustedCopy"])
     inv, ih = mapping.load(ip)
     check(inv["sourceSha256"].lower() == before == digest(source), "Inventory source unchanged")
-    rules = fixture_mapping(inv, ih)
+    rules = fixture_mapping(inv, ih, shared)
     rp = folder / "mapping.json"
     write(rp, rules)
     mh = digest(rp)
@@ -131,7 +136,7 @@ def qualify(folder, powershell, empty, native_smoke=False):
              "status": [{"source": True, "target": "Active"},
                         {"source": False, "target": "Inactive"}]}
     transfer = conversion.convert(inv, rules, rows, enums, hashes)
-    compare_values(transfer, expected_transfer(empty))
+    compare_values(transfer, expected_transfer(empty, shared))
     checks.append("All normalized fields match fixed expected fixture")
     tp = folder / "transfer.json"
     conversion.write_new(tp, transfer)
@@ -141,6 +146,10 @@ def qualify(folder, powershell, empty, native_smoke=False):
         {k: census[k] for k in conversion.reconciliation.HASH_KEYS})
     check(result["identityMatch"] and not result["importAuthorized"], "Independent identity reconciliation")
     check(digest(identity_path) == identity_hash, "Identity export unchanged")
+    if shared:
+        check(plan["contacts"]["identities"] == {"legacyId": "Id", "legacyClientId": "Id"} and
+              all(type(r["legacyId"]) is str and r["legacyId"] == r["legacyClientId"]
+                  for r in raw["contacts"]), "Shared contact key retained in both identity roles")
     old_rows = digest(rows_path)
     export("Rows", rows_path, success=False)
     check(digest(rows_path) == old_rows, "Existing snapshot protected")
@@ -157,6 +166,56 @@ def qualify(folder, powershell, empty, native_smoke=False):
         "-ExpectedPlanSha256", digest(wrong_plan_path), "-Mode", "Rows",
         "-OutputFile", wrong_output, "-ConfirmTrustedSyntheticCopy"], False)
     check(not wrong_output.exists(), "Stale source digest rejected without output")
+    # Only synthetic files created by this run are used. A marker exercises
+    # lock-file refusal, not genuine competing DAO session behavior.
+    def inspect(output, success=False):
+        ps("Inspect-LegacyAccessSchema.ps1", ["-DatabaseCopy", source, "-OutputFile", output,
+                                             "-ConfirmTrustedCopy"], success)
+    for ext in (".ldb", ".laccdb"):
+        lock = source.with_suffix(ext)
+        with lock.open("xb") as stream:
+            stream.write(b"CRC synthetic lock sentinel")
+        try:
+            blocked_inventory = folder / ("locked-inventory" + ext + ".json")
+            blocked_rows = folder / ("locked-rows" + ext + ".json")
+            inspect(blocked_inventory)
+            export("Rows", blocked_rows, success=False)
+            check(not blocked_inventory.exists() and not blocked_rows.exists(),
+                  "Both scripts reject lock sentinel " + ext)
+        finally:
+            lock.unlink()
+    # Use a random new checkout filename. If a regression creates it, remove
+    # only that synthetic output; never overwrite an existing checkout file.
+    for operation in ("inventory", "rows"):
+        checkout_output = ROOT / ("crc-synthetic-rejection-" + uuid.uuid4().hex + ".json")
+        require(not checkout_output.exists(), "Unexpected checkout test path collision")
+        try:
+            if operation == "inventory":
+                inspect(checkout_output)
+            else:
+                export("Rows", checkout_output, success=False)
+            check(not checkout_output.exists(), "Checkout output denied: " + operation)
+        finally:
+            if checkout_output.is_file():
+                checkout_output.unlink()
+    # The base is an existing synthetic file; the proposed alternate stream
+    # does not exist. Check by opening the stream, not Path.exists alone.
+    base_file = folder / "stream-base.txt"
+    with base_file.open("xb") as stream:
+        stream.write(b"CRC synthetic stream base")
+    base_hash = digest(base_file)
+    for operation in ("inventory", "rows"):
+        ads = str(base_file) + ":crc-" + operation + ".json"
+        if operation == "inventory":
+            inspect(ads)
+        else:
+            export("Rows", ads, success=False)
+        try:
+            with open(ads, "rb"):
+                raise ValueError("Unexpected alternate stream created")
+        except FileNotFoundError:
+            pass
+        check(digest(base_file) == base_hash, "Alternate stream denied: " + operation)
     modified = copy.deepcopy(transfer)
     modified["clients"][0]["legacyId"] = "SUBSTITUTED"
     try:
@@ -203,12 +262,16 @@ def main():
             base = Path(td).resolve()
             require(not base.is_relative_to(ROOT.resolve()), "Private temp directory required")
             runs = {}
-            for label, empty in (("populated", False), ("emptyContacts", True)):
+            for label, empty, shared in (("populated", False, False),
+                                         ("emptyContacts", True, False),
+                                         ("sharedContactKey", False, True)):
                 folder = base / label
                 folder.mkdir()
-                runs[label] = qualify(folder, powershell, empty, args.native_smoke)
+                runs[label] = qualify(folder, powershell, empty, args.native_smoke and not shared, shared)
         print(json.dumps({"checks": runs, "daoFixtureChecksPassed": True,
-                          "nativeImportExecuted": args.native_smoke, "releaseAuthorized": False}, sort_keys=True))
+                          "nativeImportExecuted": args.native_smoke,
+                          "nativeCases": ["populated", "emptyContacts"] if args.native_smoke else [],
+                          "sharedKeyNativeQualified": False, "releaseAuthorized": False}, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
         print("Synthetic DAO qualification did not complete successfully; inspect local prerequisites.", file=sys.stderr)
