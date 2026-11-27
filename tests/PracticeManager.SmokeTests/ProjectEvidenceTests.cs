@@ -31,16 +31,24 @@ internal static class ProjectEvidenceTests
   check(s.ReadProjectDocuments(p.Id,false).All(x=>x.Id!=restricted),"restricted document omitted from list");
   Denied(()=>s.RetrieveProjectDocument(p.Id,restricted,rd.Hash),"restricted document direct retrieval denied");
   Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","secret.txt",bytes),"restricted write denied");
+  var before=s.ReadProjectCloseoutReview(p.Id);check(before.ProjectState=="Pending"&&before.Phases==0&&before.OpenTasks==0&&before.OpenQualityItems==0&&before.PendingScopeDecisions==0,"closeout review describes empty pending project without authorizing closure");
   var q=s.CreateQualityItem(p.Id,"Synthetic QA","Correction","Review calculation");s.AddQualityNote(p.Id,q,"Synthetic review note");
   check(s.ReadQualityNotes(p.Id,q).Count==1&&s.ReadQualityItems(p.Id).Single().State=="Open","quality history retained");
+  check(s.ReadProjectCloseoutReview(p.Id).OpenQualityItems==1&&s.ReadProjectCloseoutReview(other.Id).OpenQualityItems==0,"closeout QA count is project scoped");
   Invalid(()=>s.AddQualityNote(other.Id,q,"wrong project"),"quality scope enforced");
   check(s.CloseQualityItem(p.Id,q,"Resolved")=="Closed"&&s.CloseQualityItem(p.Id,q,"Changed")=="AlreadyClosed","quality closure immutable");
   Invalid(()=>s.AddQualityNote(p.Id,q,"After closure"),"closed quality history read-only");
   var change=s.ProposeScopeChange(p.Id,"Extra work","Synthetic additional scope");
+  check(s.ReadProjectCloseoutReview(p.Id).OpenQualityItems==0&&s.ReadProjectCloseoutReview(p.Id).PendingScopeDecisions==1,"closeout counts unresolved scope but excludes closed QA");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Reports.Operations'");
+  Denied(()=>s.ReadProjectCloseoutReview(p.Id),"closeout report requires operations grant");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Reports.Operations'");
   Invalid(()=>s.DecideScopeChange(p.Id,change,true,"Reviewed",true),"pending project cannot authorize additional work");
   var a=s.RecordSignedAgreement(p.Id,p.Hash,"signed.pdf","%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray(),"Reviewed",true);ConflictReviewTests.Clear(s,p.Id);s.AuthorizeProjectStart(p.Id,p.Hash,a.Id,a.PdfHash,true,"Synthetic");
   Invalid(()=>s.DecideScopeChange(p.Id,change,true,"Reviewed",false),"explicit client review required");
   check(s.DecideScopeChange(p.Id,change,true,"Written synthetic approval",true)=="Authorized"&&s.ReadScopeChanges(p.Id).Single().State=="Authorized","scope approval recorded separately");
   check(s.DecideScopeChange(p.Id,change,false,"Changed",false)=="AlreadyAuthorized","scope authorization not silently reversed");
+  var after=s.ReadProjectCloseoutReview(p.Id);check(after.ProjectState=="Active"&&after.PendingScopeDecisions==0&&after.ConflictStatus=="Clear","closeout reflects resolved scope and current project state");
+  Invalid(()=>s.ReadProjectCloseoutReview(long.MaxValue),"closeout rejects nonexistent project");
  }
 }

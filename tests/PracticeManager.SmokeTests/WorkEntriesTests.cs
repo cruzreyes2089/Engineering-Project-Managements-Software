@@ -19,6 +19,8 @@ internal static class WorkEntriesTests
   var proposal=admin.CreateProposal(new(client,"Synthetic","Site","Scope",100m));var hash=ConflictReviewTests.Issue(admin,proposal,1);var project=admin.RecordProposalDecision(proposal,hash,true,"Synthetic").ProjectId!.Value;
   var phase=admin.CreateProjectPhase(project,"Design",day.AddDays(-2),day.AddDays(2));var task=admin.CreateProjectTask(project,new(phase,employee,"Design",day.AddDays(-2),day.AddDays(2),120));
   var entry=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",60,null,null,"Synthetic time");
+  var initialCloseout=admin.ReadProjectCloseoutReview(project);check(initialCloseout.Phases==1&&initialCloseout.OpenTasks==1&&initialCloseout.PendingTimeSubmissions==0&&initialCloseout.PendingExpenseSubmissions==0,"closeout includes planned tasks before work begins");
+  Denied(()=>worker.ReadProjectCloseoutReview(project),"ordinary employee cannot access operational closeout review");
   Invalid(()=>worker.SubmitWork(entry),"pending and unstarted task blocks time");
   var a=admin.RecordSignedAgreement(project,hash,"test.pdf","%PDF-1.7\nSynthetic only\n%%EOF"u8.ToArray(),"Synthetic review",true);ConflictReviewTests.Clear(admin,project);check(admin.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")=="Active","work entries project authorized");
   Invalid(()=>worker.SubmitWork(entry),"unstarted task blocks time");
@@ -31,6 +33,7 @@ internal static class WorkEntriesTests
   var expense=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Expense",null,20m,"Supplies","Synthetic receipt reference");
   Invalid(()=>worker.SubmitWork(expense with{Amount=20.001m}),"fractional expense cents rejected");
   var expenseId=worker.SubmitWork(expense);check(worker.ReadMySubmissions(day,day).Count==2,"employee sees submitted facts only");
+  var pendingCloseout=admin.ReadProjectCloseoutReview(project);check(pendingCloseout.OpenTasks==1&&pendingCloseout.PendingTimeSubmissions==1&&pendingCloseout.PendingExpenseSubmissions==1,"closeout distinguishes pending time and expenses");
   Denied(()=>worker.ReadBillingWork(day,day),"ordinary employee cannot access billing decisions");
   check(admin.ReadBillingWork(day,day).Count==0&&admin.ClassifyWork(record,true,"Synthetic")=="ApprovalRequired","unapproved work not billable");
   // Even a mistakenly granted review/classification role cannot self-review.
@@ -40,6 +43,7 @@ internal static class WorkEntriesTests
   check(admin.ReadWorkReview(day,day).Count==2,"review queue contains both facts");
   check(admin.ReviewWork(record,true,"Verified")=="Approved"&&admin.ReviewWork(expenseId,false,"Missing evidence")=="Rejected","independent fact review");
   check(admin.ReviewWork(record,false,"Changed")=="AlreadyApproved","review decision retained");
+  var reviewedCloseout=admin.ReadProjectCloseoutReview(project);check(reviewedCloseout.PendingTimeSubmissions==0&&reviewedCloseout.PendingExpenseSubmissions==0,"reviewed submissions leave closeout pending counts");
   check(admin.ReadBillingWork(day,day).Single().Id==record&&admin.ClassifyWork(expenseId,true,"Synthetic")=="ApprovalRequired","rejected expense excluded from billing");
   check(admin.ClassifyWork(record,false,"Nonbillable administration")=="Nonbillable","approved time explicitly classified");
   check(admin.ReadBillingWork(day,day).Count==0&&admin.ReadBillingWork(day,day,false).Single().Classification=="Nonbillable","classification not inferred or reset");
@@ -81,6 +85,8 @@ internal static class WorkEntriesTests
   mix=admin.ReadFirmTimeMix(day,day);check(mix.ApprovedBillableMinutes==30&&mix.ApprovedMinutes==225&&mix.ApprovedBillableShare==30m/225m,"firm share includes approved overhead in denominator");
   var empty=admin.ReadFirmTimeMix(day.AddDays(-1),day.AddDays(-1));check(empty.Rows.Count==0&&empty.ApprovedBillableShare==null,"empty range does not fabricate utilization");
   check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
+  worker.AdvanceMyTask(task,2,"Completed");
+  var completedCloseout=admin.ReadProjectCloseoutReview(project);check(completedCloseout.OpenTasks==0&&completedCloseout.PendingTimeSubmissions==0&&completedCloseout.PendingExpenseSubmissions==1,"closeout retains pending replacement expense after task completion and excludes overhead");
   var cost=admin.ReadFirmLaborCost(day,day);check(cost.ApprovedMinutes==225&&cost.MissingRateMinutes==225&&cost.CompleteCost==null,"missing labor rates do not imply zero cost");
   Denied(()=>worker.ReadFirmLaborCost(day,day),"employee cannot see estimated firm labor cost");
   admin.RecordEmployeeRate(new(employee,day.AddDays(-1),180m,35m));

@@ -1,0 +1,7 @@
+# Operational project closeout review — development slice
+
+Base `efdd38f` (schema 31). Existing PRJ-01 register leaves closeout incomplete. Decision: start with a read-only, all-date summary rather than introduce a Closed state or new financial authority. All results are selected-project counts; no expense amounts, rates, invoice balances, restricted documents or employee detail. Require Projects.View, Clients.View and Reports.Operations (same operational report scope). Current project state, setup state and conflict gate are shown separately. A zero count never authorizes closing, final delivery, or billing. No schema changes, no live data, no release distribution.
+
+Acceptance: count all phases, tasks not Completed, QA items without closure, additional-scope proposals without decisions, time and expense submissions without reviews separately; exclude other projects, overhead and reviewed facts; reject missing project and missing permissions. Test in existing project evidence and work-entry fixtures. Display as an explicitly all-date operational review, independent of report date filters. The accounting, final delivery, legal, data correction and actual project closure/reopen policies remain separate.
+
+Test-first branch intentionally uses a throwing API stub for compilation only. It must fail before functional implementation and never be promoted in this state. Windows full regression and exact-commit verification required before promotion.

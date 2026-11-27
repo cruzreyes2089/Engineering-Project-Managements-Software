@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 namespace PracticeManager.Core;
 public sealed record ProjectOperationsReport(string ProjectNumber,DateOnly Start,DateOnly End,int Phases,int PlannedTasks,int StartedTasks,int CompletedTasks,long EstimatedMinutes,long SubmittedMinutes,long ApprovedMinutes,long RejectedMinutes,long PendingMinutes,int ExpenseSubmissions,int OpenQualityItems);
+public sealed record ProjectCloseoutReview(string ProjectNumber,string ProjectState,string SetupState,string ConflictStatus,int Phases,int OpenTasks,int OpenQualityItems,int PendingScopeDecisions,int PendingTimeSubmissions,int PendingExpenseSubmissions);
 public sealed record ProjectFinancialReport(string ProjectNumber,DateOnly Start,DateOnly End,long ApprovedMinutes,long BillableMinutes,long NonbillableMinutes,long UnclassifiedMinutes,decimal? EstimatedLaborCost,int MissingCostRates,decimal ApprovedExpenseCost,decimal DraftValue,decimal ApprovedInternalDraftValue,decimal CancelledDraftValue)
 {
  public decimal? TotalOperationalCost=>EstimatedLaborCost.HasValue?EstimatedLaborCost.Value+ApprovedExpenseCost:null;

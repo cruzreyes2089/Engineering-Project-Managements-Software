@@ -5,6 +5,7 @@ public sealed partial class LocalPractice
 {
  private long RequireReport(SqliteConnection c,SqliteTransaction t,string grant)
  {RequireProjectView(c,t);return Require(c,t,grant);}
+ public ProjectCloseoutReview ReadProjectCloseoutReview(long project)=>throw new NotImplementedException("Closeout review not implemented.");
  public ProjectOperationsReport ReadProjectOperations(long project,DateOnly start,DateOnly end)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");var p=ProjectRow(c,t,project);DateRange(start,end,366);
