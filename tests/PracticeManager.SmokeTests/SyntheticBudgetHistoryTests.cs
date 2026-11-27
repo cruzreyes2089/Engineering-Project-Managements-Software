@@ -21,6 +21,21 @@ internal static class SyntheticBudgetHistoryTests
   var fop=Guid.NewGuid();
   var forecast=service.AppendForecast(1,fop,1,null,first.Entry.Model.Hash,hash,new[]{new TaskRemainingInput(1,75)},"Synthetic forecast",true);
   check(!forecast.Replayed&&forecast.Entry.Model.TotalForecastMinutes==150&&service.Verify(1)==(1,1),"native candidate persists complete forecast and audit");
+  var e=forecast.Entry;
+  string Envelope(BudgetForecastReview model,int seq,string? prior,string reason,string op,long actor,string utc,long audit)
+   =>SyntheticBudgetHistory.ForecastHash(model,seq,prior,reason,op,actor,utc,audit);
+  var expected=Envelope(e.Model,e.Sequence,e.Previous,e.Reason,e.Operation,e.Actor,e.Utc,e.AuditId);
+  var changes=new[]{
+   Envelope(e.Model with{Hash=new string('a',64)},e.Sequence,e.Previous,e.Reason,e.Operation,e.Actor,e.Utc,e.AuditId),
+   Envelope(e.Model,e.Sequence+1,e.Previous,e.Reason,e.Operation,e.Actor,e.Utc,e.AuditId),
+   Envelope(e.Model,e.Sequence,new string('b',64),e.Reason,e.Operation,e.Actor,e.Utc,e.AuditId),
+   Envelope(e.Model,e.Sequence,e.Previous,"Different reason",e.Operation,e.Actor,e.Utc,e.AuditId),
+   Envelope(e.Model,e.Sequence,e.Previous,e.Reason,Guid.NewGuid().ToString("N"),e.Actor,e.Utc,e.AuditId),
+   Envelope(e.Model,e.Sequence,e.Previous,e.Reason,e.Operation,2,e.Utc,e.AuditId),
+   Envelope(e.Model,e.Sequence,e.Previous,e.Reason,e.Operation,e.Actor,"Different UTC",e.AuditId),
+   Envelope(e.Model,e.Sequence,e.Previous,e.Reason,e.Operation,e.Actor,e.Utc,e.AuditId+1)};
+  var emptyHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData("{}"u8)).ToLowerInvariant();
+  check(expected==e.Hash&&expected!=emptyHash&&changes.All(x=>x!=expected)&&changes.Distinct().Count()==changes.Length,"forecast envelope binds all eight fields and is not empty JSON");
   var second=service.AppendBudget(1,Guid.NewGuid(),1,first.Entry.Model.Hash,hash,160,"ManagementReview","Synthetic revision",true);
   var retry=service.AppendBudget(1,operation,1,null,hash,120,"FirstRecorded","Synthetic first",true);
   check(retry.Replayed&&retry.Entry==first.Entry&&service.Verify(1)==(2,1),"exact budget retry returns historical record without new audit");
@@ -42,7 +57,7 @@ internal static class SyntheticBudgetHistoryTests
   catch(SqliteException e) when(e.Message.Contains("synthetic failure",StringComparison.Ordinal)){check(service.Verify(1)==(2,1),"native forecast insertion failure rolls back linked audit");}
   Sql("DROP TRIGGER synthetic_forecast_failure");
   var next=service.AppendForecast(1,Guid.NewGuid(),1,forecast.Entry.Hash,second.Entry.Model.Hash,changedHash,new[]{new TaskRemainingInput(1,75)},"Synthetic updated forecast",true);
-  check(next.Entry.Model.TotalForecastMinutes==160&&next.Entry.Previous==forecast.Entry.Hash&&service.Verify(1)==(2,2),"native forecast chain retains updated snapshot and budget");
+  check(next.Entry.Model.TotalForecastMinutes==160&&next.Entry.Previous==forecast.Entry.Hash&&next.Entry.Hash!=forecast.Entry.Hash&&service.Verify(1)==(2,2),"native forecast chain retains updated snapshot and budget");
   Sql("DROP TRIGGER effort_forecast_no_update;UPDATE effort_forecast_records SET reason='Tampered' WHERE sequence=2");
   try{service.Verify(1);throw new Exception("FAIL: forecast tamper");}
   catch(InvalidOperationException){check(true,"native forecast envelope detects changed history");}

@@ -12,7 +12,9 @@ internal sealed class SyntheticBudgetHistory(SqliteConnection db)
  internal sealed record ForecastEntry(BudgetForecastReview Model,int Sequence,string? Previous,string Hash,string Reason,string Operation,long Actor,string Utc,long AuditId);
  static readonly JsonSerializerOptions Json=new(){IgnoreReadOnlyProperties=true};
  static byte[] Encode<T>(T value)=>JsonSerializer.SerializeToUtf8Bytes(value,Json);
- static string Hash(object value)=>Convert.ToHexString(SHA256.HashData(Encode(value))).ToLowerInvariant();
+ // Do not use the snapshot serializer here: IgnoreReadOnlyProperties would
+ // omit the get-only properties of the anonymous envelope, hashing "{}".
+ static string Hash(object value)=>Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value))).ToLowerInvariant();
  static string Key(Guid operation)=>operation==Guid.Empty?throw new ArgumentException("Operation identity required."):operation.ToString("N");
  static bool IsKey(string value)=>Guid.TryParseExact(value,"N",out var id)&&id!=Guid.Empty&&id.ToString("N")==value;
  static string Utc()=>DateTimeOffset.UtcNow.ToString("O",CultureInfo.InvariantCulture);
@@ -46,7 +48,7 @@ internal sealed class SyntheticBudgetHistory(SqliteConnection db)
   return value;
  }
  static string? Optional(SqliteDataReader r,int i)=>r.IsDBNull(i)?null:r.GetString(i);
- static string ForecastHash(BudgetForecastReview model,int sequence,string? prior,string reason,string operation,long actor,string utc,long audit)
+ internal static string ForecastHash(BudgetForecastReview model,int sequence,string? prior,string reason,string operation,long actor,string utc,long audit)
   =>Hash(new{Format="CRC-SyntheticEffortForecastRecord-v1",model.Hash,Sequence=sequence,Previous=prior,Reason=reason,Operation=operation,Actor=actor,Utc=utc,AuditId=audit});
  long Audit(SqliteTransaction t,long project,long actor,string action)
  {
@@ -168,7 +170,7 @@ internal sealed class SyntheticBudgetHistory(SqliteConnection db)
    ("$first",model.FirstBudgetMinutes),("$current",model.CurrentBudgetMinutes),("$approved",snapshot.CurrentApprovedMinutes+snapshot.HistoricalApprovedMinutes),("$pending",snapshot.CurrentPendingMinutes+snapshot.HistoricalPendingMinutes),
    ("$m",ordered.Sum(x=>(long)x.Minutes)),("$total",model.TotalForecastMinutes),("$reason",reason),("$a",actor),("$u",utc),("$audit",audit));
   var read=Forecasts(t,project,budgets)[^1];
-  if(read.Hash!=hash||read.Model.Hash!=model.Hash||read.Operation!=key||read.AuditId!=audit)throw new InvalidOperationException("Forecast read-back failed.");
+  if(read.Hash!=hash||read.Model.Hash!=model.Hash||read.Operation!=key||read.Actor!=actor||read.Sequence!=sequence||read.Previous!=expectedForecast||read.Reason!=reason||read.Utc!=utc||read.AuditId!=audit)throw new InvalidOperationException("Forecast read-back failed.");
   t.Commit();return(read,false);
  }
  public (int Budgets,int Forecasts) Verify(long project)

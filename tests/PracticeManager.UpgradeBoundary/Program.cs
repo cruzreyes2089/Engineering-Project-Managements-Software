@@ -121,7 +121,7 @@ internal static class Program
             Check(Hash(source)==evidence.SourceSha256,"prior fixture exact digest");
             Same(evidence.Before,Snapshot(source,46,false));
             var rehearsal=UpgradeRehearsal.Run(source,evidence.SourceSha256,true);
-            Check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==47&&rehearsal.SourceUnchanged,"native isolated upgrade rehearsal");
+            Check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==47&&rehearsal.SourceUnchanged&&rehearsal.FullSchemaAndRowsPreserved,"native isolated upgrade rehearsal with full schema and row witness");
             File.Copy(source,target,false);
             _=new LocalPractice(target);
             Same(evidence.Before,Snapshot(target,47,true));
