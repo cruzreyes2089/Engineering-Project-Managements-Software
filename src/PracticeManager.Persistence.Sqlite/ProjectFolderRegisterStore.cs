@@ -23,7 +23,7 @@ internal sealed class ProjectFolderRegisterStore(SqliteConnection db,Func<Sqlite
   var q=db.CreateCommand();q.Transaction=t;q.CommandText=sql;foreach(var (name,value) in values)q.Parameters.AddWithValue(name,value??DBNull.Value);return q;
  }
  long Count(SqliteTransaction t,string sql,params (string,object?)[] args){using var q=Q(t,sql,args);return Convert.ToInt64(q.ExecuteScalar());}
- IReadOnlyList<FolderRegisterEntry> ReadCore(SqliteTransaction t,long project)
+ internal IReadOnlyList<FolderRegisterEntry> ReadCore(SqliteTransaction t,long project)
  {
   var rows=new List<FolderRegisterEntry>();
   using(var q=Q(t,@"SELECT f.revision,f.operation_key,f.previous_hash,f.record_hash,f.state,f.path_key,f.reason,f.actor_id,f.recorded_utc,f.audit_id,a.id

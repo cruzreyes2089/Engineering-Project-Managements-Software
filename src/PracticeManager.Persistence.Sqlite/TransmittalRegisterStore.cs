@@ -38,7 +38,7 @@ internal sealed class TransmittalRegisterStore(SqliteConnection db,Func<SqliteTr
      Convert.ToHexString(SHA256.HashData(bytes))!=expected)throw new InvalidOperationException("Document bytes failed verification.");
   return new(id,expected,r.GetString(0),r.GetString(1),bytes.LongLength);
  }
- StoredTransmittal ReadCore(SqliteTransaction t,long project,long id)
+ internal StoredTransmittal ReadCore(SqliteTransaction t,long project,long id)
  {
   string operation,hash,recipient,purpose;int count;
   using(var q=Q(t,"SELECT operation_key,intent_hash,recipient,purpose,expected_documents FROM project_transmittal_intents WHERE id=$i AND project_id=$p",("$i",id),("$p",project)))

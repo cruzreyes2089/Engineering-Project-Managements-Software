@@ -80,6 +80,56 @@ internal static class ProjectEvidenceTests
   var newPdf=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),pdfId,"Production","Drawings","drawing.pdf","%PDF-1.7\nSynthetic revised\n%%EOF"u8.ToArray());
   Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",true),"superseded document cannot enter release review");
   check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"verified document staging cleaned");
+  Denied(()=>s.ReadCandidateFolderConfiguration(),"ordinary database cannot access inactive document register");
+  // Test-only provisioning on this disposable real-project fixture, not a migration.
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
+  {
+   db.Open();using var t=db.BeginTransaction(deferred:false);
+   foreach(var resource in new[]{"SyntheticFolderConfiguration.sql","SyntheticDocumentRegister.sql"})
+   {
+    using var stream=typeof(ProjectEvidenceTests).Assembly.GetManifestResourceStream(resource)!;
+    using var reader=new StreamReader(stream);using var cmd=db.CreateCommand();cmd.Transaction=t;cmd.CommandText=reader.ReadToEnd();cmd.ExecuteNonQuery();
+   }
+   using var version=db.CreateCommand();version.Transaction=t;version.CommandText="PRAGMA user_version=49";version.ExecuteNonQuery();t.Commit();
+  }
+  var currentPdf=s.ReadProjectDocuments(p.Id).Single(x=>x.Id==newPdf);
+  var intent=DocumentTransmittalReview.Prepare(p.Id,"Synthetic recipient","Synthetic issue",new[]{new ReviewedIssueDocument(currentPdf.Id,currentPdf.Hash,currentPdf.FileName,currentPdf.Category,currentPdf.Bytes)});
+  var issueQa=s.CreateQualityItem(p.Id,"Synthetic issue hold","Correction","Pending");
+  Invalid(()=>s.PrepareCandidateTransmittal(Guid.NewGuid(),intent,"Synthetic review","Reviewed",true),"actual project QA blocks candidate preparation");
+  s.CloseQualityItem(p.Id,issueQa,"Resolved");
+  var prep=s.PrepareCandidateTransmittal(Guid.NewGuid(),intent,"Synthetic review","Reviewed",true).Record;
+  check(prep.History.Single().Event.State=="Prepared","actual project service records preparation separately");
+  var secondQa=s.CreateQualityItem(p.Id,"Synthetic new hold","Correction","Pending");
+  Invalid(()=>s.RecordCandidateTransmittalEvent(p.Id,prep.Id,Guid.NewGuid(),prep.History[0].Event.Hash,"IssueRecorded","Synthetic external issue","Reviewed",true),"actual issue gate rechecks new QA hold");
+  s.CloseQualityItem(p.Id,secondQa,"Resolved");
+  var issued=s.RecordCandidateTransmittalEvent(p.Id,prep.Id,Guid.NewGuid(),prep.History[0].Event.Hash,"IssueRecorded","Synthetic external issue","Reviewed",true).Entry;
+  var delivered=s.RecordCandidateTransmittalEvent(p.Id,prep.Id,Guid.NewGuid(),issued.Event.Hash,"DeliveryRecorded","Synthetic delivery evidence","Reviewed",true).Entry;
+  check(delivered.Event.State=="DeliveryRecorded"&&s.ReadCandidateTransmittal(p.Id,prep.Id).History.Count==3,"actual project service retains issue and delivery attestations");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.View'");
+  Denied(()=>s.ReadCandidateTransmittal(p.Id,prep.Id),"document permission revoked denies candidate read");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.View'");
+  // Witness is tested using actual history on this disposable database, not production restore.
+  using(var source=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
+  {
+   source.Open();
+   DocumentRegisterWitness Verify(SqliteConnection db){using var t=db.BeginTransaction(deferred:true);return DocumentRegisterVerification.Verify(db,t);}
+   var original=Verify(source);
+   check(original.Transmittals==1&&original.Documents==1&&original.Events==3,"document witness reconciles actual project transmittal");
+   using(var copy=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False"))
+   {copy.Open();source.BackupDatabase(copy);check(Verify(copy)==original,"SQLite backup preserves document register witness");}
+   foreach(var fault in new[]{"INSERT INTO audit_events(actor_id,action,entity,entity_id) SELECT actor_id,'RecordTransmittalEvent','Project',entity_id FROM audit_events WHERE action='RecordTransmittalEvent' LIMIT 1",
+    "DROP TRIGGER project_transmittal_events_no_delete;DELETE FROM project_transmittal_events WHERE sequence=3",
+    "INSERT INTO project_transmittal_intents(project_id,operation_key,intent_hash,recipient,purpose,expected_documents) SELECT project_id,'0123456789abcdef0123456789abcdef','"+new string('a',64)+"','Synthetic','Unsealed',1 FROM project_transmittal_intents LIMIT 1"})
+   {
+    using var copy=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False");copy.Open();source.BackupDatabase(copy);
+    using(var cmd=copy.CreateCommand()){cmd.CommandText=fault;cmd.ExecuteNonQuery();}
+    try{_=Verify(copy);throw new Exception("FAIL: document witness corruption");}
+    catch(InvalidOperationException){check(true,"document witness rejects inconsistent history or orphan audit");}
+   }
+   check(Verify(source)==original,"document recovery witness tests leave source unchanged");
+  }
+  s.Logout();Denied(()=>s.ReadCandidateTransmittal(p.Id,prep.Id),"signed-out candidate history denied");
+
 
  }
 }

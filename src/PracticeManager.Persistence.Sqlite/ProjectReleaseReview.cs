@@ -24,15 +24,7 @@ public sealed partial class LocalPractice
   recipient=Validation.Text(recipient,200,"Proposed recipient",true);
   reviewNote=Validation.Text(reviewNote,1000,"Review note",true);
   using var c=Open();using var t=c.BeginTransaction(deferred:false);
-  var actor=RequireDocuments(c,t,true);RequireAdministration(c,t);var p=ProjectRow(c,t,project);
-  RequireOpenOperations(c,t,project);
-  if(p.State!="Active"||!ConflictCleared(c,t,project))throw new ArgumentException("Active project with current conflict clearance required.");
-  var a=CurrentAgreement(c,t,project);
-  if(a==null||a.IssuedHash!=p.ProposalHash||!AgreementIntact(c,t,a)||
-     Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_start_authorizations WHERE project_id=$p AND agreement_id=$a",("$p",project),("$a",a.Id)))!=1)
-   throw new ArgumentException("Intact project start authorization required.");
-  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_quality_items i WHERE i.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_quality_closures x WHERE x.item_id=i.id)",("$p",project)))!=0)
-   throw new ArgumentException("Resolve open project QA items before preparing a release review package.");
+  var actor=RequireDocuments(c,t,true);RequireAdministration(c,t);RequireReleaseReviewEligibility(c,t,project);var p=ProjectRow(c,t,project);
   var metadata=new List<object>();long total=0;using var output=new MemoryStream();
   using(var zip=new ZipArchive(output,ZipArchiveMode.Create,true))
   {
@@ -65,4 +57,17 @@ public sealed partial class LocalPractice
   Audit(c,t,actor,"PrepareReleaseReview","Project",project);t.Commit();
   return new(project,chosen.Length,Convert.ToHexString(SHA256.HashData(result)),result);
  }
+ private void RequireReleaseReviewEligibility(SqliteConnection c,SqliteTransaction t,long project)
+ {
+  var p=ProjectRow(c,t,project);
+  RequireOpenOperations(c,t,project);
+  if(p.State!="Active"||!ConflictCleared(c,t,project))throw new ArgumentException("Active project with current conflict clearance required.");
+  var a=CurrentAgreement(c,t,project);
+  if(a==null||a.IssuedHash!=p.ProposalHash||!AgreementIntact(c,t,a)||
+     Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_start_authorizations WHERE project_id=$p AND agreement_id=$a",("$p",project),("$a",a.Id)))!=1)
+   throw new ArgumentException("Intact project start authorization required.");
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_quality_items i WHERE i.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_quality_closures x WHERE x.item_id=i.id)",("$p",project)))!=0)
+   throw new ArgumentException("Resolve open project QA items before preparing a release review package.");
+ }
+
 }
