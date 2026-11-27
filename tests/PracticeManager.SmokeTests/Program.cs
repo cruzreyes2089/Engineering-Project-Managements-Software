@@ -8,6 +8,22 @@ void Check(bool condition,string name){if(!condition)throw new Exception("FAIL: 
 void Denied(Action a,string name){try{a();}catch(UnauthorizedAccessException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 void Invalid(Action a,string name){try{a();}catch(ArgumentException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 try{
+ if(args.Length==8&&args[0]=="--synthetic-historical-transfer"){
+  // The only destination is this run's owned temporary folder. No external database accepted.
+  var source=args[1];
+  var crm=HistoricalArchivePreviewFiles.Read(args[2],args[3]);
+  var projects=HistoricalArchivePreviewFiles.Read(args[4],args[5]);
+  var census=HistoricalArchivePreviewFiles.Read(args[6],args[7]);
+  try{
+   SyntheticHistoricalNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-dao"),crm,projects,census,source,Check);
+   Console.WriteLine($"Synthetic historical native checks passed: {passed}; CRM SHA-256: {args[3]}; project SHA-256: {args[5]}; census SHA-256: {args[7]}");
+  }finally{
+   System.Security.Cryptography.CryptographicOperations.ZeroMemory(crm);
+   System.Security.Cryptography.CryptographicOperations.ZeroMemory(projects);
+   System.Security.Cryptography.CryptographicOperations.ZeroMemory(census);
+  }
+  return 0;
+ }
  if(args.Length!=0){
   if(args.Length!=4||args[0]!="--synthetic-crm-transfer"||args[1] is not ("populated" or "empty")||
       args[3].Length!=64||args[3].Any(c=>!char.IsAsciiHexDigit(c)))throw new ArgumentException("Invalid synthetic smoke-test arguments.");
@@ -153,6 +169,7 @@ try{
  HistoricalProjectTransferTests.Run(Check);
   HistoricalArchivePreviewFileTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-preview-files"),Check);
   HistoricalArchiveTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-archive"),pw,Check);
+  SyntheticHistoricalNativeTests.RunOffline(Path.Combine(Path.GetDirectoryName(path)!,"combined-historical"),Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-populated.db"),SyntheticCrmNativeTests.Fixture(false),false,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-empty.db"),SyntheticCrmNativeTests.Fixture(true),true,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;

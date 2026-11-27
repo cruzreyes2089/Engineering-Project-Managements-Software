@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 
 
-def qualify(folder, powershell):
+def qualify(folder, powershell, native_smoke=False):
     checks = []
     def check(condition, label):
         common.require(condition, label)
@@ -71,11 +71,30 @@ def qualify(folder, powershell):
     check(len(raw["rows"])==len(census["rows"])==2,"Exact projection counts")
     check(all(set(r)=={v[0] for v in fields.values()} for r in raw["rows"]),"Only mapped columns exported")
     check(all(set(r)=={"Id","Parent","Number"} for r in census["rows"]),"Only identity columns exported")
-    transfer=common.expected_transfer(False)
-    # Synthetic reference values are known; actual CRM extraction is a separate qualification.
+    # Extract and reconcile CRM from the same closed synthetic Access source, not a fabricated transfer.
+    crm_plan=common.plans.prepare(inv,ih,rules,mh)
+    cp=folder/"crm-plan.json";common.write(cp,crm_plan)
+    cph=common.digest(cp)
+    def crm_export(mode,out):
+        ps("Export-LegacyCrmSnapshot.ps1",["-DatabaseCopy",source,"-PlanFile",cp,
+           "-ExpectedPlanSha256",cph,"-Mode",mode,"-OutputFile",out,"-ConfirmTrustedSyntheticCopy"])
+    ci=folder/"crm-identities.json";crm_export("Identity",ci)
+    cr=folder/"crm-rows.json";crm_export("Rows",cr)
+    crm_rows,crh=mapping.load(cr);crm_ids,cih=mapping.load(ci)
+    hashes={"sourceSha256":before,"inventorySha256":ih,"mappingSha256":mh,"rowsSha256":crh}
+    enums={"format":"CRC-Access-CRM-Enum-Review-v1",**hashes,
+           "type":[{"source":7,"target":"Business / Company"},{"source":9,"target":"Architect / Designer"}],
+           "status":[{"source":True,"target":"Active"},{"source":False,"target":"Inactive"}]}
+    transfer=common.conversion.convert(inv,rules,crm_rows,enums,hashes)
+    common.compare_values(transfer,common.expected_transfer(False))
     crm_transfer=folder/"crm-transfer.json"
-    common.write(crm_transfer,transfer)
+    common.conversion.write_new(crm_transfer,transfer)
     th=common.digest(crm_transfer)
+    crm_census=common.binder.bind(inv,rules,ih,mh,crm_ids,transfer,th)
+    reconciled=common.conversion.reconciliation.reconcile(crm_census,transfer,
+        {k:crm_census[k] for k in common.conversion.reconciliation.HASH_KEYS})
+    check(reconciled["identityMatch"] and not reconciled["importAuthorized"] and common.digest(ci)==cih,
+          "Same-source CRM full values and independent identities reconciled")
     project_bytes,census_bytes,result=converter.convert(inv,ih,rules,mh,project_rules,ph,
         plan,plan_hash,raw,rh,census,ch,transfer,th,
         {"planSha256":plan_hash,"projectionSha256":rh,"identityCensusSha256":ch,"crmTransferSha256":th})
@@ -104,6 +123,21 @@ def qualify(folder, powershell):
         export("Rows",stale,success=False)
         check(not stale.exists(),"Lock sentinel denied")
     finally: lock.unlink()
+    if native_smoke:
+        project_file=folder/"project-transfer.json";census_file=folder/"project-census.json"
+        for path,data in ((project_file,project_bytes),(census_file,census_bytes)):
+            with path.open("xb") as f: f.write(data)
+        phash=common.digest(project_file);c_hash=common.digest(census_file)
+        run=subprocess.run(["dotnet","run","--project",
+            str(ROOT/"tests/PracticeManager.SmokeTests/PracticeManager.SmokeTests.csproj"),
+            "-c","Release","--no-build","--no-restore","--","--synthetic-historical-transfer",
+            before,str(crm_transfer),th,str(project_file),phash,str(census_file),c_hash],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180)
+        marker=(f"; CRM SHA-256: {th}; project SHA-256: {phash}; census SHA-256: {c_hash}").encode("ascii")
+        check(run.returncode==0 and any(line.startswith(b"Synthetic historical native checks passed: ") and
+              line.endswith(marker) for line in run.stdout.splitlines()),"Digest-bound combined native import and recovery")
+        check(common.digest(crm_transfer)==th and common.digest(project_file)==phash and common.digest(census_file)==c_hash,
+              "Native run preserved all three transfer files")
     check(common.digest(source)==before,"Final source bytes unchanged")
     return checks
 
@@ -112,6 +146,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--confirm-synthetic",action="store_true")
     p.add_argument("--dao-bitness",choices=("32","64"),required=True)
+    p.add_argument("--native-smoke",action="store_true",help="Use the already built reviewed native smoke harness")
     args=p.parse_args()
     if os.name!="nt" or not args.confirm_synthetic:
         print("Blocked: Windows and explicit synthetic confirmation required.",file=sys.stderr)
@@ -127,9 +162,9 @@ def main():
         with tempfile.TemporaryDirectory(prefix="CRC-synthetic-project-") as td:
             folder=Path(td).resolve()
             common.require(not folder.is_relative_to(ROOT),"Private temporary directory required")
-            checks=qualify(folder,powershell)
+            checks=qualify(folder,powershell,args.native_smoke)
         print(json.dumps({"checks":checks,"daoFixtureChecksPassed":True,
-                          "nativeImportExecuted":False,"releaseAuthorized":False},sort_keys=True))
+                          "nativeImportExecuted":args.native_smoke,"releaseAuthorized":False},sort_keys=True))
         return 0
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired):
         print("Synthetic historical DAO qualification did not complete; review local prerequisites.",file=sys.stderr)
