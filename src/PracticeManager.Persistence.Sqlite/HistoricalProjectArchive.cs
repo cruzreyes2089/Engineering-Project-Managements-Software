@@ -46,6 +46,28 @@ public sealed partial class LocalPractice
             throw new InvalidOperationException("Historical archive reconciliation failed.");
         return result.AsReadOnly();
     }
+    // Internal integrity witness, not a public export or authorization decision.
+    internal static (int Count,string Digest) HistoricalArchiveFingerprint(SqliteConnection c,SqliteTransaction t)
+    {
+        var rows=HistoricalRows(c,t);
+        if(rows.Count==0)return (0,"");
+        using var hash=System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        void Scan(string sql)
+        {
+            hash.AppendData(System.Text.Encoding.UTF8.GetBytes(sql+"\n"));
+            using var q=Command(c,t,sql);using var r=q.ExecuteReader();
+            while(r.Read())
+            {
+                var fields=new object[r.FieldCount];r.GetValues(fields);
+                hash.AppendData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(fields));
+                hash.AppendData(new byte[]{10});
+            }
+        }
+        Scan("SELECT id,crm_batch_id,crm_transfer_hash,source_hash,project_transfer_hash,census_hash,expected_count,review_note,imported_by,imported_utc FROM historical_project_batches ORDER BY id");
+        Scan("SELECT batch_id,sealed_utc FROM historical_project_seals ORDER BY batch_id");
+        Scan("SELECT batch_id,legacy_id,legacy_client_id,native_client_id,legacy_number,title,site,legacy_status,legacy_authorization_status,authorization_evidence_ref FROM historical_project_register ORDER BY batch_id,legacy_id COLLATE BINARY");
+        return (rows.Count,Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
+    }
     private static void VerifyHistoricalParents(SqliteConnection c,SqliteTransaction t,HistoricalProjectPackage p)
     {
         var history=LegacyHistory(c,t);
