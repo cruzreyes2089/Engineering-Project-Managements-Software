@@ -4,7 +4,11 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 namespace PracticeManager.Persistence;
 
-public sealed record UpgradeRehearsalResult(int SourceSchema,int TargetSchema,string SourceSha256,long Clients,long Contacts,long Users,bool SourceUnchanged);
+public sealed record UpgradeRehearsalResult(int SourceSchema,int TargetSchema,string SourceSha256,long Clients,long Contacts,long Users,bool SourceUnchanged)
+{
+ public long HistoricalProjects{get;init;}
+ public bool HistoricalArchivePreserved{get;init;}
+}
 
 // Source-only qualification helper. Never open the original with SQLite and never
 // publish the disposable copy as a working database. The local folder must be trusted.
@@ -13,7 +17,7 @@ public static class UpgradeRehearsal
  const int CurrentSchema=47;
  const long MaximumBytes=4L*1024*1024*1024;
  static readonly string[] Sidecars=["-wal","-shm","-journal"];
- private sealed record Snapshot(int Version,long Clients,long Contacts,long Users,string IdentityHash);
+ private sealed record Snapshot(int Version,long Clients,long Contacts,long Users,string IdentityHash,int ArchiveCount,string ArchiveDigest);
  private static void RequireNoSidecars(string path)
  {
   if(Sidecars.Any(s=>File.Exists(path+s)||Directory.Exists(path+s)))throw new ArgumentException("Closed source without database sidecars required.");
@@ -46,7 +50,13 @@ public static class UpgradeRehearsal
   var contacts=Scan("SELECT id,client_id FROM contacts ORDER BY id");
   var users=Scan("SELECT id,username,normalized_username,role_id,active FROM users ORDER BY id");
   Scan("SELECT id,actor_id,action,entity,entity_id,occurred_at FROM audit_events ORDER BY id");
-  return new(version,clients,contacts,users,Convert.ToHexString(h.GetHashAndReset()));
+  (int Count,string Digest) archive=(0,"");
+  if(version>=47)
+  {
+   using var t=db.BeginTransaction(deferred:true);
+   archive=LocalPractice.HistoricalArchiveFingerprint(db,t);
+  }
+  return new(version,clients,contacts,users,Convert.ToHexString(h.GetHashAndReset()),archive.Count,archive.Digest);
  }
  public static UpgradeRehearsalResult Run(string source,string expectedSha256,bool confirmed)
  {
@@ -77,10 +87,11 @@ public static class UpgradeRehearsal
    try{before=Inspect(staging);}catch(SqliteException e){throw new ArgumentException("Source SQLite preflight failed.",e);}
    _=new LocalPractice(staging);
    var after=Inspect(staging);
-   if(after.Version!=CurrentSchema||before.Clients!=after.Clients||before.Contacts!=after.Contacts||before.Users!=after.Users||before.IdentityHash!=after.IdentityHash)throw new InvalidOperationException("Upgrade identity reconciliation failed.");
+   if(after.Version!=CurrentSchema||before.Clients!=after.Clients||before.Contacts!=after.Contacts||before.Users!=after.Users||before.IdentityHash!=after.IdentityHash||before.ArchiveCount!=after.ArchiveCount||before.ArchiveDigest!=after.ArchiveDigest)throw new InvalidOperationException("Upgrade identity reconciliation failed.");
    RequireNoSidecars(input);
    if(src.Length!=length||Hash(src)!=hash)throw new InvalidOperationException("Source copy changed during rehearsal.");
-   return new(before.Version,after.Version,hash,after.Clients,after.Contacts,after.Users,true);
+   return new(before.Version,after.Version,hash,after.Clients,after.Contacts,after.Users,true)
+   {HistoricalProjects=after.ArchiveCount,HistoricalArchivePreserved=true};
   }
   finally
   {
