@@ -2,12 +2,14 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record WorkReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
-public sealed record WorkInvalidation(long SubmissionId,string Reason,long ActorId,string RecordedUtc);
+public sealed record WorkInvalidation(long SubmissionId,string Reason,long ActorId,string RecordedUtc,long? ClosureId=null);
 public sealed record AttendanceCorrection(long Id,long SessionId,DateTimeOffset ClockIn,DateTimeOffset ClockOut,string Reason,long ActorId,string RecordedUtc);
 public sealed record AttendanceReviewRow(long Id,long EmployeeId,string Employee,DateTimeOffset OriginalIn,DateTimeOffset? OriginalOut,DateTimeOffset ClockIn,DateTimeOffset? ClockOut,long? CorrectionId,string EntrySource="Clock",string State="Closed",string? ManualReason=null,long? OriginalActorId=null,string? ManualRecordedUtc=null);
 public sealed record AttendanceVoid(long SessionId,long? CorrectionId,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public WorkInvalidation InvalidateClosedProjectWork(long id,long closureId,string reason,bool confirmed)=>throw new NotImplementedException("Closed-project approved work invalidation not implemented.");
+ public long ReplaceClosedProjectWork(long original,WorkSubmissionInput input,long closureId,bool invalidated,string reason,bool confirmed)=>throw new NotImplementedException("Closed-project linked replacement not implemented.");
  public long SubmitHistoricalWork(WorkSubmissionInput input,long closureId,string reason,bool confirmed)
  {if(closureId<=0||!confirmed)throw new ArgumentException("Current closure and explicit actual-work confirmation required.");return SubmitWorkCore(input,null,false,closureId,Validation.Text(reason,1000,"Historical work evidence",true));}
  public long RecordMissingAttendance(Guid operation,long employee,DateTimeOffset clockIn,DateTimeOffset clockOut,string reason,bool confirmed)
