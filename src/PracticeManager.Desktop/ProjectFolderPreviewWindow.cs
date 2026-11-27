@@ -22,6 +22,7 @@ internal sealed class ProjectFolderPreviewWindow:Window
   if(service.Can("Administration.Manage")&&service.Can("Documents.Restricted"))
   {
    WorkWindowFields.Button(bar,"Choose template",()=>{new ProjectFolderSelectionWindow(service,project){Owner=this}.ShowDialog();Refresh();});
+   WorkWindowFields.Button(bar,"Customize project folders",()=>{new ProjectFolderCustomizationWindow(service,project){Owner=this}.ShowDialog();Refresh();});
    WorkWindowFields.Button(bar,"Review storage locations",()=>new ProjectStorageDraftWindow(service,project,correspondence.IsChecked==true){Owner=this}.ShowDialog());
   }
   WorkWindowFields.Button(bar,"Close",Close);
@@ -48,7 +49,8 @@ internal sealed class ProjectFolderPreviewWindow:Window
     foreach(var folder in preview.Restricted)restricted.Items.Add(Item(folder));tree.Items.Add(restricted);
    }
    correspondence.IsEnabled=!preview.Selection.Assigned;
-   status.Text=$"Project: {preview.ProjectNumber}   |   Template: {preview.TemplateRevision}   |   {preview.Plan.Entries.Count} planned directories including project roots   |   "+(preview.Selection.Assigned?"Saved logical selection":"Unassigned suggestion only");
+   if(preview.Selection.Assigned&&correspondence.IsChecked!=preview.Selection.IncludeCorrespondence){correspondence.IsChecked=preview.Selection.IncludeCorrespondence;return;}
+   status.Text=$"Project: {preview.ProjectNumber}   |   Template: {preview.TemplateRevision}   |   {preview.Plan.Entries.Count} planned directories including project roots   |   "+(preview.Selection.Customized?"Saved project-specific plan":preview.Selection.Assigned?"Saved logical selection":"Unassigned suggestion only");
   }
   catch(UnauthorizedAccessException){status.Text="Access denied.";}
   catch(Exception){status.Text="Project folder preview unavailable. No changes were made.";}

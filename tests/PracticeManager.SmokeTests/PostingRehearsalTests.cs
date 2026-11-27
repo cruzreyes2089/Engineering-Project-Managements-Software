@@ -146,7 +146,7 @@ internal static class PostingRehearsalTests
   using(var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
   {
    c.Open();using var q=c.CreateCommand();
-   q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==50,"v7 migration reaches schema 50");
+   q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==51,"v7 migration reaches schema 51");
    check(before==Snapshot(c),"v7 journal rows and attempt history preserved byte-for-byte at logical row level");
    q.CommandText="SELECT count(*) FROM accounting_rehearsal_approvals";check(Convert.ToInt32(q.ExecuteScalar())==0,"migration never retroactively approves old reservations");
    q.CommandText="SELECT reason FROM accounting_lifecycle_hold WHERE id=1";check((string?)q.ExecuteScalar()=="Restore","v7 sticky hold preserved");

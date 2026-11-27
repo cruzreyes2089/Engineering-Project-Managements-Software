@@ -11,6 +11,7 @@ public sealed record NamedFolderChoice(long Revision,string Name,IReadOnlyList<s
 public sealed record ProjectFolderSelection(long Id,long TemplateRevision,bool IncludeCorrespondence)
 {
  public bool Assigned=>Id>0;
+ public bool Customized{get;init;}
 }
 public sealed partial class LocalPractice
 {
@@ -33,6 +34,11 @@ public sealed partial class LocalPractice
    CREATE TRIGGER folder_selection_no_update BEFORE UPDATE ON project_folder_selections BEGIN SELECT RAISE(ABORT,'Selection retained'); END;
    CREATE TRIGGER folder_selection_no_delete BEFORE DELETE ON project_folder_selections BEGIN SELECT RAISE(ABORT,'Selection retained'); END;
    PRAGMA user_version=50;");
+ }
+ private static void UpgradeToV51(SqliteConnection c,SqliteTransaction t)
+ {
+  Exec(c,t,@"ALTER TABLE project_folder_selections ADD COLUMN override_paths TEXT CHECK(override_paths IS NULL OR length(override_paths) BETWEEN 3 AND 24000);
+   PRAGMA user_version=51;");
  }
  static string NamedLabel(string name)
  {
@@ -78,13 +84,19 @@ public sealed partial class LocalPractice
  }
  static ProjectFolderSelection CurrentFolderSelection(SqliteConnection c,SqliteTransaction t,long project)
  {
-  using var q=Command(c,t,"SELECT id,coalesce(template_id,0),correspondence FROM project_folder_selections WHERE project_id=$p ORDER BY id DESC LIMIT 1",("$p",project));
+  using var q=Command(c,t,"SELECT id,coalesce(template_id,0),correspondence,override_paths IS NOT NULL FROM project_folder_selections WHERE project_id=$p ORDER BY id DESC LIMIT 1",("$p",project));
   using var reader=q.ExecuteReader();
-  return reader.Read()?new(reader.GetInt64(0),reader.GetInt64(1),reader.GetInt64(2)==1):new(0,0,false);
+  return reader.Read()?new ProjectFolderSelection(reader.GetInt64(0),reader.GetInt64(1),reader.GetInt64(2)==1){Customized=reader.GetInt64(3)==1}:new(0,0,false);
  }
  static ProjectFolderLayout SelectedLayout(SqliteConnection c,SqliteTransaction t,ProjectFolderSelection selected)
  {
   if(!selected.Assigned)return CurrentFolderLayout(c,t);
+  if(selected.Customized)
+  {
+   var json=Scalar(c,t,"SELECT override_paths FROM project_folder_selections WHERE id=$i",("$i",selected.Id)) as string
+    ??throw new InvalidOperationException("Project folder customization unavailable.");
+   return ProjectFolderLayout.ProjectOverride(selected.Id,JsonSerializer.Deserialize<string[]>(json)??throw new InvalidOperationException("Project paths unavailable."));
+  }
   var choice=ReadChoice(c,t,selected.TemplateRevision);
   return choice.Revision==0?ProjectFolderLayout.Default():ProjectFolderLayout.Named(choice.Revision,choice.Paths);
  }
@@ -101,7 +113,7 @@ public sealed partial class LocalPractice
    throw new ArgumentException("Template revision changed. Reload.");
   var layout=choice.Revision==0?ProjectFolderLayout.Default():ProjectFolderLayout.Named(choice.Revision,choice.Paths);
   _=ProjectFolderPlanning.Build(project,row.Number,correspondence,true,layout);
-  if(current.Assigned&&current.TemplateRevision==templateRevision&&current.IncludeCorrespondence==correspondence)return current;
+  if(current.Assigned&&!current.Customized&&current.TemplateRevision==templateRevision&&current.IncludeCorrespondence==correspondence)return current;
   Exec(c,t,"INSERT INTO project_folder_selections(project_id,template_id,correspondence,recorded_by,recorded_utc) VALUES($p,$i,$c,$a,$u)",
    ("$p",project),("$i",templateRevision==0?(object?)null:templateRevision),("$c",correspondence?1:0),("$a",actor),("$u",UtcNow()));
   var id=Last(c,t);Audit(c,t,actor,"SelectProjectFolderTemplate","Project",project);t.Commit();

@@ -61,7 +61,7 @@ internal static class FirmFolderTemplateTests
   {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; PRAGMA user_version=48";q.ExecuteNonQuery();}
   var digest=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(old))).ToLowerInvariant();
   var rehearsal=UpgradeRehearsal.Run(old,digest,true);
-  check(rehearsal.SourceSchema==48&&rehearsal.TargetSchema==50&&rehearsal.SourceUnchanged,"schema 48 to current template rehearsal");
+  check(rehearsal.SourceSchema==48&&rehearsal.TargetSchema==51&&rehearsal.SourceUnchanged,"schema 48 to current template rehearsal");
   var upgraded=new LocalPractice(old);check(upgraded.Login("admin",pw)&&upgraded.ReadFirmFolderLayout().RevisionId==0,"upgrade uses default without inventing template settings");
   upgraded.Logout();restored.Logout();reopened.Logout();b.Logout();
  }

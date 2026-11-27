@@ -24,17 +24,42 @@ internal static class NamedFolderTemplateTests
   var selected=s.SelectProjectFolderTemplate(project,first.Revision,true,0,true);
   var preview=s.ReadProjectFolderPreview(project);
   check(preview.Selection==selected&&preview.Production.First().Children.Count==2&&preview.Plan.Entries.Any(x=>x.RelativeDirectory.EndsWith("/Design/Drawings"))&&preview.Plan.IncludeCorrespondence,"nested template bound to project");
+  var draft=s.ReadProjectFolderCustomization(project);
+  check(draft.SelectionId==selected.Id&&draft.Paths.SequenceEqual(first.Paths),"project customization starts from selected template");
+  Reject<ArgumentException>(()=>s.ReadProjectFolderCustomization(other),"unassigned project requires explicit base template");
+  Reject<ArgumentException>(()=>s.SaveProjectFolderCustomization(project,selected.Id,new[]{"Design"},false,false),"project customization requires confirmation");
+  Reject<ArgumentException>(()=>s.SaveProjectFolderCustomization(project,selected.Id,new[]{"Design","Design/../Private"},false,true),"unsafe project override denied");
+  var edited=s.SaveProjectFolderCustomization(project,selected.Id,new[]{"Design","Design/Details","Send Outs"},false,true);
+  var customPreview=s.ReadProjectFolderPreview(project);
+  check(edited.Customized&&edited.TemplateRevision==first.Revision&&customPreview.TemplateRevision.StartsWith("Project-Production-",StringComparison.Ordinal)&&
+   customPreview.Production.First().Children.Single().Name=="Details"&&!customPreview.Plan.IncludeCorrespondence&&customPreview.Restricted.Count==4,
+   "project override preserves template provenance and separate restricted boundary");
+  check(s.ReadNamedFolderChoices().Single(x=>x.Revision==first.Revision).Paths.SequenceEqual(first.Paths)&&!s.ReadProjectFolderPreview(other).Selection.Assigned,
+   "project override does not change catalog or other project");
+  Reject<ArgumentException>(()=>s.SaveProjectFolderCustomization(project,selected.Id,new[]{"Other"},true,true),"stale project customization rejected");
+  check(s.SaveProjectFolderCustomization(project,edited.Id,new[]{"Design","Design/Details","Send Outs"},false,true)==edited,"identical project override no-op");
+  var storage=s.ReviewProjectStorageDraft(project,@"C:\Synthetic Production",@"D:\Synthetic Restricted",true);
+  check(storage.TemplateRevision==customPreview.TemplateRevision&&storage.ProductionDirectories==4&&storage.RestrictedDirectories==5,"storage review uses exact saved customization and option");
   var changed=s.SaveNamedFolderChoice("Residential",new[]{"New Design"},first.Revision,true);
-  check(s.ReadProjectFolderPreview(project).Plan.Fingerprint==preview.Plan.Fingerprint,"existing project retains exact prior revision");
+  check(s.ReadProjectFolderPreview(project).Plan.Fingerprint==customPreview.Plan.Fingerprint,"existing project retains exact custom plan after business template update");
   Reject<ArgumentException>(()=>s.SelectProjectFolderTemplate(other,first.Revision,false,0,true),"stale catalog choice rejected");
   var next=s.SelectProjectFolderTemplate(other,changed.Revision,false,0,true);
   check(s.ReadProjectFolderPreview(other).Production.Single().Name=="New Design"&&next.Assigned,"new project selects current revision");
   Reject<ArgumentException>(()=>s.SelectProjectFolderTemplate(project,second.Revision,false,0,true),"stale project selection rejected");
-  var preset=s.SelectProjectFolderTemplate(project,0,false,selected.Id,true);
-  check(preset.Assigned&&s.ReadProjectFolderPreview(project).Production.Count==9&&!s.ReadProjectFolderPreview(project).Plan.IncludeCorrespondence,"explicit CRC selection replaces logical plan");
+  var preset=s.SelectProjectFolderTemplate(project,0,false,edited.Id,true);
+  check(preset.Assigned&&!preset.Customized&&s.ReadProjectFolderPreview(project).Production.Count==9&&!s.ReadProjectFolderPreview(project).Plan.IncludeCorrespondence,"explicit CRC selection replaces logical plan");
   check(s.ReadProjectDocuments(project).Count==0&&!s.ReadProjectFolderPreview(project).Provisioned,"no external provisioning or document records");
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false,ForeignKeys=true}.ToString()))
   {db.Open();using var q=db.CreateCommand();q.CommandText="DELETE FROM project_folder_selections";Reject<SqliteException>(()=>q.ExecuteNonQuery(),"project template history retained");q.CommandText="UPDATE named_folder_templates SET name='Changed'";Reject<SqliteException>(()=>q.ExecuteNonQuery(),"named template revisions immutable");}
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false,ForeignKeys=true}.ToString()))
+  {
+   db.Open();using var q=db.CreateCommand();q.CommandText="SELECT count(*) FROM project_folder_selections WHERE override_paths IS NOT NULL";
+   check(Convert.ToInt64(q.ExecuteScalar())==1,"original custom selection retained after template reset");
+   q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'";q.ExecuteNonQuery();
+   Reject<UnauthorizedAccessException>(()=>s.ReadProjectFolderCustomization(project),"customization settings permission enforced");
+   Reject<UnauthorizedAccessException>(()=>s.SaveProjectFolderCustomization(project,preset.Id,new[]{"Other"},false,true),"customization write permission enforced");
+   q.CommandText="UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.Restricted'";q.ExecuteNonQuery();
+  }
   s.Logout();var reopened=new LocalPractice(path);check(reopened.Login("admin",pw)&&reopened.ReadProjectFolderPreview(project).Selection==preset,"selection survives restart");
  }
 }

@@ -12,7 +12,7 @@ internal static class UpgradeRehearsalTests
   Invalid(()=>UpgradeRehearsal.Run(legacyPath,hash,false),"upgrade rehearsal requires explicit trusted closed copy confirmation");
   Invalid(()=>UpgradeRehearsal.Run(legacyPath,new string('0',64),true),"upgrade rehearsal requires exact source hash");
   var result=UpgradeRehearsal.Run(legacyPath,hash,true);
-  check(result.SourceSchema==1&&result.TargetSchema==50&&result.SourceSha256==hash&&result.SourceUnchanged,"isolated rehearsal upgrades exact legacy copy only");
+  check(result.SourceSchema==1&&result.TargetSchema==51&&result.SourceSha256==hash&&result.SourceUnchanged,"isolated rehearsal upgrades exact legacy copy only");
   check(result.Clients==1&&result.Contacts==0&&result.Users==2,"upgrade rehearsal preserves baseline identities");
   check(Hash(legacyPath)==hash,"legacy source bytes remain unchanged after successful rehearsal");
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=legacyPath,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString())){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==1,"source remains on original schema");}

@@ -73,7 +73,7 @@ internal static class HistoricalArchiveTests
     HistoricalArchivePreview Preview()=>p.PreviewHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census));
     HistoricalArchiveImportResult Import(bool confirm=true,string note="Synthetic reviewed mapping")=>p.ImportHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census),confirm,note);
     long ArchiveCount()=>Count("SELECT (SELECT count(*) FROM historical_project_batches)+(SELECT count(*) FROM historical_project_rows)+(SELECT count(*) FROM historical_project_seals)+(SELECT count(*) FROM audit_events WHERE action='CommitHistoricalProjectArchive')");
-    check(Count("PRAGMA user_version")==50,"archive native schema 50");
+    check(Count("PRAGMA user_version")==51,"archive native schema 51");
     check(Count("SELECT count(*) FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport') AND role_id=1 AND allowed=1")==2,"archive bootstrap administrator grants");
     check(Count("SELECT count(*) FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport') AND role_id<>1 AND allowed=1")==0,"archive nonadministrator grants default denied");
     Reject<UnauthorizedAccessException>(()=>Preview(),"logged-out preview denied");
@@ -169,7 +169,7 @@ internal static class HistoricalArchiveTests
     }
     var priorHash=Digest(File.ReadAllBytes(priorPath));
     var rehearsal=UpgradeRehearsal.Run(priorPath,priorHash,true);
-    check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==50&&rehearsal.Clients==2&&rehearsal.SourceUnchanged&&Digest(File.ReadAllBytes(priorPath))==priorHash,"schema 46 rehearsal preserves original and client identities");
+    check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==51&&rehearsal.Clients==2&&rehearsal.SourceUnchanged&&Digest(File.ReadAllBytes(priorPath))==priorHash,"schema 46 rehearsal preserves original and client identities");
     var upgradedPath=Path.Combine(root,"upgraded-v47.db");File.Copy(priorPath,upgradedPath);
     var upgraded=new LocalPractice(upgradedPath);
     check(upgraded.Login("admin",pw)&&upgraded.Can("HistoricalProjects.View")&&upgraded.Can("Administration.HistoricalProjectImport")&&!upgraded.Can("Clients.View"),"archive upgrade adds only new administrator grants and preserves revoked CRM access");

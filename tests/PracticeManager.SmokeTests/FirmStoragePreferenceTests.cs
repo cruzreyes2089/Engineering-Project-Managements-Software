@@ -48,7 +48,7 @@ internal static class FirmStoragePreferenceTests
   {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; DROP TABLE firm_storage_preferences; PRAGMA user_version=47";q.ExecuteNonQuery();}
   var hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(old))).ToLowerInvariant();
   var rehearsal=UpgradeRehearsal.Run(old,hash,true);
-  check(rehearsal.SourceSchema==47&&rehearsal.TargetSchema==50&&rehearsal.SourceUnchanged,"schema 47 to current storage preference upgrade rehearsal");
+  check(rehearsal.SourceSchema==47&&rehearsal.TargetSchema==51&&rehearsal.SourceUnchanged,"schema 47 to current storage preference upgrade rehearsal");
   var upgraded=new LocalPractice(old);
   check(upgraded.Login("admin",pw)&&!upgraded.ReadFirmStoragePreference().Configured,"upgraded business has no invented storage preferences");
   upgraded.Logout();

@@ -4,10 +4,11 @@ namespace PracticeManager.Core;
 public sealed class ProjectFolderLayout
 {
  public long RevisionId{get;}
- public string Revision=>RevisionId==0?ProjectFolderTemplate.Revision:(IsNamed?"Named-Production-":"Business-Production-")+RevisionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+ public string Revision=>RevisionId==0?ProjectFolderTemplate.Revision:(IsProjectOverride?"Project-Production-":IsNamed?"Named-Production-":"Business-Production-")+RevisionId.ToString(System.Globalization.CultureInfo.InvariantCulture);
  public bool IsNamed{get;}
+ public bool IsProjectOverride{get;}
  public IReadOnlyList<string> Names{get;}
- private ProjectFolderLayout(long revision,IReadOnlyList<string> names,bool named=false){RevisionId=revision;Names=names;IsNamed=named;}
+ private ProjectFolderLayout(long revision,IReadOnlyList<string> names,bool named=false,bool projectOverride=false){RevisionId=revision;Names=names;IsNamed=named;IsProjectOverride=projectOverride;}
  public static ProjectFolderLayout Default()=>new(0,Array.AsReadOnly(ProjectFolderTemplate.Production().Select(x=>x.Name).ToArray()));
  public static ProjectFolderLayout Custom(long revision,IReadOnlyList<string> names)
  {
@@ -32,6 +33,11 @@ public sealed class ProjectFolderLayout
  {
   if(revision<=0)throw new ArgumentException("Saved named revision required.");
   return new(revision,ValidatePaths(paths),true);
+ }
+ public static ProjectFolderLayout ProjectOverride(long selection,IReadOnlyList<string> paths)
+ {
+  if(selection<=0)throw new ArgumentException("Saved project selection required.");
+  return new(selection,ValidatePaths(paths),true,true);
  }
  public static IReadOnlyList<string> ValidatePaths(IReadOnlyList<string> paths)
  {
