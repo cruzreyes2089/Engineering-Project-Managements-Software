@@ -1,7 +1,7 @@
 namespace PracticeManager.Core;
 
 // Comparison only, not an issued-invoice link, posting acknowledgement, or AR ledger.
-public sealed record InvoiceComparison(string Outcome,decimal? ObservedTotal=null,decimal? Outstanding=null,DateTimeOffset? ObservedUtc=null)
+public sealed record InvoiceComparison(string Outcome,decimal? ObservedTotal=null,decimal? Outstanding=null,DateTimeOffset? ObservedUtc=null,Guid? InvoiceKey=null,long? ObservationId=null)
 {
  public bool MayPost=>false;
  public bool MayMarkIssued=>false;

@@ -1,8 +1,11 @@
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
+public sealed record InvoiceCandidateObservation(long Id,long DraftId,string PayloadHash,string BusinessName,Guid MarkerKey,string ProfileRevision,Guid CustomerKey,Guid InvoiceKey,string Reference,DateOnly IssueDate,decimal ObservedTotal,decimal ObservedOutstanding,DateTimeOffset ObservedUtc,long ActorId);
 public sealed partial class LocalPractice
 {
+ public IReadOnlyList<InvoiceCandidateObservation> ReadInvoiceCandidateObservations(long project,long draft)=>throw new NotImplementedException("Invoice candidate observation history not implemented.");
+ public Task<InvoiceComparison> CaptureSavedInvoiceCandidateAsync(long project,long draftId,string expectedHash,string exactReference,bool singleUsdConfirmed,bool captureConfirmed,CancellationToken ct=default)=>throw new NotImplementedException("Durable invoice candidate observation not implemented.");
  public bool CanCompareInvoiceCandidate()=>CanSyncDirectory()&&CanReviewCollections()&&Can("Billing.Invoices.View")&&Can("Projects.View");
  private Guid? ComparisonCustomer(SqliteConnection c,SqliteTransaction t,DirectoryContext context,long client)
  {

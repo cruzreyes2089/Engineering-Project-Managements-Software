@@ -83,12 +83,22 @@ internal static class InvoiceDraftTests
    check(beforeComparison.Summary.State=="Approved"&&beforeComparison.Summary.PayloadHash==nextDetail.Summary.PayloadHash,"comparison baseline is approved immutable draft");
    var observed=await s.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);
    check(observed.Outcome=="CandidateForManualReview"&&observed.Outstanding==195.34m&&!observed.MayMarkIssued,"saved approved invoice compared against read-only fixture");
+   check(s.ReadInvoiceCandidateObservations(project,next).Count==0,"ordinary read-only comparison does not silently persist evidence");
+   Denied(()=>worker.ReadInvoiceCandidateObservations(project,next),"ordinary employee cannot view accounting observation history");
+   check((await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,false)).Outcome=="OperatorCaptureConfirmationRequired","capture requires explicit consent");
+   var captured=await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,true);
+   var observation=s.ReadInvoiceCandidateObservations(project,next).Single();
+   check(captured.Outcome=="CandidateForManualReview"&&captured.ObservationId==observation.Id&&captured.InvoiceKey==externalInvoice&&!captured.MayMarkIssued&&!captured.MayPost&&!captured.MaySendReminder,"explicit synthetic candidate capture is evidence only");
+   check(observation.DraftId==next&&observation.PayloadHash==nextDetail.Summary.PayloadHash&&observation.BusinessName=="CRC ACCOUNTING TEST"&&observation.MarkerKey==marker&&observation.ProfileRevision==revision&&observation.CustomerKey==externalCustomer&&observation.InvoiceKey==externalInvoice&&observation.Reference==reference&&observation.IssueDate==day&&observation.ObservedTotal==295.34m&&observation.ObservedOutstanding==195.34m&&observation.ObservedUtc==captured.ObservedUtc,"capture binds exact approved draft and freshly observed fixture identity");
+   var absent=await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,"UNOBSERVED-SYNTHETIC",true,true);
+   check(absent.Outcome=="ReferenceNotObserved"&&absent.ObservationId==null&&s.ReadInvoiceCandidateObservations(project,next).Count==1,"missing reference does not create durable match or infer nonissuance");
    var afterComparison=s.ReadInvoiceDraft(project,next);
    check(afterComparison.Summary==beforeComparison.Summary&&afterComparison.Lines.SequenceEqual(beforeComparison.Lines),"comparison leaves approved draft and lines unchanged");
    s.RemoveProvisionalLink(revision,client,externalCustomer);
+   check((await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,true)).Outcome=="CurrentProvisionalCustomerLinkRequired"&&s.ReadInvoiceCandidateObservations(project,next).Single().Id==observation.Id,"removed link blocks new capture while historical evidence remains readable");
    check((await s.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true)).Outcome=="CurrentProvisionalCustomerLinkRequired","removed link cannot support candidate match");
    try{await worker.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);throw new Exception("FAIL: employee candidate access");}catch(UnauthorizedAccessException){check(true,"employee cannot compare accounting invoice candidates");}
-  },14,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
+  },32,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
   check(onlyGets,"candidate service uses GET only");
   Invalid(()=>s.InvalidateApprovedWork(time,"Previously allocated",true),"approved invoice source cannot be invalidated");
   var erroneousInput=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",30,null,null,"Synthetic duplicate time");
