@@ -68,6 +68,9 @@ jobs:
       - name: Build, smoke test and publish
         shell: pwsh
         run: ./BUILD_AND_TEST.ps1 -Publish
+      - name: Qualify historical archive candidate in disposable source and database
+        shell: pwsh
+        run: ./tools/migration/Test-HistoricalArchiveCandidate.ps1
       - name: Review direct and transitive NuGet dependencies
         shell: pwsh
         run: ./tools/security/Review-Dependencies.ps1
