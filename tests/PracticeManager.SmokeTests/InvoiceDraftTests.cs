@@ -89,5 +89,43 @@ internal static class InvoiceDraftTests
    try{await worker.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);throw new Exception("FAIL: employee candidate access");}catch(UnauthorizedAccessException){check(true,"employee cannot compare accounting invoice candidates");}
   },14,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
   check(onlyGets,"candidate service uses GET only");
+  Invalid(()=>s.InvalidateApprovedWork(time,"Previously allocated",true),"approved invoice source cannot be invalidated");
+  var erroneousInput=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",30,null,null,"Synthetic duplicate time");
+  var erroneous=worker.SubmitWork(erroneousInput);
+  check(s.ReadWorkInvalidation(erroneous)==null,"new fact has no invented invalidation");
+  Invalid(()=>s.InvalidateApprovedWork(erroneous,"Unreviewed",true),"pending work cannot be invalidated as approved");
+  s.ReviewWork(erroneous,true,"Reviewed in error");s.ClassifyWork(erroneous,true,"Billable in error");
+  Denied(()=>worker.InvalidateApprovedWork(erroneous,"Self",true),"employee cannot invalidate approved fact");
+  Invalid(()=>s.InvalidateApprovedWork(erroneous,"",true),"invalidation requires evidence");
+  Invalid(()=>s.InvalidateApprovedWork(erroneous,"Duplicate",false),"invalidation requires explicit confirmation");
+  check(s.ReadInvoiceCandidates(project,day).Single().SourceId==erroneous,"unallocated approved fact initially billable");
+  var invalidation=s.InvalidateApprovedWork(erroneous,"Verified duplicate entry, not actual additional work",true);
+  check(invalidation.SubmissionId==erroneous&&s.ReadWorkInvalidation(erroneous)==invalidation,"approved fact invalidation retains independent evidence");
+  check(worker.ReadMySubmissions(day,day).Single(x=>x.Id==erroneous).ReviewState=="Invalidated","employee sees effective invalidation rather than original approval");
+  check(s.ReadWorkReview(day,day,false).Single(x=>x.Id==erroneous).ReviewState=="Invalidated","review history exposes effective invalidation");
+  check(s.ReadInvoiceCandidates(project,day).Count==0&&!s.ReadBillingWork(day,day,false).Any(x=>x.Id==erroneous),"invalidated work excluded from billing");
+  check(s.ReadProjectFinancialReport(project,day,day).ApprovedMinutes==61&&s.ReadProjectFinancialReport(project,day,day).TotalOperationalCost==47.92m,"project financial totals exclude invalidated duplicate only");
+  var correctedOps=s.ReadProjectOperations(project,day,day);
+  check(correctedOps.SubmittedMinutes==91&&correctedOps.ApprovedMinutes==61&&correctedOps.InvalidatedMinutes==30&&correctedOps.RejectedMinutes==0&&correctedOps.PendingMinutes==0,"operations reconciles invalidated time separately");
+  var correctedMix=s.ReadFirmTimeMix(day,day);
+  check(correctedMix.ApprovedMinutes==61&&correctedMix.InvalidatedMinutes==30&&s.ReadFirmLaborCost(day,day).ApprovedMinutes==61,"firm time and labor cost use effective approval");
+  Invalid(()=>s.InvalidateApprovedWork(erroneous,"Repeated",true),"invalidation cannot be repeated");
+  check(worker.SubmitWork(erroneousInput)==erroneous,"original operation retry cannot recreate invalidated fact");
+  Invalid(()=>worker.ReplaceRejectedWork(erroneous,erroneousInput with{OperationKey=Guid.NewGuid()}),"invalidated fact requires explicit correction path");
+  var correction=erroneousInput with{OperationKey=Guid.NewGuid(),Minutes=10,Description="Correct actual time"};
+  var replacement=s.ReadProjectFinancialReport(project,day,day);
+  var correctedId=worker.ReplaceInvalidatedWork(erroneous,correction);
+  check(worker.ReadMyWorkReplacement(erroneous)?.ReplacementId==correctedId&&worker.ReplaceInvalidatedWork(erroneous,correction)==correctedId,"invalidated fact receives one linked idempotent correction");
+  check(s.ReadProjectFinancialReport(project,day,day)==replacement&&s.ReadInvoiceCandidates(project,day).Count==0,"correction does not recognize revenue or cost before review");
+  s.ReviewWork(correctedId,true,"Verified actual correction");s.ClassifyWork(correctedId,true,"Reviewed billing");
+  check(s.ReadInvoiceCandidates(project,day).Single().SourceId==correctedId&&s.ReadProjectFinancialReport(project,day,day).ApprovedMinutes==71,"only newly approved correction becomes billable");
+  var erroneousExpense=worker.SubmitWork(new(Guid.NewGuid(),task,day,"Expense",null,5m,"Supplies","Synthetic duplicate expense"));s.ReviewWork(erroneousExpense,true,"Reviewed in error");
+  s.InvalidateApprovedWork(erroneousExpense,"Verified duplicate expense",true);
+  check(s.ReadProjectFinancialReport(project,day,day).ApprovedExpenseCost==12.34m&&s.ReadProjectOperations(project,day,day).InvalidatedExpenseSubmissions==1,"invalidated expense excluded from cost and reported separately");
+  var allocated=s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),Array.Empty<FixedFeeInput>(),new[]{correctedId}));
+  var allocatedDetail=s.ReadInvoiceDraft(project,allocated);
+  Invalid(()=>s.InvalidateApprovedWork(correctedId,"Allocated",true),"even unissued allocated fact requires reconciliation");
+  s.DecideInvoiceDraft(project,allocated,allocatedDetail.Summary.PayloadHash,false,"Synthetic cancellation");
+  Invalid(()=>s.InvalidateApprovedWork(correctedId,"Previously allocated",true),"prior cancelled allocation remains protected from invalidation");
  }
 }

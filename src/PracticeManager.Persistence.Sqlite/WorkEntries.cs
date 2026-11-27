@@ -2,8 +2,12 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record WorkReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
+public sealed record WorkInvalidation(long SubmissionId,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public WorkInvalidation? ReadWorkInvalidation(long id)=>throw new NotImplementedException("Approved work invalidation history not implemented.");
+ public WorkInvalidation InvalidateApprovedWork(long id,string reason,bool confirmed)=>throw new NotImplementedException("Approved work invalidation not implemented.");
+ public long ReplaceInvalidatedWork(long original,WorkSubmissionInput input)=>throw new NotImplementedException("Invalidated work replacement not implemented.");
  public WorkReplacement? ReadMyWorkReplacement(long original)
  {
   using var c=Open();using var t=c.BeginTransaction();var employee=OwnEmployee(c,t);
