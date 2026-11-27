@@ -1,5 +1,5 @@
 # Read-only diagnostic for a NEW, isolated, manually populated synthetic business.
-# Windows PowerShell 5.1 or PowerShell 7. No database or financial writes.
+# Revision 2: safe stage-specific failure reporting. Windows PowerShell 5.1 or PowerShell 7.
 [CmdletBinding()]
 param([switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
@@ -12,10 +12,23 @@ $expected = [ordered]@{
     'CRC-DUE-NET30' = '2026-12-01'
     'CRC-DUE-FIXED' = '2026-12-15'
 }
-function Need([bool]$condition,[string]$reason) { if (-not $condition) { throw $reason } }
+$script:stage = 'Setup'
+$script:failure = 'Unexpected local or API error'
+$script:httpStatus = $null
+function Stage([string]$label) {
+    $script:stage = $label
+    $script:failure = 'Unexpected local or API error'
+    $script:httpStatus = $null
+}
+function Need([bool]$condition,[string]$reason) {
+    if (-not $condition) {
+        $script:failure = $reason
+        throw 'Diagnostic validation stopped.'
+    }
+}
 function Has($obj,[string]$name) { return $null -ne $obj -and $null -ne $obj.PSObject.Properties[$name] }
 function Get-Field($obj,[string]$name) {
-    if (-not (Has $obj $name)) { throw 'Required response field missing.' }
+    Need (Has $obj $name) ('Required response field missing: '+$name)
     return $obj.PSObject.Properties[$name].Value
 }
 function Read-Guid($value) {
@@ -35,7 +48,8 @@ function Read-Json([string]$route) {
     $deadline = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(15))
     try {
         $response = $http.SendAsync($request,[Net.Http.HttpCompletionOption]::ResponseHeadersRead,$deadline.Token).GetAwaiter().GetResult()
-        Need ([int]$response.StatusCode -eq 200) 'GET did not return HTTP 200.'
+        $script:httpStatus = [int]$response.StatusCode
+        Need ($script:httpStatus -eq 200) 'GET did not return HTTP 200.'
         Need ($null -ne $response.Content.Headers.ContentType -and $response.Content.Headers.ContentType.MediaType -eq 'application/json') 'Unexpected response content type.'
         $stream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
         $memory = [IO.MemoryStream]::new()
@@ -58,11 +72,16 @@ function Read-Json([string]$route) {
     }
 }
 function Read-Marker {
+    Stage 'Read synthetic business marker'
     $r = Read-Json '/text-custom-fields?term=CRC%20Due%20Date%20Test%20Identity&skip=0&pageSize=2'
     Identity $r
+    Write-Host 'PASS: expected business identity'
+    Stage 'Validate synthetic text custom field'
     $fields = @(Get-Field $r 'textCustomFields')
     Need ((Get-Field $r 'skip') -eq 0 -and (Get-Field $r 'totalRecords') -eq 1 -and $fields.Count -eq 1 -and (Get-Field $fields[0] 'name') -ceq $markerName) 'Exact synthetic marker required.'
-    return (Read-Guid (Get-Field $fields[0] 'key'))
+    $markerKey = Read-Guid (Get-Field $fields[0] 'key')
+    Write-Host 'PASS: exact synthetic marker'
+    return $markerKey
 }
 function Due-Fields($obj) {
     $result = [ordered]@{}
@@ -80,15 +99,18 @@ function Due-Fields($obj) {
     return $result
 }
 function Sweep {
+    Stage 'Read synthetic invoice register'
     $r = Read-Json '/sales-invoices?skip=0&pageSize=20'
     Identity $r
     $rows = @(Get-Field $r 'salesInvoices')
     Need ((Get-Field $r 'skip') -eq 0 -and (Get-Field $r 'totalRecords') -eq 3 -and (Get-Field $r 'pageSize') -ge 3 -and $rows.Count -eq 3) 'Exactly three synthetic invoices required.'
+    Write-Host 'PASS: exactly three synthetic invoice rows'
     $seen = [Collections.Generic.HashSet[guid]]::new()
     $referenceKeys = [Collections.Generic.List[string]]::new()
     $customers = [Collections.Generic.HashSet[guid]]::new()
     $evidence = [Collections.Generic.List[object]]::new()
     foreach ($ref in $expected.Keys) {
+        Stage ('Validate register row: '+$ref)
         $matches = @($rows | Where-Object { (Get-Field $_ 'reference') -ieq $ref })
         Need ($matches.Count -eq 1) 'Missing or duplicate test reference.'
         $row = $matches[0]
@@ -98,14 +120,18 @@ function Sweep {
         $referenceKeys.Add($ref+':'+$key.ToString('D'))
         $amount = Get-Field $row 'invoiceAmount'; $balance = Get-Field $row 'balanceDue'
         Need ($null -eq (Get-Field $amount 'currency') -and $null -eq (Get-Field $balance 'currency') -and (Get-Field $amount 'value') -eq 100 -and (Get-Field $balance 'value') -eq 100) 'Unexpected synthetic invoice amount, currency or balance.'
+        Stage ('Read invoice detail: '+$ref)
         $detail = Read-Json ('/sales-invoice-form/'+$key.ToString('D'))
+        Stage ('Validate invoice detail: '+$ref)
         Need ((Read-Guid (Get-Field $detail 'Key')) -eq $key -and (Read-Guid (Get-Field $detail 'id')) -eq $key -and (Get-Field $detail 'Reference') -ceq $ref) 'Detail identity mismatch.'
         $null = $customers.Add((Read-Guid (Get-Field $detail 'Customer')))
         $issue = Get-Field $detail 'IssueDate'
         if ($issue -is [datetime]) { $issue = $issue.ToString('yyyy-MM-ddTHH:mm:ss',[Globalization.CultureInfo]::InvariantCulture) }
         Need ($issue -ceq '2026-11-01T00:00:00') 'Synthetic issue date differs.'
+        Write-Host ('PASS: invoice identity, date and amount — '+$ref)
         $evidence.Add([ordered]@{ reference=$ref; expectedDueDate=$expected[$ref]; registerFields=(Due-Fields $row); formFields=(Due-Fields $detail) })
     }
+    Stage 'Validate common synthetic customer'
     Need ($customers.Count -eq 1) 'Expected one synthetic customer.'
     # Compare normalized selected fields and exact reference-to-key associations, not full JSON.
     return [pscustomobject]@{ report=$evidence.ToArray(); internalKeys=($referenceKeys.ToArray() -join ','); internalCustomer=(@($customers) -join ',') }
@@ -179,15 +205,19 @@ function Run-SelfTest {
 if ($SelfTest) { Run-SelfTest; return }
 $http = $null; $handler = $null; $secret = $null; $bstr = [IntPtr]::Zero
 try {
+    Write-Host 'CRC DUE DATE DIAGNOSTIC — REVISION 2'
+    Stage 'Confirm synthetic scope'
     Need ((Read-Host 'Type CRC DUE DATE TEST to confirm the NEW synthetic business is open') -ceq $businessName) 'Synthetic scope not confirmed.'
     Need ((Read-Host 'Type USD to confirm this test business uses USD only') -ceq 'USD') 'Currency scope not confirmed.'
     $port = 0
     Need ([int]::TryParse((Read-Host 'Manager API2 loopback port'),[ref]$port) -and $port -ge 1 -and $port -le 65535) 'Invalid port.'
     $endpoint = 'http://127.0.0.1:'+$port+'/api2'
+    Stage 'Read API credential'
     $secret = Read-Host 'API token for the synthetic business (not displayed)' -AsSecureString
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
     $clear = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     Need ($clear -match '^[!-~]{1,4096}$') 'Invalid token shape.'
+    Stage 'Initialize local HTTP connection'
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false; $handler.UseProxy = $false; $handler.UseCookies = $false
     $http = [Net.Http.HttpClient]::new($handler,$false)
@@ -197,7 +227,9 @@ try {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr); $bstr = [IntPtr]::Zero
     $marker = Read-Marker
     $first = Sweep; $second = Sweep
-    Need ((Read-Marker) -eq $marker) 'Marker changed during review.'
+    $lastMarker = Read-Marker
+    Stage 'Compare marker and repeated invoice observations'
+    Need ($lastMarker -eq $marker) 'Marker changed during review.'
     Need ((ConvertTo-Json $first -Depth 10 -Compress) -ceq (ConvertTo-Json $second -Depth 10 -Compress)) 'Observed invoice identity or due-date fields changed.'
     Write-Output 'CRC DUE DATE QUALIFICATION — READ ONLY'
     Write-Output (ConvertTo-Json -InputObject $second.report -Depth 8)
@@ -205,7 +237,12 @@ try {
     Write-Output 'Expected dates are operator setup targets, not yet verified API interpretations. Compare with Manager UI before approval.'
 } catch {
     # Never emit request bodies, raw responses, URLs, keys or tokens from exception details.
-    Write-Output 'DIAGNOSTIC STOPPED. No successful qualification assumed. No records written. Verify the exact synthetic setup, local connection and API token.'
+    Write-Output 'DIAGNOSTIC STOPPED — REVISION 2'
+    Write-Output ('Stage: '+$script:stage)
+    Write-Output ('Reason: '+$script:failure)
+    if ($null -ne $script:httpStatus) { Write-Output ('HTTP status: '+$script:httpStatus) }
+    Write-Output ('Exception type: '+$_.Exception.GetType().Name)
+    Write-Output 'No successful qualification assumed. No records written. Do not share your token.'
 } finally {
     if ($null -ne $http) { $http.Dispose() }
     if ($null -ne $handler) { $handler.Dispose() }
