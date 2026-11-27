@@ -12,6 +12,14 @@ internal static class ProjectHandoffTests
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Sql(string sql){using var db=new SqliteConnection($"Data Source={path}");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
+  check(s.ReadProjectOverview(project)==s.SearchPendingProjects().Single(),"exact project workspace overview matches register");
+  Invalid(()=>s.ReadProjectOverview(long.MaxValue),"unknown project workspace denied");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Projects.View'");
+  Denied(()=>s.ReadProjectOverview(project),"workspace requires project view");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Projects.View'");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Clients.View'");
+  Denied(()=>s.ReadProjectOverview(project),"workspace requires client view");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Clients.View'");
   var bytes="%PDF-1.7\nSynthetic test fixture only\n%%EOF"u8.ToArray();
   check(s.ReadProjectHandoff(project).CurrentAgreement==null&&s.ReadProjectSetup(project).State=="NotStarted","new project has no execution or setup evidence");
   check(s.AuthorizeProjectStart(project,hash,0,"",true,"Synthetic")== "AgreementEvidenceMismatch","missing agreement blocks activation");
@@ -86,6 +94,7 @@ internal static class ProjectHandoffTests
   var starts=await Task.WhenAll(Task.Run(()=>s.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic")),Task.Run(()=>peer.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic")));
   check(starts.Count(x=>x=="Active")==1&&starts.Count(x=>x=="AlreadyActive")==1,"concurrent start exactly once");
   check(s.ReadProjectHandoff(project).HasAuthorization&&s.SearchPendingProjects().Single().State=="Active","authorized state persisted");
+  check(s.ReadProjectOverview(project).State=="Active"&&s.ReadProjectOverview(project).SetupState=="Complete","project workspace reflects current authorization and setup");
   Invalid(()=>s.RecordSignedAgreement(project,hash,"new.pdf",bytes,"Synthetic",true),"active project cannot silently replace agreement");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Agreements.View'");
   Denied(()=>s.ReadProjectHandoff(project),"restricted agreement evidence not returned");
