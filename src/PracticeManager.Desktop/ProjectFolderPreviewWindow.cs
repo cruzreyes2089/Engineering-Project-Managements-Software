@@ -16,7 +16,7 @@ internal sealed class ProjectFolderPreviewWindow:Window
   MinWidth=480;MinHeight=400;WindowStartupLocation=WindowStartupLocation.CenterOwner;ShowInTaskbar=false;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();
   head.Children.Add(new TextBlock{Text="Project folders",FontSize=24,FontWeight=FontWeights.SemiBold});
-  head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. Unassigned layouts are suggestions only. Choose a saved template or the optional CRC preset. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
+  head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. Unassigned layouts are suggestions only. Choose a saved template or the suggested preset. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
   head.Children.Add(correspondence);
   var bar=new WrapPanel();WorkWindowFields.Button(bar,"Refresh preview",Refresh);
   if(service.Can("Administration.Manage")&&service.Can("Documents.Restricted"))
@@ -50,7 +50,8 @@ internal sealed class ProjectFolderPreviewWindow:Window
    }
    correspondence.IsEnabled=!preview.Selection.Assigned;
    if(preview.Selection.Assigned&&correspondence.IsChecked!=preview.Selection.IncludeCorrespondence){correspondence.IsChecked=preview.Selection.IncludeCorrespondence;return;}
-   status.Text=$"Project: {preview.ProjectNumber}   |   Template: {preview.TemplateRevision}   |   {preview.Plan.Entries.Count} planned directories including project roots   |   "+(preview.Selection.Customized?"Saved project-specific plan":preview.Selection.Assigned?"Saved logical selection":"Unassigned suggestion only");
+   var displayRevision=preview.TemplateRevision==ProjectFolderTemplate.Revision?"Suggested preset":preview.TemplateRevision;
+   status.Text=$"Project: {preview.ProjectNumber}   |   Template: {displayRevision}   |   {preview.Plan.Entries.Count} planned directories including project roots   |   "+(preview.Selection.Customized?"Saved project-specific plan":preview.Selection.Assigned?"Saved logical selection":"Unassigned suggestion only");
   }
   catch(UnauthorizedAccessException){status.Text="Access denied.";}
   catch(Exception){status.Text="Project folder preview unavailable. No changes were made.";}

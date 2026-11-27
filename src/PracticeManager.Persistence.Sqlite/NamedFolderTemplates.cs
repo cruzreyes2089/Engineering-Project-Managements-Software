@@ -5,7 +5,7 @@ namespace PracticeManager.Persistence;
 
 public sealed record NamedFolderChoice(long Revision,string Name,IReadOnlyList<string> Paths)
 {
- public string Display=>Name+(Revision==0?" (preset)":" — revision "+Revision);
+ public string Display=>Revision==0?Name:Name+" — revision "+Revision;
  public override string ToString()=>"[Folder template choice]";
 }
 public sealed record ProjectFolderSelection(long Id,long TemplateRevision,bool IncludeCorrespondence)
@@ -44,13 +44,13 @@ public sealed partial class LocalPractice
  {
   if(string.IsNullOrWhiteSpace(name)||name.Length>60||name!=name.Trim()||
      name.Any(x=>!char.IsAsciiLetterOrDigit(x)&&x is not (' ' or '-' or '_'))||
-     string.Equals(name,"CRC Engineering",StringComparison.OrdinalIgnoreCase))
+     (string.Equals(name,"CRC Engineering",StringComparison.OrdinalIgnoreCase)||string.Equals(name,"Suggested preset",StringComparison.OrdinalIgnoreCase)))
    throw new ArgumentException("Use a distinct template name, 1–60 letters, numbers, spaces, hyphens or underscores.");
   return name;
  }
  static NamedFolderChoice ReadChoice(SqliteConnection c,SqliteTransaction t,long revision)
  {
-  if(revision==0)return new(0,"CRC Engineering",ProjectFolderLayout.Default().Names);
+  if(revision==0)return new(0,"Suggested preset",ProjectFolderLayout.Default().Names);
   using var q=Command(c,t,"SELECT name,paths FROM named_folder_templates WHERE id=$i AND firm_id=1",("$i",revision));
   using var reader=q.ExecuteReader();
   if(!reader.Read())throw new ArgumentException("Template revision unavailable.");

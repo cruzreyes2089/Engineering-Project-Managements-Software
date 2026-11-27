@@ -34,7 +34,8 @@ internal sealed class ProjectStorageDraftWindow:Window
   try
   {
    var draft=service.ReviewProjectStorageDraft(project,production.Text,restricted.Text,correspondence);
-   result.Text=$"Project {draft.ProjectNumber} — {draft.TemplateRevision}\n"+
+   var template=draft.TemplateRevision==PracticeManager.Core.ProjectFolderTemplate.Revision?"Suggested preset":draft.TemplateRevision;
+   result.Text=$"Project {draft.ProjectNumber} — {template}\n"+
     $"Production: {draft.ProductionDirectories} planned directories\nRestricted: {draft.RestrictedDirectories} planned directories\n"+
     "Path syntax accepted. Not registered. Windows directory identity and effective access remain unverified.";
   }

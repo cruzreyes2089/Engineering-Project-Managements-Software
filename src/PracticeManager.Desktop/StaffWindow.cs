@@ -36,7 +36,7 @@ internal sealed class StaffWindow:Window
    var storage=new StackPanel{Margin=new Thickness(16)};
    storage.Children.Add(Btn("Configure storage preferences",()=>new FirmStorageSettingsWindow(service){Owner=this}.ShowDialog()));
    storage.Children.Add(Btn("Manage named folder templates",()=>new NamedFolderTemplatesWindow(service){Owner=this}.ShowDialog()));
-   storage.Children.Add(Btn("Project category recommendations",()=>new FolderTemplateRulesWindow(service){Owner=this}.ShowDialog()));
+
    storage.Children.Add(Btn("Edit legacy preview suggestion",()=>new FirmFolderTemplateWindow(service){Owner=this}.ShowDialog()));
    tabs.Items.Add(new TabItem{Header="Business storage",Content=storage});
   }
