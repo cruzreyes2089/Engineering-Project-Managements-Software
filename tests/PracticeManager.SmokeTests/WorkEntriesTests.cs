@@ -110,7 +110,14 @@ internal static class WorkEntriesTests
   var scope=admin.ProposeScopeChange(project,"Synthetic scope","Synthetic pending decision");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending scope",true),"undecided scope blocks closeout");
   admin.DecideScopeChange(project,scope,false,"Synthetic declined",false);
-  var closed=admin.RecordProjectLifecycle(project,null,true,"Synthetic operational completion",true);
+  using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="CREATE TRIGGER test_lifecycle_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='OperationalClose' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END";q.ExecuteNonQuery();}
+  try{admin.RecordProjectLifecycle(project,null,true,"Synthetic rollback",true);throw new Exception("FAIL: lifecycle audit rollback");}catch(SqliteException){check(admin.ReadProjectLifecycle(project).Count==0&&admin.ReadProjectCloseoutReview(project).ProjectState=="Active","lifecycle transition rolls back with failed audit");}
+  using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="DROP TRIGGER test_lifecycle_audit_abort";q.ExecuteNonQuery();}
+  var closePeer=new LocalPractice(path);check(closePeer.Login("admin",pw),"lifecycle concurrent admin session");
+  ProjectLifecycleEvent? TryClose(LocalPractice service){try{return service.RecordProjectLifecycle(project,null,true,"Synthetic operational completion",true);}catch(ArgumentException){return null;}}
+  var closures=await Task.WhenAll(Task.Run(()=>TryClose(admin)),Task.Run(()=>TryClose(closePeer)));
+  check(closures.Count(x=>x!=null)==1,"concurrent close records exactly one event");
+  var closed=closures.Single(x=>x!=null)!;
   check(closed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).ProjectState=="OperationalClosed"&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="OperationalClosed","closeout status projected across register and report");
   check(worker.ReadMyWork(day,day).Single().ProjectState=="OperationalClosed"&&admin.ReadProjectHandoff(project).HasAuthorization,"closeout retains task history and start authorization");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic stale closure",true),"stale closeout command rejected");
@@ -118,6 +125,11 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.CreateProjectTask(project,new(phase,employee,"After close",day,day,60)),"closed project blocks task creation");
   Invalid(()=>worker.SubmitWork(entry with{OperationKey=Guid.NewGuid(),Minutes=1}),"closed project blocks new work facts");
   check(worker.SubmitWork(entry)==record,"exact retry of existing fact remains idempotent after closure");
+  Invalid(()=>admin.EditProjectPhase(project,phase,1,"Edited after closure",day.AddDays(-2),day.AddDays(2)),"closed project blocks phase edit");
+  var postCloseScope=admin.ProposeScopeChange(project,"Post-close scope","Record new request without authorization");
+  Invalid(()=>admin.DecideScopeChange(project,postCloseScope,true,"Synthetic",true),"closed project blocks additional scope authorization");
+  admin.DecideScopeChange(project,postCloseScope,false,"Synthetic declined",false);
+  using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();foreach(var sql in new[]{"UPDATE project_lifecycle_events SET note='Changed'","DELETE FROM project_lifecycle_events","UPDATE project_phases SET name='Direct change'"}){q.CommandText=sql;try{q.ExecuteNonQuery();throw new Exception("FAIL: lifecycle SQL guard");}catch(SqliteException){check(true,"database prevents closed project bypass or lifecycle history mutation");}}}
   check(admin.ClassifyWork(pendingExpense.Id,false,"Synthetic final expense classification")=="Nonbillable","financial classification can continue after operational closure");
   var lateQa=admin.CreateQualityItem(project,"Post-close observation","Observation","Preserve evidence after close");
   check(admin.ReadProjectCloseoutReview(project).OpenQualityItems==1,"post-close QA evidence remains recordable");

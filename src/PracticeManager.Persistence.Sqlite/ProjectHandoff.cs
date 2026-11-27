@@ -27,7 +27,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();RequireProjectView(c,t);Require(c,t,"Agreements.View");
   var p=ProjectRow(c,t,project);var a=CurrentAgreement(c,t,project);
   var authorized=Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_start_authorizations WHERE project_id=$p",("$p",project)))==1;
-  return new(project,p.Number,p.State,p.ProposalHash,a,authorized);
+  return new(project,p.Number,OperationalState(c,t,project),p.ProposalHash,a,authorized);
  }
  public AgreementEvidence RecordSignedAgreement(long project,string expectedIssuedHash,string fileName,byte[] pdf,string reviewNote,bool manuallyReviewed)
  {
@@ -58,6 +58,7 @@ public sealed partial class LocalPractice
   var reason=Validation.Text(note,1000,"Authorization evidence",true);
   var a=CurrentAgreement(c,t,project);
   if(a==null||a.Id!=expectedAgreementId||a.IssuedHash!=p.ProposalHash||p.ProposalHash!=expectedIssuedHash||a.PdfHash!=expectedPdfHash||!AgreementIntact(c,t,a))return "AgreementEvidenceMismatch";
+  if(p.State=="Active"&&OperationalState(c,t,project)=="OperationalClosed")return "OperationalClosed";
   if(p.State=="Active")return Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_start_authorizations WHERE project_id=$p AND agreement_id=$a",("$p",project),("$a",a.Id)))==1?"AlreadyActive":"HistoryInconsistent";
   ActiveClient(c,t,p.Client);
   if(!ConflictCleared(c,t,project))return "ConflictReviewRequired";

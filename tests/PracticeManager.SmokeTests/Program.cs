@@ -88,9 +88,11 @@ try{
  Check(migrated.Login("admin",pw),"v1 upgrade preserves administrator login");
  Check(migrated.SearchClients("").Count==1,"v1 upgrade preserves client records");
  Check(migrated.CanTestAccountingConnection()&&migrated.CanManageAccountingConnection(),"v1 upgrade seeds accounting grants");
+ Check(migrated.Can("Projects.Closeout"),"v1 upgrade seeds administrator lifecycle grant");
  Check(migrated.Login("employee",pw),"v1 upgrade preserves employee login");
  Check(!migrated.CanTestAccountingConnection()&&!migrated.CanManageAccountingConnection(),"v1 upgrade does not grant employees accounting access");
- using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==31,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
+ Check(!migrated.Can("Projects.Closeout"),"v1 upgrade leaves employee lifecycle grant disabled");
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==32,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
  migrated=new LocalPractice(legacyPath);
  Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
 

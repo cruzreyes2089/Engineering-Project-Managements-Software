@@ -16,6 +16,7 @@ internal sealed class ProjectReportsWindow:Window
    tabs.Items.Add(new TabItem{Header="Operations",Content=new ScrollViewer{Content=ops}});
    var closeoutTab=new TabItem{Header="Closeout review (all dates)",Content=new ScrollViewer{Content=closeout}};tabs.Items.Add(closeoutTab);
    WorkWindowFields.Button(filters,"Review closeout (all dates)",()=>{tabs.SelectedItem=closeoutTab;RefreshCloseout();});
+   if(service.Can("Projects.Closeout"))WorkWindowFields.Button(filters,"Close / reopen project",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectLifecycleWindow(service,p.Id){Owner=this}.ShowDialog();tabs.SelectedItem=closeoutTab;RefreshCloseout();});
   }
   if(service.Can("Reports.Financial"))tabs.Items.Add(new TabItem{Header="Restricted financial preview",Content=new ScrollViewer{Content=finance}});
   root.Children.Add(tabs);Content=root;projects.SelectionChanged+=(_,_)=>{ops.Text=finance.Text=closeout.Text="";status.Text="Generate report for selected project.";};

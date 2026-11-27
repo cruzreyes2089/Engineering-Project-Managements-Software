@@ -11,3 +11,5 @@ Acceptance:
 - Add schema migration, administrator-only grant, restore version qualification, and migration/immutability/concurrency regressions. Use synthetic fixtures; no production data, distribution or merge to main.
 
 Test-first API stubs are intentionally nonfunctional and isolated. Test failure and full Windows green verification required before promotion. UI interaction and independent release security remain separate acceptance gates.
+
+Red CI 45928214661 compiled with zero warnings/errors and failed at the intended history stub. Candidate implementation adds atomic lifecycle history, effective projections and closed-operation guards at both service and SQLite layers; updates restore and historical migration fixtures. Late QA/records remain possible and physical start state remains unchanged. Green CI and interactive acceptance pending. No production posting or executable distribution.

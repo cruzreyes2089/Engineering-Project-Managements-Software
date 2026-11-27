@@ -54,7 +54,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireQuality(c,t,"Scope.Authorize");var p=ProjectRow(c,t,project);
   if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_scope_changes WHERE id=$i AND project_id=$p",("$i",change),("$p",project)))!=1)throw new ArgumentException("Scope change unavailable in selected project.");
   if(Scalar(c,t,"SELECT decision FROM project_scope_decisions WHERE change_id=$i",("$i",change)) is string previous)return "Already"+previous;
-  if(authorized){if(!explicitClientReview||p.State!="Active"||!ConflictCleared(c,t,project))throw new ArgumentException("Active project, current conflict review and explicit client authorization review required.");ActiveClient(c,t,p.Client);}
+  if(authorized){RequireOpenOperations(c,t,project);if(!explicitClientReview||p.State!="Active"||!ConflictCleared(c,t,project))throw new ArgumentException("Active project, current conflict review and explicit client authorization review required.");ActiveClient(c,t,p.Client);}
   var state=authorized?"Authorized":"Rejected";Exec(c,t,"INSERT INTO project_scope_decisions(change_id,decision,evidence,decided_by,decided_utc) VALUES($i,$s,$n,$a,$u)",("$i",change),("$s",state),("$n",Validation.Text(evidence,4000,"Decision evidence",true)),("$a",actor),("$u",UtcNow()));Audit(c,t,actor,"Scope"+state,"ScopeChange",change);t.Commit();return state;
  }
 }

@@ -4,13 +4,42 @@ namespace PracticeManager.Persistence;
 public sealed record ProjectLifecycleEvent(long Id,long ProjectId,string State,string Note,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
- public IReadOnlyList<ProjectLifecycleEvent> ReadProjectLifecycle(long project)=>throw new NotImplementedException("Operational lifecycle history not implemented.");
- public ProjectLifecycleEvent RecordProjectLifecycle(long project,long? expectedEvent,bool close,string note,bool confirmed)=>throw new NotImplementedException("Operational lifecycle not implemented.");
+ private static string OperationalState(SqliteConnection c,SqliteTransaction t,long project)=>Scalar(c,t,"SELECT state FROM project_operational_state WHERE project_id=$p",("$p",project)) as string??throw new ArgumentException("Project unavailable.");
+ private static void RequireOpenOperations(SqliteConnection c,SqliteTransaction t,long project)
+ {if(OperationalState(c,t,project)=="OperationalClosed")throw new ArgumentException("Operationally closed project requires explicit reopening.");}
+ public IReadOnlyList<ProjectLifecycleEvent> ReadProjectLifecycle(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");Require(c,t,"Projects.Closeout");ProjectRow(c,t,project);
+  using var q=Command(c,t,"SELECT id,project_id,state,note,actor_id,recorded_utc FROM project_lifecycle_events WHERE project_id=$p ORDER BY id DESC LIMIT 501",("$p",project));using var r=q.ExecuteReader();
+  var rows=new List<ProjectLifecycleEvent>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Lifecycle history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetString(5)));}return rows.AsReadOnly();
+ }
+ public ProjectLifecycleEvent RecordProjectLifecycle(long project,long? expectedEvent,bool close,string note,bool confirmed)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);RequireReport(c,t,"Reports.Operations");var actor=Require(c,t,"Projects.Closeout");var p=ProjectRow(c,t,project);
+  if(!confirmed)throw new ArgumentException("Explicit operational lifecycle confirmation required.");
+  var reason=Validation.Text(note,1000,"Lifecycle evidence",true);
+  var latest=Scalar(c,t,"SELECT id FROM project_lifecycle_events WHERE project_id=$p ORDER BY id DESC LIMIT 1",("$p",project)) as long?;
+  if(latest!=expectedEvent)throw new ArgumentException("Lifecycle changed. Refresh before retrying.");
+  var snapshot=CloseoutSnapshot(c,t,project);
+  if(p.State!="Active"||snapshot.ProjectState!=(close?"Active":"OperationalClosed"))throw new ArgumentException("Current authorized project and valid transition required.");
+  var a=CurrentAgreement(c,t,project);
+  if(a==null||a.IssuedHash!=p.ProposalHash||!AgreementIntact(c,t,a)||Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_start_authorizations WHERE project_id=$p AND agreement_id=$a",("$p",project),("$a",a.Id)))!=1)throw new ArgumentException("Intact start authorization evidence required.");
+  if(snapshot.ConflictStatus!="Clear")throw new ArgumentException("Current conflict clearance required.");
+  if(close&&(snapshot.SetupState!="Complete"||snapshot.OpenTasks!=0||snapshot.OpenQualityItems!=0||snapshot.PendingScopeDecisions!=0||snapshot.PendingTimeSubmissions!=0||snapshot.PendingExpenseSubmissions!=0))throw new ArgumentException("Complete setup and resolve all outstanding operational items before closing.");
+  if(!close)ActiveClient(c,t,p.Client);
+  var state=close?"OperationalClosed":"Active";var utc=UtcNow();
+  Exec(c,t,"INSERT INTO project_lifecycle_events(project_id,state,note,actor_id,recorded_utc) VALUES($p,$s,$n,$a,$u)",("$p",project),("$s",state),("$n",reason),("$a",actor),("$u",utc));
+  var id=Last(c,t);Audit(c,t,actor,close?"OperationalClose":"OperationalReopen","Project",project);t.Commit();return new(id,project,state,reason,actor,utc);
+ }
  private long RequireReport(SqliteConnection c,SqliteTransaction t,string grant)
  {RequireProjectView(c,t);return Require(c,t,grant);}
  public ProjectCloseoutReview ReadProjectCloseoutReview(long project)
  {
-  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");var p=ProjectRow(c,t,project);
+  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");return CloseoutSnapshot(c,t,project);
+ }
+ private static ProjectCloseoutReview CloseoutSnapshot(SqliteConnection c,SqliteTransaction t,long project)
+ {
+  var p=ProjectRow(c,t,project);
   var setup=SetupReview(c,t,project).State;
   var conflict=ConflictCleared(c,t,project)?"Clear":CurrentConflict(c,t,project)==null?"NotReviewed":"Hold";
   int Count(string sql)=>Convert.ToInt32(Scalar(c,t,sql,("$p",project)));
@@ -19,7 +48,7 @@ public sealed partial class LocalPractice
   var quality=Count("SELECT count(*) FROM project_quality_items i WHERE i.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_quality_closures x WHERE x.item_id=i.id)");
   var scope=Count("SELECT count(*) FROM project_scope_changes s WHERE s.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_scope_decisions d WHERE d.change_id=s.id)");
   int Pending(string kind)=>Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM work_submissions s JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND s.kind=$k AND NOT EXISTS(SELECT 1 FROM work_reviews r WHERE r.submission_id=s.id)",("$p",project),("$k",kind)));
-  return new(p.Number,p.State,setup,conflict,phases,tasks,quality,scope,Pending("Time"),Pending("Expense"));
+  return new(p.Number,OperationalState(c,t,project),setup,conflict,phases,tasks,quality,scope,Pending("Time"),Pending("Expense"));
  }
  public ProjectOperationsReport ReadProjectOperations(long project,DateOnly start,DateOnly end)
  {
