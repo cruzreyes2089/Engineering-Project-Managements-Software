@@ -297,7 +297,7 @@ internal static class WorkEntriesTests
   check(reclosed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).OpenTasks==0,"cancelled unstarted task does not block operational reclosure");
 
   var closedTask=worker.ReadMyWork(day,day).Single(x=>x.Id==startedTask);
-  check(closedTask.ClosureId==reclosed.Id&&closedTask.ClosedOn==day,"own closed task exposes exact closure and local cutoff");
+  check(closedTask.ClosureId==reclosed.Id&&closedTask.ClosedOn==day&&!closedTask.ClosureDateInferred,"own closed task exposes exact closure and local cutoff");
   var historicalInput=actual with{OperationKey=Guid.NewGuid(),Minutes=5,Description="Actual previously omitted work"};
   var historicalExpense=new WorkSubmissionInput(Guid.NewGuid(),startedTask,day,"Expense",null,7.50m,"Supplies","Previously omitted receipt");
   Invalid(()=>worker.SubmitWork(historicalInput),"closed project still blocks ordinary new facts");

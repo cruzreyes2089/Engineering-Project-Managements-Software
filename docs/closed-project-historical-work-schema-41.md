@@ -8,3 +8,5 @@ Base bc225db (verified schema 40). Ordinary new submissions remain blocked after
 - Test-first stub intentionally fails. Migration/restore, atomic audit, concurrent retry, direct SQL guards, desktop entry, full Windows regression before promotion. No main merge, production data, or distribution.
 
 Candidate implementation stores immutable closure dates in a separate event-linked table, captures new cutoff at closure, migrates parseable prior UTC dates as inferred, and adds immutable closure/late-reason fields on work facts. Historical submission API uses current closure, own task and existing time cap; replay includes closure and reason. UI distinct historical entry and review projections. Rollback, race and SQL guards tested. Windows verification and interactive acceptance pending. Prior closure dates inferred from migration machine timezone are not proof of historical local date.
+
+The employee historical task selector displays the recorded local cutoff and identifies inferred legacy dates, including an earlier discontinuation cutoff when applicable.
