@@ -81,6 +81,15 @@ internal static class WorkEntriesTests
   mix=admin.ReadFirmTimeMix(day,day);check(mix.ApprovedBillableMinutes==30&&mix.ApprovedMinutes==225&&mix.ApprovedBillableShare==30m/225m,"firm share includes approved overhead in denominator");
   var empty=admin.ReadFirmTimeMix(day.AddDays(-1),day.AddDays(-1));check(empty.Rows.Count==0&&empty.ApprovedBillableShare==null,"empty range does not fabricate utilization");
   check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
+  var cost=admin.ReadFirmLaborCost(day,day);check(cost.ApprovedMinutes==225&&cost.MissingRateMinutes==225&&cost.CompleteCost==null,"missing labor rates do not imply zero cost");
+  Denied(()=>worker.ReadFirmLaborCost(day,day),"employee cannot see estimated firm labor cost");
+  admin.RecordEmployeeRate(new(employee,day.AddDays(-1),180m,35m));
+  admin.RecordEmployeeRate(new(employee,day.AddDays(1),180m,99m));
+  cost=admin.ReadFirmLaborCost(day,day);check(cost.KnownCost==122.50m&&cost.MissingRateMinutes==15&&cost.CompleteCost==null,"effective dated costs and partial known cost");
+  admin.RecordEmployeeRate(new(own,day,180m,35m));
+  cost=admin.ReadFirmLaborCost(day,day);
+  check(cost.CompleteCost==131.25m&&cost.MissingRateRecords==0&&cost.ApprovedMinutes==mix.ApprovedMinutes,"total firm cost includes owner and overhead");
+  check(cost.Rows.Single(x=>x.Category=="Overhead: Marketing").CompleteCost==70m&&cost.Rows.Single(x=>x.Category=="Project billable").CompleteCost==17.50m,"overhead and billable cost segregated");
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE overhead_time SET minutes=1";try{q.ExecuteNonQuery();throw new Exception("FAIL: mutable overhead");}catch(SqliteException){check(true,"SQL prevents overhead history edits");}}
  }
 }
