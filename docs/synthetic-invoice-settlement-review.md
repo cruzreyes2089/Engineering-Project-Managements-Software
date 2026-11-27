@@ -1,0 +1,7 @@
+# Invoice terms and settlement review — offline candidate
+
+A pure comparison combines an approved, non-held internal draft, exact reference/customer/date/total observation, explicit due-date evidence and a reconciled normalized synthetic ledger. Both input observations must identify the same marker and declared acquisition timestamp; complete independent USD evidence is required. All invoice identities, customers, totals and outstanding balances must agree across the complete bounded registers. Receipt allocations are explicitly summed against the selected invoice; a smaller balance alone is not evidence of payment. Distinguishes no, partial and full allocation for review only. No issuance, paid state, reminders or financial posting authority.
+
+The current real read-only acquisition paths do not produce this combined evidence; the new method is not wired to them and does not broaden either existing fixture. Matching timestamps and caller assertions do not prove actual independent or atomic acquisition. The ledger scope excludes credits, discounts, deposits, refunds, taxes and opening balances. Regression uses synthetic values only; no provider access, schema change or release approval. Exact revision CI pending.
+
+Previous verified accounting recovery baseline: 1599d72b59509afe4b9b4d33e0f9d982da887c3e, run 46076454245, 103 Python tests, 2183 native checks, zero warnings/errors. DAO and Windows rename exclusion remain unqualified.
