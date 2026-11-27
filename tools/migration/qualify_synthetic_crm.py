@@ -61,9 +61,18 @@ def expected_transfer(empty):
 def compare_values(actual, expected):
     mapping.exact(actual, {"format", "clients", "contacts"})
     require(actual["format"] == expected["format"], "Transfer format")
-    for entity in ("clients", "contacts"):
-        require(sorted(actual[entity], key=lambda r: r["legacyId"]) ==
-                sorted(expected[entity], key=lambda r: r["legacyId"]),
+    for entity, fields in (("clients", mapping.CLIENT), ("contacts", mapping.CONTACT)):
+        rows = actual[entity]
+        wanted = expected[entity]
+        require(isinstance(rows, list) and len(rows) == len(wanted),
+                "Full normalized fixture row count: " + entity)
+        # JSON booleans are not integers, despite Python True == 1.
+        for row in rows:
+            mapping.exact(row, fields)
+            require(all(type(value) is (bool if key == "primary" else str)
+                        for key, value in row.items()), "Fixture scalar type: " + entity)
+        require(sorted(rows, key=lambda r: r["legacyId"]) ==
+                sorted(wanted, key=lambda r: r["legacyId"]),
                 "Full normalized fixture field comparison: " + entity)
 
 def qualify(folder, powershell, empty, native_smoke=False):
