@@ -1,0 +1,7 @@
+# Usability requirements — owner-approved direction
+
+Keep the practice application simple, easy to use and intuitive. Use plain business terms, predictable navigation, visible context, sensible defaults and minimal steps. Show actions relevant to the selected record; disable actions that cannot currently be performed. Separate saved settings from unsaved edits. Do not add features, classifications or confirmation dialogs merely for completeness. Retain explicit review for irreversible, sensitive or financial actions and enforce authorization in services, not only in the UI. Avoid presenting simulated or draft financial activity as real accounting. Prefer small, tested improvements to a wholesale redesign.
+
+This revision simplifies proposal/project labels and selection-dependent controls and clarifies the folder-template editor. New/copy clears the saved selection, preferred status is separate from draft feedback, and a modified or unsaved template cannot accidentally be designated as preferred. The preset remains read-only and can be copied. No schema or physical directory change. Actual desktop interaction remains unqualified; exact CI pending.
+
+Previous navigation regression: 5412c3baaab273d16911c6e9e4a353e8b38450c3, run 46084078487, 103 Python and 2242 native checks, zero compiler warnings/errors. Actual DAO, Windows rename exclusion, production accounting and release security remain unqualified.
