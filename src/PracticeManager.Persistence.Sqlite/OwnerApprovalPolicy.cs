@@ -43,6 +43,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();RequireAdministration(c,t);RequireWorkReview(c,t,"Work.Review");RequireWorkReview(c,t,"Billing.Classify");RequireInvoices(c,t,"Billing.Invoices.View");
   using var q=Command(c,t,@"SELECT x.kind,x.record_id,x.decision,u.username,x.note,x.recorded_utc,x.policy_event FROM (
    SELECT 'Work review' kind,r.submission_id record_id,r.decision decision,r.reviewed_by actor,r.note note,r.reviewed_utc recorded_utc,r.owner_exception_event_id policy_event FROM work_reviews r JOIN work_submissions s ON s.id=r.submission_id WHERE r.reviewed_by=s.submitted_by
+   UNION ALL SELECT 'Overhead review',r.submission_id,r.decision,r.reviewed_by,r.note,r.reviewed_utc,r.owner_exception_event_id FROM overhead_reviews r JOIN overhead_time s ON s.id=r.submission_id WHERE r.reviewed_by=s.submitted_by
    UNION ALL SELECT 'Billing classification',b.submission_id,b.classification,b.classified_by,b.note,b.classified_utc,b.owner_exception_event_id FROM work_billing_classifications b JOIN work_submissions s ON s.id=b.submission_id WHERE b.classified_by=s.submitted_by
    UNION ALL SELECT 'Invoice approval',x.draft_id,x.decision,x.actor_id,x.note,x.decided_utc,x.owner_exception_event_id FROM invoice_draft_decisions x JOIN invoice_drafts d ON d.id=x.draft_id WHERE x.actor_id=d.created_by AND x.decision='Approved'
   ) x JOIN users u ON u.id=x.actor ORDER BY x.recorded_utc DESC,x.kind,x.record_id DESC LIMIT 501");

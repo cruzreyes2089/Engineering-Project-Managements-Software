@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 internal static class WorkEntriesTests
@@ -44,5 +45,32 @@ internal static class WorkEntriesTests
   check(admin.ReadBillingWork(day,day).Count==0&&admin.ReadBillingWork(day,day,false).Single().Classification=="Nonbillable","classification not inferred or reset");
   check(worker.ReadMySubmissions(day,day).Single(x=>x.Id==record).ReviewState=="Approved","own projection retains approval without billing field");
   check(worker.SubmitWork(expense with{OperationKey=Guid.NewGuid(),Description="Replacement evidence"})!=expenseId,"rejected expense can be resubmitted as new fact");
+  var overhead=new OverheadTimeInput(Guid.NewGuid(),day,120,"Marketing","Synthetic marketing");
+  var o=worker.SubmitOverheadTime(overhead);check(peer.SubmitOverheadTime(overhead)==o,"overhead submission idempotent across sessions");
+  Invalid(()=>worker.SubmitOverheadTime(overhead with{Minutes=121}),"changed overhead operation rejected");
+  Invalid(()=>worker.SubmitOverheadTime(overhead with{OperationKey=entry.OperationKey}),"project operation key cannot become overhead");
+  Invalid(()=>worker.SubmitWork(entry with{OperationKey=overhead.OperationKey}),"overhead operation key cannot become project work");
+  Invalid(()=>worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Minutes=1261}),"overhead and project minutes share cap");
+  Invalid(()=>worker.SubmitWork(entry with{OperationKey=Guid.NewGuid(),Minutes=1261}),"project and overhead minutes share cap");
+  Invalid(()=>worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Category="Billable"}),"overhead cannot be marked billable");
+  Invalid(()=>worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Date=day.AddDays(1)}),"future overhead rejected");
+  Denied(()=>worker.ReviewOverheadTime(o,true,"Synthetic"),"ordinary employee cannot approve own overhead");
+  check(admin.ReadOverheadReview(day,day).Single().Id==o&&admin.ReviewOverheadTime(o,true,"Reviewed")== "Approved","independent overhead review");
+  check(worker.ReadMyOverheadTime(day,day).Single().ReviewState=="Approved"&&admin.ReadOverheadReview(day,day).Count==0,"approved overhead history retained");
+  check(admin.ReviewOverheadTime(o,false,"Changed")=="AlreadyApproved","overhead decision immutable");
+  var rejected=worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Minutes=1260,Category="Administration"});
+  Invalid(()=>worker.SubmitWork(entry with{OperationKey=Guid.NewGuid(),Minutes=1}),"combined 1440 minute limit reached");
+  check(admin.ReviewOverheadTime(rejected,false,"Wrong duration")=="Rejected","overhead rejection retained");
+  var replacement=worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Minutes=60,Category="Administration"});
+  check(replacement!=rejected,"rejected overhead no longer consumes daily cap");
+  var own=admin.CreateEmployee(new("Synthetic","Owner","","",true),1);
+  var ownerEntry=admin.SubmitOverheadTime(new(Guid.NewGuid(),day,15,"Management","Synthetic owner administration"));
+  Denied(()=>admin.ReviewOverheadTime(ownerEntry,true,"Self",true),"owner overhead self review blocked by default");
+  admin.SetStaffGrant(role.Id,"Work.Review",false,true);admin.SetStaffGrant(role.Id,"Billing.Classify",false,true);
+  admin.SetOwnerApprovalPolicy(true,null,"Synthetic owner exception");
+  Denied(()=>admin.ReviewOverheadTime(ownerEntry,true,"Self"),"owner overhead review requires explicit confirmation");
+  check(admin.ReviewOverheadTime(ownerEntry,true,"Reviewed owner time",true)=="Approved"&&admin.ReadOwnerDecisionEvidence().Single(x=>x.Kind=="Overhead review").PolicyEventId.HasValue,"owner overhead exception retained in history");
+  check(admin.ReadBillingWork(day,day,false).Count==1,"overhead never enters project billing queue");
+  using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE overhead_time SET minutes=1";try{q.ExecuteNonQuery();throw new Exception("FAIL: mutable overhead");}catch(SqliteException){check(true,"SQL prevents overhead history edits");}}
  }
 }

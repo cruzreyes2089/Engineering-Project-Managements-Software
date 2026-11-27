@@ -51,9 +51,10 @@ public sealed partial class LocalPractice
     return r.GetInt64(0);
    }
   }
+  if(Scalar(c,t,"SELECT id FROM overhead_time WHERE operation_key=$k",("$k",key))!=null)throw new ArgumentException("Operation conflict.");
   if(Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id JOIN projects p ON p.id=h.project_id JOIN project_start_authorizations a ON a.project_id=p.id WHERE w.id=$i AND w.employee_id=$e AND w.state IN ('InProgress','Completed') AND p.state='Active' AND $d>=w.start_on AND $d<=w.end_on",("$i",input.TaskId),("$e",employee),("$d",date)))!=1)throw new ArgumentException("Started own task, authorized project and date inside task plan required.");
   if(input.Kind=="Time"){
-   var existing=Convert.ToInt64(Scalar(c,t,"SELECT coalesce(sum(s.minutes),0) FROM work_submissions s LEFT JOIN work_reviews r ON r.submission_id=s.id WHERE s.employee_id=$e AND s.work_date=$d AND s.kind='Time' AND coalesce(r.decision,'Submitted')!='Rejected'",("$e",employee),("$d",date)));
+   var existing=Convert.ToInt64(Scalar(c,t,"SELECT coalesce((SELECT minutes FROM combined_daily_time WHERE employee_id=$e AND work_date=$d),0)",("$e",employee),("$d",date)));
    if(existing+input.Minutes!.Value>1440)throw new ArgumentException("Daily time exceeds 24 hours.");
   }
   Exec(c,t,"INSERT INTO work_submissions(operation_key,employee_id,task_id,kind,work_date,minutes,amount_cents,category,description,submitted_by,submitted_utc) VALUES($k,$e,$t,$kind,$d,$m,$c,$cat,$n,$a,$u)",("$k",key),("$e",employee),("$t",input.TaskId),("$kind",input.Kind),("$d",date),("$m",input.Minutes),("$c",cents),("$cat",input.Category),("$n",note),("$a",actor),("$u",UtcNow()));var id=Last(c,t);Audit(c,t,actor,"Submit"+input.Kind,"WorkSubmission",id);t.Commit();return id;
