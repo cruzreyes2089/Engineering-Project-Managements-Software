@@ -33,3 +33,7 @@ Prior operator-assisted PowerShell fixture successes do not qualify C# productio
 ## Evidence discipline
 
 Each gate records exact commit and run/build hashes, environment and synthetic fixture identity, reviewer, observed result, and unresolved limitations. Keep actual customer/project/financial data, credentials, raw responses and private screenshots out of the public repo. A passing regression is not real-data migration, desktop execution, production accounting, or independent security acceptance. No percentage is computed from passing check counts.
+
+## Historical archive development update
+
+Run 46057682471 at 641b9f00570d64b26d08f416265ae37ccc3022b0 qualified isolated schema 47 (83 Python, 1,702 ordinary native, 47 schema-46 archive and 58 schema-47 archive checks). Subsequent schema 47 integration and read-only register require full branch regression and desktop acceptance. G3 and G6 remain open; G7/G8 remain HOLD. No real-data import, production accounting or distribution approved.

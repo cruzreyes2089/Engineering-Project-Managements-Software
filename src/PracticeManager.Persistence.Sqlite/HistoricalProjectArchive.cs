@@ -1,5 +1,4 @@
-// INTEGRATION CANDIDATE ONLY: outside the production project and not compiled.
-// Requires approved archive schema, seeded permissions, native tests and recovery qualification.
+// Historical status never conveys current work authorization.
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 

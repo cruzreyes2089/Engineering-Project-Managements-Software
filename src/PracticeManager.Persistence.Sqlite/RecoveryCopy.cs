@@ -29,7 +29,7 @@ public sealed partial class LocalPractice
     // SQLite backup API takes a consistent database image, including committed journal data.
     c.BackupDatabase(copy);
     using(var t=copy.BeginTransaction(deferred:false)){
-     if(Require(copy,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
+     if(Require(copy,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException(); _=ReadArchiveStored(copy,t);
      Exec(copy,t,"PRAGMA secure_delete=ON");
      Exec(copy,t,"DELETE FROM accounting_profiles");
      Exec(copy,t,"INSERT OR IGNORE INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) VALUES(1,'Restore',$a,$u)",("$a",actor),("$u",UtcNow()));

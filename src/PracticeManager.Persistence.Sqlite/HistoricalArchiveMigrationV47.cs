@@ -1,4 +1,4 @@
-// Staged source only. Included solely in the disposable schema-47 qualification copy.
+// Schema 47 historical archive migration.
 using Microsoft.Data.Sqlite;
 
 namespace PracticeManager.Persistence;

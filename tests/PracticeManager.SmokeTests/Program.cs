@@ -109,7 +109,7 @@ try{
  Check(migrated.Login("employee",pw),"v1 upgrade preserves employee login");
  Check(!migrated.CanTestAccountingConnection()&&!migrated.CanManageAccountingConnection(),"v1 upgrade does not grant employees accounting access");
  Check(!migrated.Can("Projects.Closeout"),"v1 upgrade leaves employee lifecycle grant disabled");
- using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==46,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==47,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
  migrated=new LocalPractice(legacyPath);
  Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
 
@@ -151,6 +151,7 @@ try{
  ReviewDocxTests.Run(Check);
  LegacyCrmTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"legacy-crm.db"),pw,Check);
  HistoricalProjectTransferTests.Run(Check);
+  HistoricalArchiveTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-archive"),pw,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-populated.db"),SyntheticCrmNativeTests.Fixture(false),false,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-empty.db"),SyntheticCrmNativeTests.Fixture(true),true,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;

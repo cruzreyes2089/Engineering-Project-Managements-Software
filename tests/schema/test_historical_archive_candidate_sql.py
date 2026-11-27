@@ -5,7 +5,7 @@ import sqlite3
 import unittest
 import test_historical_archive_sql as fixture
 
-SOURCE = Path(__file__).resolve().parents[2] / "tools/migration/prototypes/HistoricalProjectArchiveCandidate.cs"
+SOURCE = Path(__file__).resolve().parents[2] / "src/PracticeManager.Persistence.Sqlite/HistoricalProjectArchive.cs"
 COMMANDS = dict(re.findall(r'private const string (Archive\w+)="([^"\n]*)";',
                            SOURCE.read_text(encoding="utf-8")))
 

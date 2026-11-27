@@ -1,4 +1,4 @@
--- PROTOTYPE ONLY. Not included in LocalPractice migrations; use disposable test databases.
+-- Schema 47: immutable historical records, not operational projects.
 -- Caller must enable foreign_keys and use one immediate transaction for batch, rows, seal and audit.
 CREATE TABLE historical_project_batches(
  id INTEGER PRIMARY KEY CHECK(id=1),

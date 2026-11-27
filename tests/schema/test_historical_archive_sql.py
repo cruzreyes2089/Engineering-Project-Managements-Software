@@ -2,7 +2,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 
-SQL = (Path(__file__).resolve().parents[2] / 'tools/migration/prototypes/historical_project_archive.sql').read_text(encoding='utf-8')
+SQL = (Path(__file__).resolve().parents[2] / 'src/PracticeManager.Persistence.Sqlite/historical_project_archive.sql').read_text(encoding='utf-8')
 
 class HistoricalArchiveSqlTests(unittest.TestCase):
     def setUp(self):
