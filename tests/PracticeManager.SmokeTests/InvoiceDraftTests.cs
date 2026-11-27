@@ -212,7 +212,7 @@ internal static class InvoiceDraftTests
   Denied(()=>s.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Synthetic evidence","Self release",true,true),"owner cannot release own hold despite approval exception");
   var reviewRole=s.ReadStaffRoles().Single(x=>x.Name=="Financial / Accounting");
   foreach(var grant in new[]{"Clients.View","Projects.View","Billing.Invoices.View","Billing.Invoices.Edit","Billing.Invoices.Approve"})
-  {var existing=s.ReadStaffGrants(reviewRole.Id).Single(x=>x.Code==grant);s.SetStaffGrant(reviewRole.Id,grant,true,existing.Allowed);}
+  {var existing=s.ReadStaffGrants(reviewRole.Id).Single(x=>x.Permission==grant);s.SetStaffGrant(reviewRole.Id,grant,true,existing.Allowed);}
   var reviewActor=s.CreateStaffAccount("hold-reviewer",reviewRole.Id,"Synthetic-hold-review-temp-0001");
   var reviewer=new LocalPractice(path);check(reviewer.ChangeRequiredPassword("hold-reviewer","Synthetic-hold-review-temp-0001","Synthetic-hold-review-password-0001")&&reviewer.Login("hold-reviewer","Synthetic-hold-review-password-0001"),"independent hold reviewer authenticated");
   Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId+100,nextDetail.Summary.PayloadHash,"Evidence","Stale hold",true,true),"release requires exact current hold event");
