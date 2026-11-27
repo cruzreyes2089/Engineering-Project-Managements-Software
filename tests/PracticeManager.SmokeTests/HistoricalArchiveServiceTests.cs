@@ -47,6 +47,11 @@ internal static class HistoricalArchiveServiceTests
         check(Count("SELECT (SELECT count(*) FROM historical_project_batches)+(SELECT count(*) FROM historical_project_rows)+(SELECT count(*) FROM historical_project_seals)")==0&&
             Count("SELECT count(*) FROM audit_events")==audit,"Archive failed transaction rolled back");
         Sql("DROP TRIGGER synthetic_abort_archive");
+        Sql("CREATE TRIGGER synthetic_abort_archive_audit BEFORE INSERT ON audit_events WHEN NEW.action='ImportHistoricalProjects' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+        Reject<SqliteException>(()=>Import(),"Archive injected audit failure after sealing");
+        check(Count("SELECT (SELECT count(*) FROM historical_project_batches)+(SELECT count(*) FROM historical_project_rows)+(SELECT count(*) FROM historical_project_seals)")==0&&
+            Count("SELECT count(*) FROM audit_events")==audit,"Archive failed audit rolls back batch rows and seal");
+        Sql("DROP TRIGGER synthetic_abort_archive_audit");
         // Independent sessions and connections compete for the same reviewed bytes.
         var second=new LocalPractice(path);
         check(second.Login("admin",password),"Archive independent concurrent session");
@@ -91,6 +96,34 @@ internal static class HistoricalArchiveServiceTests
         Reject<UnauthorizedAccessException>(()=>s.ReadHistoricalProjects(),"Archive requires client view permission");
         check(!s.CanImportHistoricalProjects(),"Archive client-view revocation denies import capability");
         Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Clients.View' AND role_id=1");
+
+        // Exercise ordinary staff through the actual account/password/grant APIs.
+        var role=s.ReadStaffRoles().Single(x=>x.Name=="Engineer").Id;
+        const string temporary="Synthetic-staff-temporary-0001", permanent="Synthetic-staff-permanent-0002";
+        var staffId=s.CreateStaffAccount("archive-staff",role,temporary);
+        var staff=new LocalPractice(path);
+        check(!staff.Login("archive-staff",temporary),"Archive staff required password change blocks login");
+        Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive staff unauthenticated view denied");
+        check(staff.ChangeRequiredPassword("archive-staff",temporary,permanent),"Archive staff required password change completed");
+        check(staff.Login("archive-staff",permanent),"Archive ordinary staff login");
+        Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive staff default view denied");
+        s.SetStaffGrant(role,"HistoricalProjects.View",true,false);
+        Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive staff requires client view too");
+        s.SetStaffGrant(role,"Clients.View",true,false);
+        check(staff.ReadHistoricalProjects().Count==p.Rows.Count&&staff.ReadHistoricalProjects().All(x=>x.Source.AuthorizationEvidenceRef==""&&!x.WorkAuthorized),
+            "Archive delegated staff view omits restricted evidence");
+        // Even granting the import code to non-admin cannot confer admin authority.
+        s.SetStaffGrant(role,"Administration.HistoricalProjectImport",true,false);
+        check(!staff.CanImportHistoricalProjects(),"Archive nonadministrator cannot import despite explicit grant");
+        Reject<UnauthorizedAccessException>(()=>staff.PreviewHistoricalProjects(crm,projects,census,p.SourceSha256,p.CrmTransferSha256,p.ProjectTransferSha256,p.CensusSha256),
+            "Archive nonadministrator preview denied");
+        s.SetStaffGrant(role,"HistoricalProjects.View",false,true);
+        Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive staff revocation immediately enforced");
+        s.SetStaffGrant(role,"HistoricalProjects.View",true,false);
+        var account=s.ReadStaffAccounts().Single(x=>x.Id==staffId);
+        s.ResetStaffPassword(staffId,account.CredentialRevision,temporary);
+        Reject<UnauthorizedAccessException>(()=>staff.ReadHistoricalProjects(),"Archive credential revision invalidates existing session");
+        staff.Logout();
         s.Logout();
         Reject<UnauthorizedAccessException>(()=>s.ReadHistoricalProjects(),"Archive logout enforced");
     }
