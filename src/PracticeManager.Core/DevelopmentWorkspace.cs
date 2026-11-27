@@ -14,7 +14,7 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   var root=LocalStoragePath.DirectoryPath(localAppData);
   if(arguments.Count==0)
   {
-   var dev=LocalStoragePath.DirectoryPath(Path.Combine(root,"CRC Practice Manager DEV"),create:true);
+   var dev=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"CRC Practice Manager DEV"));
    return new(LocalStoragePath.FilePath(Path.Combine(dev,"practice-dev.db"),mustExist:false),null);
   }
   var create=arguments.Count==1&&arguments[0]=="--acceptance-new";
@@ -28,9 +28,9 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   var db=Path.Combine(folder,DatabaseName);
   if(create)
   {
-   LocalStoragePath.DirectoryPath(acceptanceRoot,create:true);
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(acceptanceRoot);
    if(Directory.Exists(folder)||File.Exists(folder))throw new ArgumentException("Acceptance session already exists; no existing workspace opened.");
-   LocalStoragePath.DirectoryPath(folder,create:true);
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(folder);
    using(var stream=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.None)){var bytes=Encoding.ASCII.GetBytes(id);stream.Write(bytes);stream.Flush(true);}
    LocalStoragePath.FilePath(db,mustExist:false,mustBeNew:true,rejectSidecars:true);
   }

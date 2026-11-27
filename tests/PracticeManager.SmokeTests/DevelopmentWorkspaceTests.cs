@@ -1,4 +1,7 @@
 using PracticeManager.Core;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using PracticeManager.Persistence;
 internal static class DevelopmentWorkspaceTests
 {
@@ -16,6 +19,7 @@ internal static class DevelopmentWorkspaceTests
   var two=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"});
   check(one.IsAcceptance&&two.IsAcceptance&&one.AcceptanceId!=two.AcceptanceId&&one.DatabasePath!=two.DatabasePath&&one.DatabasePath!=normal.DatabasePath,"fresh acceptance workspaces isolated");
   check(!File.Exists(one.DatabasePath)&&!File.Exists(two.DatabasePath),"new acceptance paths have no preexisting database");
+  if(OperatingSystem.IsWindows())VerifyWindowsAcl(root,normal,one,check);
   var store=new LocalPractice(one.DatabasePath);check(!store.IsInitialized(),"acceptance store begins empty");
   store.Bootstrap("Synthetic acceptance firm","acceptance-admin","Synthetic-acceptance-passphrase-001","QA");
   var resumed=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!});
@@ -52,4 +56,31 @@ internal static class DevelopmentWorkspaceTests
   }
   check(File.ReadAllText(normal.DatabasePath)=="synthetic protected default","acceptance startup never opens or modifies default store");
  }
+ [SupportedOSPlatform("windows")]
+ static void VerifyWindowsAcl(string root,DevelopmentWorkspace normal,DevelopmentWorkspace one,Action<bool,string> check)
+ {
+  var dev=Path.GetDirectoryName(normal.DatabasePath)!;
+  var session=Path.GetDirectoryName(one.DatabasePath)!;
+  check(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(dev),"new development directory has restricted explicit ACL");
+  check(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(Path.GetDirectoryName(session)!),"new acceptance root has restricted explicit ACL");
+  check(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(session),"new acceptance session has restricted explicit ACL");
+  using var identity=WindowsIdentity.GetCurrent();
+  var trusted=new HashSet<SecurityIdentifier>{identity.User!,new(WellKnownSidType.LocalSystemSid,null),new(WellKnownSidType.BuiltinAdministratorsSid,null)};
+  var marker=new FileInfo(Path.Combine(session,"acceptance-session.txt")).GetAccessControl(AccessControlSections.Access);
+  var rules=marker.GetAccessRules(true,true,typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>().ToArray();
+  check(rules.Length>0&&rules.All(r=>r.IdentityReference is SecurityIdentifier sid&&trusted.Contains(sid)&&r.AccessControlType==AccessControlType.Allow),
+   "new acceptance marker inherits restricted principals");
+  var existing=Path.Combine(root,"existing-legacy-workspace");
+  Directory.CreateDirectory(existing);
+  var folder=new DirectoryInfo(existing);
+  var before=folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm();
+  WorkspaceConfidentiality.EnsureWorkspaceDirectory(existing);
+  var after=folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm();
+  check(before.SequenceEqual(after),"existing workspace ACL never rewritten");
+  var altered=folder.GetAccessControl(AccessControlSections.Access);
+  altered.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid,null),FileSystemRights.ReadAndExecute,AccessControlType.Allow));
+  folder.SetAccessControl(altered);
+  check(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(existing),"unexpected broad directory grant not qualified");
+ }
+
 }
