@@ -75,6 +75,7 @@ internal static class WorkEntriesTests
   check(missingOwn.Id==missingSession&&missingOwn.EntrySource=="Manual"&&missingOwn.State=="Closed"&&missingReview.EntrySource=="Manual"&&missingReview.ManualReason=="Verified completely missed clock events","manual attendance visibly distinguished from observed clock events");
   check(admin.ReadFirmTimeMix(missingDay,missingDay).ApprovedMinutes==0&&admin.ReadFirmLaborCost(missingDay,missingDay).ApprovedMinutes==0,"manual attendance does not create approved work or labor cost");
   check(admin.ReadAttendanceVoid(missingSession)==null,"new attendance has no invented void");
+  foreach(var sql in new[]{$"INSERT INTO employee_attendance(employee_id,clock_in,clock_out,actor_id,entry_source) VALUES({employee},{missingIn.ToUnixTimeSeconds()-600},{missingOut.ToUnixTimeSeconds()-600},1,'Manual')",$"INSERT INTO employee_attendance(employee_id,clock_in,clock_out,actor_id,entry_source,manual_operation,manual_reason,manual_recorded_utc) VALUES({employee},{missingIn.ToUnixTimeSeconds()+60},{missingOut.ToUnixTimeSeconds()+60},1,'Manual','{Guid.NewGuid():D}','Overlap','synthetic')"}){try{AttendanceSql(sql);throw new Exception("FAIL: manual attendance SQL guard");}catch(SqliteException){check(true,"database rejects missing evidence or overlapping manual origin");}}
   Denied(()=>worker.VoidAttendance(missingSession,null,"Unauthorized",true),"employee cannot void attendance");
   Invalid(()=>admin.VoidAttendance(missingSession,99,"Stale",true),"stale void rejected");
   Invalid(()=>admin.VoidAttendance(missingSession,null,"Unconfirmed",false),"void requires confirmation");
@@ -93,6 +94,9 @@ internal static class WorkEntriesTests
   check(admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Verified completely missed clock events",true)==missingSession,"original manual operation replay does not revive void");
   var newManual=admin.RecordMissingAttendance(Guid.NewGuid(),employee,missingIn,missingOut,"Verified corrected actual interval",true);
   check(newManual!=missingSession&&worker.ReadMyAttendance(missingDay,missingDay).Count==2&&worker.ReadMyAttendance(missingDay,missingDay).Count(x=>x.State=="Closed")==1,"voided history does not block separately verified corrected interval");
+  var manualRevision=admin.CorrectAttendance(newManual,null,missingIn.AddMinutes(1),missingOut,"Verified start adjustment for another employee",true);
+  check(worker.ReadMyAttendance(missingDay,missingDay).Single(x=>x.Id==newManual).CorrectionId==manualRevision.Id&&admin.ReadAttendanceReview(missingDay,missingDay).Single(x=>x.Id==newManual).OriginalIn==missingIn,"manual origin author may correct another employee while original interval remains unchanged");
+  Invalid(()=>admin.VoidAttendance(newManual,null,"Stale before manual revision",true),"void checks latest manual correction revision");
   check(worker.ReadMyOpenAttendance()==null,"manual attendance and void do not create open clock sessions");
   check(worker.ClockIn()=="ClockedIn","clock continues after manual and void history");var currentOpen=worker.ReadMyOpenAttendance()!;Invalid(()=>admin.VoidAttendance(currentOpen.Id,null,"Open",true),"open session requires recovery rather than void");check(worker.ClockOut(currentOpen.Id)=="ClockedOut","ordinary clock unaffected by void workflow");
   var client=admin.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
@@ -189,6 +193,9 @@ internal static class WorkEntriesTests
   check(worker.ReadMyOverheadTime(day,day).Single(x=>x.Id==replacement).ReplacesId==rejected&&admin.ReadOverheadReview(day,day).Single(x=>x.Id==replacement).ReplacesId==rejected,"overhead correction lineage projected to employee and reviewer");
   foreach(var sql in new[]{$"UPDATE overhead_time SET replaces_submission_id=NULL WHERE id={replacement}",$"DELETE FROM overhead_time WHERE id={replacement}",$"INSERT INTO overhead_time(operation_key,employee_id,work_date,minutes,category,description,submitted_by,submitted_utc,replaces_submission_id) SELECT '{Guid.NewGuid():D}',employee_id,work_date,minutes,category,description,submitted_by,submitted_utc,id FROM overhead_time WHERE id={o}"}){try{ReplacementSql(sql);throw new Exception("FAIL: overhead replacement SQL guard");}catch(SqliteException){check(true,"database blocks overhead replacement history mutation or invalid predecessor");}}
   var own=admin.CreateEmployee(new("Synthetic","Owner","","",true),1);
+  Denied(()=>admin.RecordMissingAttendance(Guid.NewGuid(),own,missingIn,missingOut,"Own historical interval",true),"administrator cannot manually record own attendance");
+  check(admin.ClockIn()=="ClockedIn","synthetic owner attendance opened");var ownClock=admin.ReadMyOpenAttendance()!;check(admin.ClockOut(ownClock.Id)=="ClockedOut","synthetic owner attendance closed");
+  Denied(()=>admin.VoidAttendance(ownClock.Id,null,"Own clock",true),"administrator cannot void own attendance");
   Invalid(()=>admin.ReadMyWorkReplacement(expenseId),"cross-employee replacement history denied");
   Invalid(()=>admin.ReplaceRejectedWork(expenseId,corrected with{OperationKey=Guid.NewGuid()}),"cross-employee replacement creation denied");
   Invalid(()=>admin.ReadMyOverheadReplacement(rejected),"cross-employee overhead replacement history denied");
