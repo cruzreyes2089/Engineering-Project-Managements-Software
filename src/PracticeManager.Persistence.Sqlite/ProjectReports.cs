@@ -5,7 +5,19 @@ public sealed partial class LocalPractice
 {
  private long RequireReport(SqliteConnection c,SqliteTransaction t,string grant)
  {RequireProjectView(c,t);return Require(c,t,grant);}
- public ProjectCloseoutReview ReadProjectCloseoutReview(long project)=>throw new NotImplementedException("Closeout review not implemented.");
+ public ProjectCloseoutReview ReadProjectCloseoutReview(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");var p=ProjectRow(c,t,project);
+  var setup=SetupReview(c,t,project).State;
+  var conflict=ConflictCleared(c,t,project)?"Clear":CurrentConflict(c,t,project)==null?"NotReviewed":"Hold";
+  int Count(string sql)=>Convert.ToInt32(Scalar(c,t,sql,("$p",project)));
+  var phases=Count("SELECT count(*) FROM project_phases WHERE project_id=$p");
+  var tasks=Count("SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND w.state!='Completed'");
+  var quality=Count("SELECT count(*) FROM project_quality_items i WHERE i.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_quality_closures x WHERE x.item_id=i.id)");
+  var scope=Count("SELECT count(*) FROM project_scope_changes s WHERE s.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_scope_decisions d WHERE d.change_id=s.id)");
+  int Pending(string kind)=>Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM work_submissions s JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND s.kind=$k AND NOT EXISTS(SELECT 1 FROM work_reviews r WHERE r.submission_id=s.id)",("$p",project),("$k",kind)));
+  return new(p.Number,p.State,setup,conflict,phases,tasks,quality,scope,Pending("Time"),Pending("Expense"));
+ }
  public ProjectOperationsReport ReadProjectOperations(long project,DateOnly start,DateOnly end)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");var p=ProjectRow(c,t,project);DateRange(start,end,366);
