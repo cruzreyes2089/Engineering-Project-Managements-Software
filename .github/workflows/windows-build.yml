@@ -76,6 +76,10 @@ jobs:
       - name: Build, smoke test and publish
         shell: pwsh
         run: ./BUILD_AND_TEST.ps1 -Publish
+      - name: Qualify synthetic migration on installed DAO engine (if available)
+        timeout-minutes: 10
+        shell: pwsh
+        run: python tools/migration/qualify_installed_dao.py --confirm-synthetic-ci
       - name: Review direct and transitive NuGet dependencies
         shell: pwsh
         run: ./tools/security/Review-Dependencies.ps1
