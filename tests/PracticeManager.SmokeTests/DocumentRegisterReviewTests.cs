@@ -17,6 +17,18 @@ internal static class DocumentRegisterReviewTests
   Invalid(()=>ProjectFolderPolicy.Review(projectRoot,Path.Combine(projectRoot,"B"),db),"absolute folder input refused");
   Invalid(()=>ProjectFolderPolicy.Review(external,"projects/B",db),"database ancestor cannot be external root");
   Invalid(()=>ProjectFolderPolicy.Review(projectRoot,"Missing",db),"folder review never creates directory");
+  var defaults=ProjectFolderTemplate.Preview(ProjectFolderTemplate.Defaults);
+  check(defaults.SequenceEqual(new[]{"Architectural","Calculations","Construction Administration","Plancheck Comment Responses","Reference Documents","Send Outs","Site Pictures","Structural DWGs"}),"CRC preferred folder names are the proposed default template");
+  var structuralOnly=ProjectFolderTemplate.Defaults.Select(x=>x with{IncludedByDefault=x.Name is "Structural DWGs" or "Calculations" or "Site Pictures" or "Send Outs"}).ToArray();
+  check(ProjectFolderTemplate.Preview(structuralOnly).Count==4,"project template preview supports discipline-specific selection");
+  var optional=ProjectFolderTemplate.Defaults.Select(x=>x.Name=="QA-QC"?x with{IncludedByDefault=true}:x).ToArray();
+  check(ProjectFolderTemplate.Preview(optional).Contains("QA-QC"),"internal QA folder remains optional");
+  Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("Drawings",true),new ProjectFolderTemplateItem("drawings",false)}),"folder template rejects case-alias duplicates");
+  Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("../Secret",true)}),"folder template rejects traversal");
+  Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("COM¹",true)}),"folder template rejects Windows device names");
+  Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("QA-QC",false)}),"empty selected template refused");
+  check(!Directory.Exists(Path.Combine(projectRoot,"Architectural")),"template preview has no filesystem side effects");
+
   var d=new ReviewedIssueDocument(1,new string('a',64),"Drawing.pdf","Drawings",100);
   var intent=DocumentTransmittalReview.Prepare(1,"Synthetic recipient","Permit review",new[]{d});
   var now=new DateTimeOffset(2026,11,27,0,0,0,TimeSpan.Zero);var none=Array.Empty<TransmittalEvent>();
