@@ -8,19 +8,15 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
  const string MarkerName="acceptance-session.txt";
  const string DatabaseName="practice-acceptance.db";
  public bool IsAcceptance=>AcceptanceId!=null;
- private static void PlainDirectory(string path)
- {
-  if(!Directory.Exists(path)||(File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0)throw new ArgumentException("Acceptance workspace directory missing or redirected.");
- }
- private static void PlainFile(string path)
- {
-  if(!File.Exists(path)||(File.GetAttributes(path)&(FileAttributes.ReparsePoint|FileAttributes.Directory))!=0)throw new ArgumentException("Acceptance workspace file missing or redirected.");
- }
  public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments)
  {
   if(string.IsNullOrWhiteSpace(localAppData)||!Path.IsPathFullyQualified(localAppData))throw new ArgumentException("Trusted local application data folder required.");
-  var root=Path.GetFullPath(localAppData);
-  if(arguments.Count==0)return new(Path.Combine(root,"CRC Practice Manager DEV","practice-dev.db"),null);
+  var root=LocalStoragePath.DirectoryPath(localAppData);
+  if(arguments.Count==0)
+  {
+   var dev=LocalStoragePath.DirectoryPath(Path.Combine(root,"CRC Practice Manager DEV"),create:true);
+   return new(LocalStoragePath.FilePath(Path.Combine(dev,"practice-dev.db"),mustExist:false),null);
+  }
   var create=arguments.Count==1&&arguments[0]=="--acceptance-new";
   var reopen=arguments.Count==2&&arguments[0]=="--acceptance-session";
   if(!create&&!reopen)throw new ArgumentException("Unsupported startup arguments. No default workspace opened.");
@@ -32,15 +28,15 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   var db=Path.Combine(folder,DatabaseName);
   if(create)
   {
-   Directory.CreateDirectory(acceptanceRoot);PlainDirectory(acceptanceRoot);
+   LocalStoragePath.DirectoryPath(acceptanceRoot,create:true);
    if(Directory.Exists(folder)||File.Exists(folder))throw new ArgumentException("Acceptance session already exists; no existing workspace opened.");
-   Directory.CreateDirectory(folder);PlainDirectory(folder);
+   LocalStoragePath.DirectoryPath(folder,create:true);
    using(var stream=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.None)){var bytes=Encoding.ASCII.GetBytes(id);stream.Write(bytes);stream.Flush(true);}
-   if(File.Exists(db)||Directory.Exists(db))throw new ArgumentException("Unexpected existing acceptance database.");
+   LocalStoragePath.FilePath(db,mustExist:false,mustBeNew:true,rejectSidecars:true);
   }
   else
   {
-   PlainDirectory(acceptanceRoot);PlainDirectory(folder);PlainFile(marker);PlainFile(db);
+   LocalStoragePath.DirectoryPath(folder);LocalStoragePath.FilePath(marker,mustExist:true);LocalStoragePath.FilePath(db,mustExist:true);
    using var stream=new FileStream(marker,FileMode.Open,FileAccess.Read,FileShare.Read);
    if(stream.Length!=32)throw new ArgumentException("Acceptance session marker mismatch.");
    var bytes=new byte[32];stream.ReadExactly(bytes);

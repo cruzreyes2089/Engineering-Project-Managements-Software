@@ -17,6 +17,12 @@ static class RecoveryCopyTests
    q.CommandText="INSERT INTO accounting_profiles(user_id,endpoint,protected_value,last_success_utc,revision) SELECT id,'http://127.0.0.1:1/api2',X'010203','2026-11-26T00:00:00Z','synthetic' FROM users WHERE username='admin'";
    q.ExecuteNonQuery();
   }
+  var blocked=Path.Combine(Path.GetDirectoryName(path)!,"sidecar-blocked.db");
+  Directory.CreateDirectory(blocked+"-journal");
+  try{try{s.CreateRecoveryCopy(blocked);throw new Exception("Sidecar destination allowed");}catch(ArgumentException){check(!File.Exists(blocked),"recovery refuses destination sidecar directory");}}
+  finally{Directory.Delete(blocked+"-journal");}
+  try{s.CreateRecoveryCopy(Path.Combine(Path.GetDirectoryName(path)!,"bad:stream.db"));throw new Exception("ADS destination allowed");}
+  catch(ArgumentException){check(true,"recovery rejects alternate stream destination");}
   var result=s.CreateRecoveryCopy(target);
   check(result.Bytes>0&&result.Sha256==Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant(),"recovery copy file hash verified");
   using(var db=new SqliteConnection($"Data Source={target};Mode=ReadOnly;Pooling=False")){
@@ -34,6 +40,12 @@ static class RecoveryCopyTests
   try{s.CreateRecoveryCopy(target);throw new Exception("Overwrite allowed");}catch(ArgumentException){check(result.Sha256==Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(target))).ToLowerInvariant(),"recovery copy never overwrites");}
   var isolated=Path.Combine(Path.GetDirectoryName(path)!,"isolated-restored.db");
   try{s.RestoreRecoveryCopyToNewFile(target,new string('0',64),isolated);throw new Exception("Wrong recovery hash allowed");}catch(ArgumentException){check(!File.Exists(isolated),"restore refuses wrong trusted hash");}
+  Directory.CreateDirectory(isolated+"-shm");
+  try{try{s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);throw new Exception("Restore sidecar allowed");}catch(ArgumentException){check(!File.Exists(isolated),"restore refuses destination sidecar directory");}}
+  finally{Directory.Delete(isolated+"-shm");}
+  Directory.CreateDirectory(target+"-wal");
+  try{try{s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);throw new Exception("Source sidecar allowed");}catch(ArgumentException){check(!File.Exists(isolated),"restore refuses source sidecar directory");}}
+  finally{Directory.Delete(target+"-wal");}
   var restored=s.RestoreRecoveryCopyToNewFile(target,result.Sha256,isolated);
   check(restored.Clients==1&&restored.Projects==0&&restored.Documents==0&&restored.Sha256==result.Sha256,"isolated restore verified counts and exact bytes");
   var reopened=new LocalPractice(isolated);check(reopened.Login("admin",password)&&reopened.SearchClients("").Single().Id==client,"isolated restored copy opens independently");

@@ -26,6 +26,30 @@ internal static class DevelopmentWorkspaceTests
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",two.AcceptanceId!}),"unfinished acceptance workspace cannot silently reopen");
   var marker=Path.Combine(Path.GetDirectoryName(one.DatabasePath)!,"acceptance-session.txt");File.WriteAllText(marker,"wrong");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"altered session identity rejected");
+  Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--production"}),"production startup remains disabled");
+  Invalid(()=>LocalStoragePath.Normalize(Path.Combine(root,"..","unsafe.db")),"storage rejects traversal before normalization");
+  Invalid(()=>LocalStoragePath.Normalize(Path.Combine(root,"NUL.db")),"storage rejects reserved device name");
+  Invalid(()=>LocalStoragePath.Normalize(Path.Combine(root,"bad.db:stream")),"storage rejects alternate stream");
+  Invalid(()=>LocalStoragePath.Normalize(Path.Combine(root,"bad.")),"storage rejects trailing dot");
+  var side=normal.DatabasePath+"-wal";Directory.CreateDirectory(side);
+  try{Invalid(()=>DevelopmentWorkspace.Resolve(root,Array.Empty<string>()),"development startup rejects sidecar directory");}
+  finally{Directory.Delete(side);}
+  var missing=Path.Combine(root,"new.db");File.WriteAllText(missing+"-journal","synthetic");
+  Invalid(()=>LocalStoragePath.FilePath(missing,mustExist:false),"new database refuses orphan journal");
+  File.Delete(missing+"-journal");
+  var real=Path.Combine(root,"real-local");Directory.CreateDirectory(real);
+  var link=Path.Combine(root,"redirected");
+  bool linked=false;
+  try{Directory.CreateSymbolicLink(link,real);linked=true;}
+  catch(UnauthorizedAccessException){Console.WriteLine("SKIP: workspace symlink creation unavailable");}
+  catch(IOException){Console.WriteLine("SKIP: workspace symlink creation unavailable");}
+  catch(PlatformNotSupportedException){Console.WriteLine("SKIP: workspace symlink creation unavailable");}
+  if(linked)
+  {
+   try{Invalid(()=>LocalStoragePath.DirectoryPath(Path.Combine(link,"new"),create:true),"storage rejects redirected ancestor before creation");
+    check(!Directory.Exists(Path.Combine(real,"new")),"redirected ancestor remains untouched");}
+   finally{Directory.Delete(link);}
+  }
   check(File.ReadAllText(normal.DatabasePath)=="synthetic protected default","acceptance startup never opens or modifies default store");
  }
 }

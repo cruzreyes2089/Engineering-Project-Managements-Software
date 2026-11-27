@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using PracticeManager.Core;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 namespace PracticeManager.Persistence;
@@ -17,7 +18,7 @@ public sealed partial class LocalPractice
   using var active=Open();long actor;var generation=sessionGeneration;
   using(var t=active.BeginTransaction()){actor=RequireAdministration(active,t);Require(active,t,"Administration.RecoveryCopy");}
   if(!Regex.IsMatch(expectedSha256??"",@"\A[0-9A-Fa-f]{64}\z"))throw new ArgumentException("Enter the original recorded SHA-256.");
-  var input=Path.GetFullPath(source);var target=Path.GetFullPath(destination);
+  var input=LocalStoragePath.FilePath(source,mustExist:true,rejectSidecars:true);var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
   var live=Path.GetFullPath(new SqliteConnectionStringBuilder(connectionString).DataSource);
   bool Same(string? a,string? b)=>string.Equals(a,b,StringComparison.OrdinalIgnoreCase);
   if(!Same(Path.GetExtension(input),".db")||!Same(Path.GetExtension(target),".db")||Same(input,target)||Same(input,live)||Same(target,live))throw new ArgumentException("Choose separate recovery and new destination database files.");
@@ -57,6 +58,8 @@ public sealed partial class LocalPractice
     Require(active,t,"Administration.RecoveryCopy");Audit(active,t,actor,"IsolatedRestorePrepared","Firm",1);t.Commit();
    }
    foreach(var suffix in new[]{"-wal","-shm","-journal"})if(File.Exists(staging+suffix)||File.Exists(target+suffix))throw new InvalidOperationException("Unexpected database sidecar files.");
+   LocalStoragePath.FilePath(staging,mustExist:true,rejectSidecars:true);
+   LocalStoragePath.FilePath(target,mustExist:false,mustBeNew:true,rejectSidecars:true);
    File.Move(staging,target,false);owned=false;
    return new(target,hash,bytes,clients,projects,documents){HistoricalProjects=historicalProjects};
   }finally{

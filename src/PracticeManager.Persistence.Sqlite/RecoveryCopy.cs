@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using PracticeManager.Core;
 using System.Security.Cryptography;
 namespace PracticeManager.Persistence;
 
@@ -9,7 +10,7 @@ public sealed partial class LocalPractice
 {
  public RecoveryCopyResult CreateRecoveryCopy(string destination)
  {
-  var target=Path.GetFullPath(destination);
+  var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
   if(!string.Equals(Path.GetExtension(target),".db",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Choose a new .db recovery-copy file.");
   var folder=Path.GetDirectoryName(target)??throw new ArgumentException("Choose an existing folder.");
   if(!Directory.Exists(folder)||File.Exists(target)||Directory.Exists(target))throw new ArgumentException("Choose a new file in an existing folder; existing files are never overwritten.");
@@ -51,7 +52,9 @@ public sealed partial class LocalPractice
     Audit(c,t,actor,"RecoveryCopyPrepared","Firm",1);
     t.Commit();
    }
-   // No overwrite, even if the target was created concurrently.
+   // Recheck path and sidecars before exclusive publication.
+   LocalStoragePath.FilePath(temporary,mustExist:true,rejectSidecars:true);
+   LocalStoragePath.FilePath(target,mustExist:false,mustBeNew:true,rejectSidecars:true);
    File.Move(temporary,target,false);
    owned=false;
    return new(target,hash,bytes);
