@@ -35,3 +35,12 @@ All entries below are source-level Windows regression results. Each includes 15 
 | 45 | 45950103973 | 1593 | Independent hold release and renewed holds |
 
 Exact verified baseline: 9670918c763b1d0e6ed6bbe90246436170d156a3. Schema 46 is a candidate; its test-first and functional CI must qualify independently. Automated checks are not completed acceptance-register scenarios or a release percentage. The separate legacy acceptance register remains specified, not executed; do not mark scenarios passed without actual evidence. See [single-user release gate plan](single-user-release-gates.md).
+
+## Verified schema 46 and release preparation
+
+- Schema 46 corrected observation guard: run 45950890547, 15 Python + 1604 native checks, zero warnings/errors.
+- Combined migration metadata preflight: run 45951402051, 22 Python + 1604 native checks, zero warnings/errors.
+- Isolated desktop workspace: run 45951746285, 22 Python + 1618 native checks, zero warnings/errors. Promoted to active draft PR #6 at 25122753f95a91239778135375c9df6ce3810620. No WPF interactive scenario executed.
+- Upgrade rehearsal initial red run 45951814689 stopped on pooled fixture connection before reaching stub; corrected test-first revision requires qualification. No new schema.
+
+[Desktop acceptance execution plan](desktop-release-acceptance-plan.md) covers all original scenarios without marking any passed. No security hold change.

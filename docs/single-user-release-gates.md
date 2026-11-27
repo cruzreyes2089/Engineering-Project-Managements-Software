@@ -2,7 +2,7 @@
 
 ## Baseline and release boundary
 
-Exact verified schema 45 commit 9670918c763b1d0e6ed6bbe90246436170d156a3, Windows run 45950103973, 15 Python tests plus 1593 native checks, no compiler warnings/errors. Schema 46 is a candidate, not included in baseline. This plan prioritizes a usable single-user engineering practice application. Commercial/network deployment, multi-firm licensing, and shared database operation are separate phases. No production authorization or security-hold change.
+Exact verified schema 46 and isolated desktop workspace commit 25122753f95a91239778135375c9df6ce3810620, Windows run 45951746285, 22 Python tests plus 1618 native checks, no compiler warnings/errors. The upgrade rehearsal remains a candidate. This plan prioritizes a usable single-user engineering practice application. Commercial/network deployment, multi-firm licensing, and shared database operation are separate phases. No production authorization or security-hold change.
 
 ## Gate order and evidence required
 
@@ -25,8 +25,8 @@ Prior operator-assisted PowerShell fixture successes do not qualify C# productio
 
 ## Work sequencing
 
-1. Finish schema 46 verification. Avoid adding further local accounting state simply to increase test counts. Use qualified provider observations to determine the next narrowly testable accounting milestone.
-2. In parallel, prepare actual source mapping and executable acceptance procedures, without exposing private data in this public repository. The metadata-only Access inventory script has syntax qualification but no actual DAO acceptance. Do not claim import readiness from its existence.
+1. Schema 46 and combined metadata preflight are verified; qualify the isolated upgrade rehearsal. Avoid adding further local accounting state simply to increase test counts. Use qualified provider observations to determine the next narrowly testable accounting milestone.
+2. In parallel, prepare actual source mapping and follow the [desktop acceptance execution plan](desktop-release-acceptance-plan.md), without exposing private data in this public repository. The metadata-only Access inventory script has syntax qualification but no actual DAO acceptance. Do not claim import readiness from its existence.
 3. Identify only necessary missing source work against the full legacy feature and acceptance registers. Keep original scenarios and record any supported scope change explicitly; do not erase deferred features.
 4. Execute desktop and security gates before any distribution. No executable uploads, renamed/repacked artifacts to evade detection, or main-branch merge.
 
