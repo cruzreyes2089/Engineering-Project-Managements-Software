@@ -81,6 +81,7 @@ internal static class HistoricalProjectTransferTests
         var items=reverse["projects"]!.AsArray();
         var first=items[0]!.DeepClone();items.RemoveAt(0);items.Add(first);
         check(Parse(raw,Bytes(reverse)).Rows.Count==2,"Historical census order independent");
+        HistoricalArchiveUpgradeTests.Run(Path.GetDirectoryName(archivePath)!,crm,check);
         HistoricalArchiveServiceTests.Run(archivePath,crm,raw,census,accepted,check);
     }
 }
