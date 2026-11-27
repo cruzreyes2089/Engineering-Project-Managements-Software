@@ -38,7 +38,7 @@ internal static class CollectionsReviewTests
   check(InvoiceCandidateComparison.Compare(draft with{Total=101m},"TEST-1",customer,ok).Outcome=="InvoiceTotalMismatch","wrong total rejected");
   check(InvoiceCandidateComparison.Compare(draft with{InvoiceDate=draft.InvoiceDate.AddDays(1)},"TEST-1",customer,ok).Outcome=="IssueDateMismatch","wrong issue date rejected");
   check(InvoiceCandidateComparison.Compare(draft with{State="Draft"},"TEST-1",customer,ok).Outcome=="ApprovedDraftAndExactReferenceRequired","unapproved draft rejected");
-  check(InvoiceCandidateComparison.Compare(draft,"TEST-1",customer,ok with{Invoices=new[]{ok.Invoices!.Single(),ok.Invoices.Single() with{Key=Guid.NewGuid(),Reference="test-1"}}}).Outcome=="DuplicateReference","duplicate case-insensitive reference rejected");
+  check(InvoiceCandidateComparison.Compare(draft,"TEST-1",customer,ok with{Invoices=new[]{ok.Invoices!.Single(),ok.Invoices!.Single() with{Key=Guid.NewGuid(),Reference="test-1"}}}).Outcome=="DuplicateReference","duplicate case-insensitive reference rejected");
   check(InvoiceCandidateComparison.Compare(draft,"TEST-1",customer,new("Blocked")).Outcome=="CompleteObservationRequired","unavailable acquisition not a match");
   var today=new DateOnly(2026,11,26);CollectionInvoice Row(int days,decimal balance)=>new(Guid.NewGuid(),"Synthetic",today.AddDays(-days),100m,balance);
   var sample=new CollectionPreview("ObservedForReview",new[]{Row(-1,1),Row(0,2),Row(30,3),Row(31,4),Row(60,5),Row(61,6),Row(90,7),Row(91,8),Row(100,0)},DateTimeOffset.UtcNow);
