@@ -4,9 +4,13 @@ namespace PracticeManager.Persistence;
 public sealed record WorkReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
 public sealed record WorkInvalidation(long SubmissionId,string Reason,long ActorId,string RecordedUtc);
 public sealed record AttendanceCorrection(long Id,long SessionId,DateTimeOffset ClockIn,DateTimeOffset ClockOut,string Reason,long ActorId,string RecordedUtc);
-public sealed record AttendanceReviewRow(long Id,long EmployeeId,string Employee,DateTimeOffset OriginalIn,DateTimeOffset? OriginalOut,DateTimeOffset ClockIn,DateTimeOffset? ClockOut,long? CorrectionId);
+public sealed record AttendanceReviewRow(long Id,long EmployeeId,string Employee,DateTimeOffset OriginalIn,DateTimeOffset? OriginalOut,DateTimeOffset ClockIn,DateTimeOffset? ClockOut,long? CorrectionId,string EntrySource="Clock",string State="Closed",string? ManualReason=null,long? OriginalActorId=null,string? ManualRecordedUtc=null);
+public sealed record AttendanceVoid(long SessionId,long? CorrectionId,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public long RecordMissingAttendance(Guid operation,long employee,DateTimeOffset clockIn,DateTimeOffset clockOut,string reason,bool confirmed)=>throw new NotImplementedException("Missing attendance recording not implemented.");
+ public AttendanceVoid VoidAttendance(long session,long? expectedCorrection,string reason,bool confirmed)=>throw new NotImplementedException("Attendance void not implemented.");
+ public AttendanceVoid? ReadAttendanceVoid(long session)=>throw new NotImplementedException("Attendance void history not implemented.");
  private static DateTimeOffset AttendanceTime(SqliteDataReader r,int i)=>DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(i));
  private static DateTimeOffset? OptionalAttendanceTime(SqliteDataReader r,int i)=>r.IsDBNull(i)?null:AttendanceTime(r,i);
  public IReadOnlyList<AttendanceReviewRow> ReadAttendanceReview(DateOnly start,DateOnly end)
