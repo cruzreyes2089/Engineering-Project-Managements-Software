@@ -51,5 +51,35 @@ internal static class ProjectEvidenceTests
   check(s.DecideScopeChange(p.Id,change,false,"Changed",false)=="AlreadyAuthorized","scope authorization not silently reversed");
   var after=s.ReadProjectCloseoutReview(p.Id);check(after.ProjectState=="Active"&&after.PendingScopeDecisions==0&&after.ConflictStatus=="Clear","closeout reflects resolved scope and current project state");
   Invalid(()=>s.ReadProjectCloseoutReview(long.MaxValue),"closeout rejects nonexistent project");
+  var pdf="%PDF-1.7\nSynthetic review only\n%%EOF"u8.ToArray();
+  var pdfId=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Drawings","drawing.pdf",pdf);
+  var pdfRow=s.ReadProjectDocuments(p.Id).Single(x=>x.Id==pdfId);
+  var pick=new[]{new ReleaseReviewSelection(pdfId,pdfRow.Hash)};
+  Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",false),"release review confirmation required");
+  Invalid(()=>s.PrepareProjectReleaseReview(p.Id,new[]{new ReleaseReviewSelection(successor,s.ReadProjectDocuments(p.Id).Single(x=>x.Id==successor).Hash)},"Review","Synthetic recipient","Review",true),"release review rejects non-PDF");
+  Denied(()=>s.PrepareProjectReleaseReview(p.Id,new[]{new ReleaseReviewSelection(restricted,rd.Hash)},"Review","Synthetic recipient","Review",true),"release review refuses restricted content");
+  Invalid(()=>s.PrepareProjectReleaseReview(other.Id,pick,"Review","Synthetic recipient","Review",true),"pending other project cannot prepare release review");
+
+  var qa=s.CreateQualityItem(p.Id,"Synthetic release QA","Correction","Review pending");
+  Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",true),"open QA blocks release review");
+  s.CloseQualityItem(p.Id,qa,"Resolved");
+  var package=s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Reviewed",true);
+  using(var memory=new MemoryStream(package.Bytes))
+  using(var zip=new System.IO.Compression.ZipArchive(memory,System.IO.Compression.ZipArchiveMode.Read))
+  {
+   check(zip.Entries.Count==2&&zip.GetEntry("REVIEW-ONLY.json")!=null,"review package contains only selected PDF and internal manifest");
+   using var entry=zip.GetEntry("document-"+pdfId+".pdf")!.Open();using var data=new MemoryStream();entry.CopyTo(data);
+   check(data.ToArray().SequenceEqual(pdf),"review package contains exact registered PDF bytes");
+  }
+  var dest=Path.Combine(Path.GetDirectoryName(path)!,"synthetic-release-review.zip");
+  VerifiedDocumentFile.Save(dest,".zip",package.Bytes,package.Sha256);
+  check(File.ReadAllBytes(dest).SequenceEqual(package.Bytes),"verified local save publishes exact package");
+  Invalid(()=>VerifiedDocumentFile.Save(dest,".zip",package.Bytes,package.Sha256),"verified save refuses overwrite");
+  Invalid(()=>VerifiedDocumentFile.Save(Path.Combine(Path.GetDirectoryName(path)!,"wrong-hash.zip"),".zip",package.Bytes,new string('0',64)),"verified save rejects mismatched bytes");
+  if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(dest),"verified document copy retains restricted ACL");
+  var newPdf=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),pdfId,"Production","Drawings","drawing.pdf","%PDF-1.7\nSynthetic revised\n%%EOF"u8.ToArray());
+  Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",true),"superseded document cannot enter release review");
+  check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"verified document staging cleaned");
+
  }
 }
