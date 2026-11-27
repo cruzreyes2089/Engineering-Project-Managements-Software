@@ -223,6 +223,15 @@ internal static class WorkEntriesTests
   mix=admin.ReadFirmTimeMix(day,day);check(mix.ApprovedBillableMinutes==30&&mix.ApprovedMinutes==225&&mix.ApprovedBillableShare==30m/225m,"firm share includes approved overhead in denominator");
   var empty=admin.ReadFirmTimeMix(day.AddDays(-1),day.AddDays(-1));check(empty.Rows.Count==0&&empty.ApprovedBillableShare==null,"empty range does not fabricate utilization");
   check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
+  var timeDetail=admin.ReadEmployeeTimeReport(new(employee,null,day,day,"All"));
+  check(timeDetail.ApprovedMinutes==225&&timeDetail.ApprovedProjectMinutes==90&&timeDetail.ApprovedOverheadMinutes==135&&timeDetail.PendingMinutes==60&&timeDetail.RejectedMinutes==1260,"employee time detail reconciles firm time totals without expenses");
+  var projectTime=admin.ReadEmployeeTimeReport(new(employee,project,day,day,"Approved"));
+  check(projectTime.ApprovedMinutes==90&&projectTime.Rows.All(x=>x.ProjectId==project&&x.EmployeeId==employee&&x.Source=="Project"),"employee project date and status filters combine");
+  check(admin.ReadEmployeeTimeReport(new(employee,null,day.AddDays(-1),day.AddDays(-1),"All")).Rows.Count==0,"employee report exact work-date boundary");
+  Invalid(()=>admin.ReadEmployeeTimeReport(new(employee,null,day,day.AddDays(-1),"All")),"employee report reversed dates rejected");
+  Invalid(()=>admin.ReadEmployeeTimeReport(new(long.MaxValue,null,day,day,"All")),"employee report rejects unknown employee");
+  Invalid(()=>admin.ReadEmployeeTimeReport(new(employee,null,day,day,"Other")),"employee report rejects unknown status");
+  Denied(()=>worker.ReadEmployeeTimeReport(new(employee,project,day,day,"All")),"own-work access cannot read management time report");
   var effort=admin.ReadProjectEffort(project);
   check(effort.Tasks.Single().TaskId==task&&effort.CurrentPlanMinutes==120&&effort.CurrentApprovedMinutes==90&&effort.CurrentPendingMinutes==0,"whole-project effort matches approved time without overhead or expenses");
   check(effort.ProjectId==project&&effort.Tasks.Single().Revision==2,"project effort carries stable project identity and task revision");
@@ -414,6 +423,7 @@ internal static class WorkEntriesTests
   check(admin.ReadOverheadInvalidation(erroneousOverhead)==invalidOverhead,"overhead invalidation evidence retained");
   check(worker.ReadMyOverheadTime(correctionDay,correctionDay).Single().ReviewState=="Invalidated"&&admin.ReadOverheadReview(correctionDay,correctionDay,false).Single().ReviewState=="Invalidated","effective overhead invalidation shown to employee and reviewer");
   var invalidMix=admin.ReadFirmTimeMix(correctionDay,correctionDay);
+  check(admin.ReadEmployeeTimeReport(new(employee,null,correctionDay,correctionDay,"Invalidated")).InvalidatedMinutes==1440,"employee report keeps invalidated time separate from approved facts");
   check(invalidMix.ApprovedMinutes==0&&invalidMix.InvalidatedMinutes==1440&&invalidMix.Rows.Single().InvalidatedOverheadMinutes==1440&&admin.ReadFirmLaborCost(correctionDay,correctionDay).ApprovedMinutes==0,"firm time and labor cost exclude erroneous overhead and reconcile invalidated minutes");
   Invalid(()=>admin.InvalidateApprovedOverhead(erroneousOverhead,"Duplicate decision",true),"repeat overhead invalidation denied");
   check(worker.SubmitOverheadTime(duplicateOverhead)==erroneousOverhead,"original operation replay preserves invalidated fact");
