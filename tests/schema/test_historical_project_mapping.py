@@ -104,7 +104,7 @@ class HistoricalProjectMappingTests(unittest.TestCase):
                 self.census=old
 
     def test_projection_rejects_extra_financial_columns_or_invalid_identity(self):
-        for key,value in (("Fee",1000),("Id",True),("Id",1.0),("Authorization",None)):
+        for key,value in (("Fee",1000),("Id",True),("Id",1.0),("Id",2147483648),("Authorization",None)):
             with self.subTest(key=key,value=value):
                 old=copy.deepcopy(self.raw)
                 self.raw["rows"][0][key]=value

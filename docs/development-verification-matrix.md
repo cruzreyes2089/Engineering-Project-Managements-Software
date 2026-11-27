@@ -47,3 +47,22 @@ Exact verified baseline: 9670918c763b1d0e6ed6bbe90246436170d156a3. Schema 46 is 
 
 - Complete acceptance procedure documentation: run 45952257022, 22 Python + 1618 native checks, zero warnings/errors; integrated. No interactive acceptance executed.
 - Isolated upgrade rehearsal: run 45952285436, 22 Python + 1630 native checks, zero warnings/errors; independent package passed. Combined integration pending.
+
+## Verified historical archive and storage development through schema 54
+
+These are completed source-regression runs, not field or interactive desktop acceptance. All rows below have zero compiler warnings/errors. The Windows directory metadata handle does not exclude rename; passing the test suite does not close that qualification gap.
+
+| Schema | Exact source revision | Windows run | Python | Native | Scope |
+|---|---|---:|---:|---:|---:|---|
+| 47 | a9522cf3b265d3ab1cb10e22a314a4ab66925686 | 46058478446 | 83 | 1770 | Native archive and validation preview |
+| 47 | 37167b28cc05888f68945c534ccc963467edd7df | 46059351444 | 91 | 1814 | Combined synthetic historical native archive |
+| 48 | cf3b6c0f68165fc5302f48f83cf505a925cc33c3 | 46062057845 | 91 | 1979 | Business storage preferences |
+| 49 | 177349364ff96a88bfc6de84e67c26bc743240d3 | 46062376730 | 91 | 2011 | Business production templates |
+| 50 | 6d40f7710cf0f8622f4fcad04fee339562cddce3 | 46062835254 | 91 | 2032 | Named templates and project selections |
+| 51 | b8295eec0704742e64ef0987dc865a9c298a2d19 | 46062978497 | 91 | 2044 | Project folder overrides |
+| 52 | bc243627e8f99f75380e37f6968041f30b40c9b0 | 46063217619 | 91 | 2064 | Historical category recommendation implementation (retired) |
+| 53 | 15ab42e966bfe3a51c24c8355a62ae6cb0f3a06a | 46064063172 | 91 | 2066 | Suggested preset and optional preference, retired categories |
+| 54 | efa3256ae36543b330b6a7bdfdfa386ead6ab5ce | 46064325605 | 91 | 2089 | Inactive project storage bindings |
+| 54 | 277fd84edacb8004ef93ace3d3f9c6aa4123258d | 46064575362 | 91 | 2103 | Nested synthetic storage and journal recovery |
+
+The later read-only storage observation revision must be qualified separately. No live physical provisioning, DAO source migration, financial posting, final distribution or main merge is authorized.

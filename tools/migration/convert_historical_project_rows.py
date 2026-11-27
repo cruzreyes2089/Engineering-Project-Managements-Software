@@ -11,6 +11,7 @@ import validate_crm_mapping as crm
 import historical_project_preflight as preflight
 import prepare_historical_project_plan as plan_tools
 import reconcile_crm_transfer as reconciliation
+from convert_crm_rows import typed
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,6 +45,8 @@ def convert(inventory, inventory_hash, crm_rules, crm_mapping_hash, project_rule
         crm.require(isinstance(item["rows"], list) and 1 <= len(item["rows"]) <= 10000,
                     "Nonempty bounded historical rows required")
 
+    types = {column["name"]: column["daoType"] for column in plan["columns"]}
+
     def normalize(row, identities_only):
         targets = preflight.IDENTITIES if identities_only else plan_tools.FIELDS
         rules = {key: plan["rules"][key] for key in targets}
@@ -51,7 +54,7 @@ def convert(inventory, inventory_hash, crm_rules, crm_mapping_hash, project_rule
         result = {}
         for target, rule in rules.items():
             transform = rule["transform"]
-            value = "" if transform == "blank" else row[rule["column"]]
+            value = "" if transform == "blank" else typed(row[rule["column"]], types[rule["column"]])
             if target in plan_tools.IDS:
                 if transform == "integer-id":
                     crm.require(type(value) is int and -(2**63) <= value < 2**63,

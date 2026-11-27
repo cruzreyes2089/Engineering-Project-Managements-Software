@@ -40,7 +40,6 @@ function Read-Scalar($Value,[int]$DaoType) {
     # Preserve actual nulls for explicit downstream rejection; never synthesize values.
     if ($null -eq $Value -or $Value -is [DBNull]) { return $null }
     switch ($DaoType) {
-        1 { Assert-Condition ($Value -is [bool]) 'Unexpected boolean representation.'; return $Value }
         { $_ -in @(10,12) } { Assert-Condition ($Value -is [string]) 'Unexpected text representation.'; return $Value }
         { $_ -in @(2,3,4,16) } {
             Assert-Condition ($Value -is [byte] -or $Value -is [int16] -or $Value -is [int32] -or $Value -is [int64]) 'Unexpected integer representation.'
@@ -70,7 +69,7 @@ function Read-Projection($Database,$Choice,[bool]$IdentityOnly,[int]$Limit) {
             try {
                 $field = $table.Fields.Item($fieldName)
                 $dao = [int]$column.daoType
-                Assert-Condition ($field.Name -ceq $fieldName -and [int]$field.Type -eq $dao -and $dao -in @(1,2,3,4,10,12,16)) 'Column metadata mismatch.'
+                Assert-Condition ($field.Name -ceq $fieldName -and [int]$field.Type -eq $dao -and $dao -in @(2,3,4,10,12,16)) 'Column metadata mismatch.'
                 $types.Add($fieldName,$dao)
             } finally { if ($null -ne $field) { $null = [Runtime.InteropServices.Marshal]::ReleaseComObject($field) } }
         }
@@ -149,7 +148,23 @@ try {
         }
     }
     Assert-Condition (@($plan.columns).Count -eq $mapped.Count) 'Invalid projection size.'
-    foreach ($column in @($plan.columns)) { Assert-Condition ($mapped.Contains([string]$column.name)) 'Unexpected projection column.' }
+    $projected = [Collections.Generic.Dictionary[string,int]]::new([StringComparer]::Ordinal)
+    foreach ($column in @($plan.columns)) {
+        Assert-Condition ($column.name -is [string] -and $mapped.Contains($column.name) -and
+            @($column.PSObject.Properties).Count -eq 2 -and ($column.daoType -is [int] -or $column.daoType -is [long])) 'Unexpected projection column.'
+        $projected.Add($column.name,[int]$column.daoType)
+    }
+    foreach ($field in $targets) {
+        $rule = $plan.rules.$field
+        if ($rule.transform -ceq 'blank') { continue }
+        Assert-Condition ($projected.ContainsKey($rule.column)) 'Exact mapped column spelling required.'
+        $dao = $projected[$rule.column]
+        if ($rule.transform -ceq 'integer-id') {
+            Assert-Condition ($dao -in @(2,3,4,16)) 'Integer identity metadata mismatch.'
+        } else {
+            Assert-Condition ($dao -in @(10,12)) 'Text metadata mismatch.'
+        }
+    }
     foreach ($key in @('sourceSha256','inventorySha256','crmMappingSha256','projectMappingSha256')) {
         Assert-Condition ([string]$plan.$key -cmatch '^[0-9a-f]{64}$') 'Invalid plan binding.'
     }
