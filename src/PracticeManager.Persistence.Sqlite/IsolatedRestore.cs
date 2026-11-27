@@ -3,7 +3,10 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 namespace PracticeManager.Persistence;
 
-public sealed record IsolatedRestoreResult(string Path,string Sha256,long Bytes,long Clients,long Projects,long Documents);
+public sealed record IsolatedRestoreResult(string Path,string Sha256,long Bytes,long Clients,long Projects,long Documents)
+{
+ public long HistoricalProjects{get;init;}
+}
 
 // Restore only a previously generated recovery copy to a separate new file.
 // No changes to startup settings, active database, credentials or holds.
@@ -35,7 +38,7 @@ public sealed partial class LocalPractice
     if(!Same(hash,expectedSha256))throw new ArgumentException("Recovery hash mismatch. No restored copy created.");
     dst.Flush(true);
    }
-   long clients,projects,documents;
+   long clients,projects,documents,historicalProjects;
    using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=staging,Mode=SqliteOpenMode.ReadOnly,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString())){
     db.Open();Exec(db,null,"PRAGMA trusted_schema=OFF; PRAGMA query_only=ON");
     if(Convert.ToInt64(Scalar(db,null,"PRAGMA user_version"))!=47)throw new ArgumentException("Only current schema 47 recovery copies are supported; older copies require a reviewed migration.");
@@ -43,6 +46,7 @@ public sealed partial class LocalPractice
     using(var q=Command(db,null,"PRAGMA foreign_key_check"))using(var r=q.ExecuteReader()){if(r.Read())throw new InvalidOperationException("Recovery database foreign-key check failed.");}
     long Count(string sql)=>Convert.ToInt64(Scalar(db,null,sql));
     if(Count("SELECT count(*) FROM firms WHERE id=1")!=1||Count("SELECT count(*) FROM audit_events WHERE action='RecoveryCopyIsolated' AND entity='Firm' AND entity_id=1")<1||Count("SELECT count(*) FROM accounting_profiles")!=0||Count("SELECT count(*) FROM accounting_lifecycle_hold WHERE id=1")!=1||Count("SELECT coalesce((SELECT enabled FROM owner_approval_events ORDER BY id DESC LIMIT 1),0)")!=0)throw new ArgumentException("Recovery isolation evidence missing or invalid.");
+    using(var archiveCheck=db.BeginTransaction(deferred:true)){historicalProjects=HistoricalRows(db,archiveCheck).Count;}
     clients=Count("SELECT count(*) FROM clients");projects=Count("SELECT count(*) FROM projects");documents=Count("SELECT count(*) FROM project_documents")+Count("SELECT count(*) FROM project_agreements")+Count("SELECT count(*) FROM generated_review_documents");
    }
    using(var fs=new FileStream(staging,FileMode.Open,FileAccess.Read,FileShare.Read)){
@@ -54,7 +58,7 @@ public sealed partial class LocalPractice
    }
    foreach(var suffix in new[]{"-wal","-shm","-journal"})if(File.Exists(staging+suffix)||File.Exists(target+suffix))throw new InvalidOperationException("Unexpected database sidecar files.");
    File.Move(staging,target,false);owned=false;
-   return new(target,hash,bytes,clients,projects,documents);
+   return new(target,hash,bytes,clients,projects,documents){HistoricalProjects=historicalProjects};
   }finally{
    if(owned)foreach(var file in new[]{staging,staging+"-wal",staging+"-shm",staging+"-journal"})if(File.Exists(file))File.Delete(file);
   }
