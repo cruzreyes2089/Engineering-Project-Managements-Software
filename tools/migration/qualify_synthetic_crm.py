@@ -138,6 +138,16 @@ def qualify(folder, powershell, empty):
     stale = folder / "stale.json"
     export("Rows", stale, "0"*64, False)
     check(not stale.exists(), "Stale plan digest rejected without output")
+    wrong_plan = copy.deepcopy(plan)
+    wrong_plan["sourceSha256"] = "0"*64
+    wrong_plan_path = folder / "wrong-source-plan.json"
+    write(wrong_plan_path, wrong_plan)
+    wrong_output = folder / "wrong-source.json"
+    ps("Export-LegacyCrmSnapshot.ps1",
+       ["-DatabaseCopy", source, "-PlanFile", wrong_plan_path,
+        "-ExpectedPlanSha256", digest(wrong_plan_path), "-Mode", "Rows",
+        "-OutputFile", wrong_output, "-ConfirmTrustedSyntheticCopy"], False)
+    check(not wrong_output.exists(), "Stale source digest rejected without output")
     modified = copy.deepcopy(transfer)
     modified["clients"][0]["legacyId"] = "SUBSTITUTED"
     try:
