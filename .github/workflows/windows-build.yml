@@ -36,6 +36,14 @@ jobs:
           $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/Inspect-LegacyAccessSchema.ps1').Path, [ref]$tokens, [ref]$errors)
           if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
           Write-Host 'Legacy inventory PowerShell syntax checked; Access DAO execution not qualified.'
+      - name: Parse due-date diagnostic (no Manager access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/accounting/Inspect-SyntheticDueDates.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Due-date diagnostic syntax checked; actual API semantics require local acceptance.'
       - name: SQLite schema tests
         run: python -m unittest discover -s tests/schema -v
       - name: Build, smoke test and publish
