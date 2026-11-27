@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
-from test_crm_mapping import CrmMappingTests as MappingFixture
+import test_crm_mapping as fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("convert_crm", ROOT / "tools/migration/convert_crm_rows.py")
@@ -12,7 +12,7 @@ spec.loader.exec_module(m)
 
 class ConversionTests(unittest.TestCase):
     def setUp(self):
-        f = MappingFixture()
+        f = fixture.CrmMappingTests()
         f.setUp()
         self.inv, self.rules = f.inv, f.mapping
         self.hashes = {"sourceSha256": "b"*64, "inventorySha256": f.digest,
