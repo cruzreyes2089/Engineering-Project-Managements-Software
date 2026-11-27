@@ -35,6 +35,17 @@ internal static class StaffWorkloadTests
   check(individual.EligibleMinutes==160&&individual.HeldMinutes==150&&individual.WeekendOnlyEstimateMinutes==45,"calendar changes capacity without silently reallocating demand");
   check(individual.ScenarioCapacityMinutes==150&&individual.OverCapacityWeekdays==3&&individual.OverCapacityMinutes==130&&individual.UnavailableAllocationMinutes==66,"individual calendar detects overload and unavailable-day demand");
   check(common.ScenarioCapacityMinutes==240&&common.CapacitySource=="Common weekdays"&&individual.CapacitySource=="Individual week","firm closure applies to both individual and common capacity");
+  check(individual.Days.Count==7&&individual.Days.Select(d=>d.Date).SequenceEqual(Enumerable.Range(0,7).Select(i=>monday.AddDays(i))),"daily workload covers inclusive review range");
+  var mon=individual.Days[0];var tue=individual.Days[1];var wed=individual.Days[2];
+  check(mon.EligibleMinutes==94&&mon.HeldMinutes==90&&mon.CapacityMinutes==30&&mon.ExcessMinutes==64&&mon.CapacityBasis=="Individual date override"&&mon.Status=="Over capacity","daily override explains exact overload");
+  check(tue.EligibleMinutes==33&&tue.HeldMinutes==30&&tue.CapacityMinutes==0&&tue.ExcessMinutes==33&&tue.Status=="Demand on unavailable day","daily zero schedule flags demand");
+  check(wed.EligibleMinutes==33&&wed.CapacityMinutes==0&&wed.CapacityBasis=="Firm closure"&&wed.ExcessMinutes==33,"daily closure explains overload");
+  check(individual.Days.Sum(d=>d.EligibleMinutes)==individual.EligibleMinutes&&individual.Days.Sum(d=>d.HeldMinutes)==individual.HeldMinutes&&individual.Days.Sum(d=>d.CapacityMinutes)==individual.ScenarioCapacityMinutes&&individual.Days.Sum(d=>d.ExcessMinutes)==individual.OverCapacityMinutes,"daily totals reconcile to employee summary");
+  check(individual.Days.Count(d=>d.ExcessMinutes is >0)==individual.OverCapacityWeekdays,"daily issue count reconciles to summary");
+  check(individual.Days.Skip(5).All(d=>d.EligibleMinutes==0&&d.HeldMinutes==0),"weekend-only estimate remains separate");
+  check(adjusted.Rows[2].Days[0].HeldMinutes==60&&adjusted.Rows[2].Days.All(d=>d.CapacityMinutes==null&&d.ExcessMinutes==null&&d.Status=="Unknown capacity"),"inactive employee daily capacity is unknown");
+  check(first.Days.Single().CapacityMinutes==null&&first.Days.Single().ExcessMinutes==null,"unspecified daily capacity is not zero");
+
   var noCommon=StaffWorkload.Build(monday,monday.AddDays(6),null,people,tasks,calendar);
   check(noCommon.Rows[0].ScenarioCapacityMinutes==150&&noCommon.Rows[1].ScenarioCapacityMinutes==null,"individual capacity does not imply another employee schedule");
   void Invalid(Action action,string name){try{action();}catch(ArgumentException){check(true,name);return;}throw new Exception("FAIL: "+name);}

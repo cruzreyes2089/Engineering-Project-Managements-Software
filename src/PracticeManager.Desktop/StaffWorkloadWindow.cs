@@ -10,7 +10,10 @@ internal sealed class StaffWorkloadWindow:Window
  readonly LocalPractice service;
  readonly DatePicker start=new(),end=new();
  readonly TextBox capacity=new(){Width=90,MaxLength=4};
- readonly DataGrid grid=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false};
+ readonly DataGrid grid=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
+ readonly DataGrid daily=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false};
+ readonly CheckBox issuesOnly=new(){Content="Only days over capacity or with demand on unavailable days",IsChecked=false};
+ readonly TextBlock detailHeading=new(){TextWrapping=TextWrapping.Wrap};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
  readonly TextBox weeks=new(){AcceptsReturn=true,MaxLength=100000,Height=62,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
  readonly TextBox closures=new(){AcceptsReturn=true,MaxLength=100000,Height=48,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
@@ -40,11 +43,38 @@ internal sealed class StaffWorkloadWindow:Window
    if(prop.EndsWith("Hours",StringComparison.Ordinal))binding.StringFormat="0.00";
    grid.Columns.Add(new DataGridTextColumn{Header=label,Binding=binding,Width=DataGridLength.Auto});
   }
-  root.Children.Add(grid);Content=root;
+  var body=new Grid();
+  body.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
+  body.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+  body.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
+  Grid.SetRow(grid,0);body.Children.Add(grid);
+  var detailBar=new StackPanel{Margin=new Thickness(0,8,0,4)};
+  detailBar.Children.Add(detailHeading);detailBar.Children.Add(issuesOnly);
+  Grid.SetRow(detailBar,1);body.Children.Add(detailBar);
+  foreach(var (label,property) in new[]{("Date","Date"),("Eligible hours","EligibleHours"),("Held hours","HeldHours"),("Capacity hours","CapacityHours"),("Excess hours","ExcessHours"),("Capacity basis","CapacityBasis"),("Status","Status")})
+  {
+   var binding=new Binding(property);
+   if(property.EndsWith("Hours",StringComparison.Ordinal))binding.StringFormat="0.00";
+   if(property=="Date")binding.StringFormat="yyyy-MM-dd";
+   daily.Columns.Add(new DataGridTextColumn{Header=label,Binding=binding,Width=DataGridLength.Auto});
+  }
+  Grid.SetRow(daily,2);body.Children.Add(daily);root.Children.Add(body);Content=root;
+  grid.SelectionChanged+=(_,_)=>ShowDays();
+  issuesOnly.Checked+=(_,_)=>ShowDays();issuesOnly.Unchecked+=(_,_)=>ShowDays();
+  ShowDays();
   start.SelectedDateChanged+=(_,_)=>Clear();end.SelectedDateChanged+=(_,_)=>Clear();capacity.TextChanged+=(_,_)=>Clear();weeks.TextChanged+=(_,_)=>Clear();closures.TextChanged+=(_,_)=>Clear();exceptions.TextChanged+=(_,_)=>Clear();
-  Loaded+=(_,_)=>Refresh();Closed+=(_,_)=>{grid.ItemsSource=null;weeks.Clear();closures.Clear();exceptions.Clear();capacity.Clear();status.Text="";};
+  Loaded+=(_,_)=>Refresh();Closed+=(_,_)=>{grid.ItemsSource=null;daily.ItemsSource=null;detailHeading.Text="";weeks.Clear();closures.Clear();exceptions.Clear();capacity.Clear();status.Text="";};
  }
- void Clear(){grid.ItemsSource=null;status.Text="Refresh for the selected scenario.";}
+ void ShowDays()
+ {
+  daily.ItemsSource=null;
+  if(grid.SelectedItem is not StaffWorkloadRow employee){detailHeading.Text="Select an employee to review daily allocations.";return;}
+  var days=employee.Days;
+  if(issuesOnly.IsChecked==true)days=days.Where(d=>d.ExcessMinutes is >0).ToArray();
+  daily.ItemsSource=days;
+  detailHeading.Text=$"{employee.EmployeeNumber} — {employee.EmployeeName}: {days.Count} displayed days. Unknown capacity is not zero. Held and weekend-only estimates are not included in daily excess.";
+ }
+ void Clear(){grid.ItemsSource=null;daily.ItemsSource=null;detailHeading.Text="Select an employee after refreshing.";status.Text="Refresh for the selected scenario.";}
  void Refresh()
  {
   Clear();

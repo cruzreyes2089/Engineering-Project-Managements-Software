@@ -1,6 +1,17 @@
 namespace PracticeManager.Core;
 
 public sealed record WorkloadEmployee(long Id,string Number,string Name,bool Active);
+public sealed record StaffWorkloadDay(DateOnly Date,long EligibleMinutes,long HeldMinutes,int? CapacityMinutes,string CapacityBasis)
+{
+ public decimal EligibleHours=>EligibleMinutes/60m;
+ public decimal HeldHours=>HeldMinutes/60m;
+ public decimal? CapacityHours=>CapacityMinutes/60m;
+ public long? ExcessMinutes=>CapacityMinutes.HasValue?Math.Max(0,EligibleMinutes-CapacityMinutes.Value):null;
+ public decimal? ExcessHours=>ExcessMinutes/60m;
+ public string Status=>!CapacityMinutes.HasValue?"Unknown capacity":
+  EligibleMinutes>0&&CapacityMinutes.Value==0?"Demand on unavailable day":
+  EligibleMinutes>CapacityMinutes.Value?"Over capacity":CapacityMinutes.Value==0?"Unavailable":"Within capacity";
+}
 public sealed record StaffWorkloadRow(long EmployeeId,string EmployeeNumber,string EmployeeName,bool Active,
  int EligibleTasks,int HeldTasks,long EligibleMinutes,long HeldMinutes,long WeekendOnlyEstimateMinutes,
  long? ScenarioCapacityMinutes,int? OverCapacityWeekdays)
@@ -10,6 +21,7 @@ public sealed record StaffWorkloadRow(long EmployeeId,string EmployeeNumber,stri
  public decimal WeekendOnlyEstimateHours=>WeekendOnlyEstimateMinutes/60m;
  public decimal? ScenarioCapacityHours=>ScenarioCapacityMinutes/60m;
  public string CapacitySource{get;init;}="Not specified";
+ public IReadOnlyList<StaffWorkloadDay> Days{get;init;}=Array.Empty<StaffWorkloadDay>();
  public long? UnavailableAllocationMinutes{get;init;}
  public long? OverCapacityMinutes{get;init;}
  public decimal? UnavailableAllocationHours=>UnavailableAllocationMinutes/60m;
@@ -75,7 +87,7 @@ public static class StaffWorkload
   {
    var group=open.GetValueOrDefault(employee.Id)??new List<ProjectTask>();
    if(!employee.Active&&group.Count==0)continue;
-   var daily=new long[last-first+1];long eligible=0,held=0,weekendOnly=0;int eligibleCount=0,heldCount=0;
+   var daily=new long[last-first+1];var dailyHeld=new long[daily.Length];long eligible=0,held=0,weekendOnly=0;int eligibleCount=0,heldCount=0;
    foreach(var task in group)
    {
     // Planning eligibility labels reflect current schedule gates only; no independent work clearance.
@@ -94,29 +106,37 @@ public static class StaffWorkload
      if(!Weekday(day))continue;
      int allocated=perDay+(ordinal++<remainder?1:0);
      if(day<first||day>last)continue;
-     if(ready){eligible+=allocated;daily[day-first]+=allocated;}else held+=allocated;
+     if(ready){eligible+=allocated;daily[day-first]+=allocated;}else{held+=allocated;dailyHeld[day-first]+=allocated;}
     }
    }
    var individual=weeks.GetValueOrDefault(employee.Number);
    long? capacity=null,unavailable=null,excess=null;int? overloaded=null;
    string source="Not specified";
-   if(employee.Active&&(individual!=null||minutesPerWeekday.HasValue))
+   bool known=employee.Active&&(individual!=null||minutesPerWeekday.HasValue);
+   if(known)
    {
     capacity=0;unavailable=0;excess=0;overloaded=0;
     source=individual!=null?"Individual week":"Common weekdays";
-    for(int day=first;day<=last;day++)
+   }
+   var days=new List<StaffWorkloadDay>(daily.Length);
+   for(int day=first;day<=last;day++)
+   {
+    var date=DateOnly.FromDayNumber(day);var demand=daily[day-first];int? available=null;
+    string basis=employee.Active?"Not specified":"Inactive employee";
+    if(known)
     {
-     var date=DateOnly.FromDayNumber(day);
-     int available=individual!=null?individual.Minutes(date.DayOfWeek):Weekday(day)?minutesPerWeekday!.Value:0;
-     if(closures.Contains(date))available=0;
-     else if(exceptions.TryGetValue((employee.Number,date),out var change))available=change;
-     var demand=daily[day-first];capacity+=available;
-     if(available==0)unavailable+=demand;
-     if(demand>available){overloaded++;excess+=demand-available;}
+     available=individual!=null?individual.Minutes(date.DayOfWeek):Weekday(day)?minutesPerWeekday!.Value:0;
+     basis=source;
+     if(closures.Contains(date)){available=0;basis="Firm closure";}
+     else if(exceptions.TryGetValue((employee.Number,date),out var change)){available=change;basis="Individual date override";}
+     capacity+=available.Value;
+     if(available.Value==0)unavailable+=demand;
+     if(demand>available.Value){overloaded++;excess+=demand-available.Value;}
     }
+    days.Add(new(date,demand,dailyHeld[day-first],available,basis));
    }
    rows.Add(new StaffWorkloadRow(employee.Id,employee.Number,employee.Name,employee.Active,eligibleCount,heldCount,eligible,held,weekendOnly,capacity,overloaded)
-   {CapacitySource=source,UnavailableAllocationMinutes=unavailable,OverCapacityMinutes=excess});
+   {CapacitySource=source,UnavailableAllocationMinutes=unavailable,OverCapacityMinutes=excess,Days=days.AsReadOnly()});
   }
   return new(start,end,weekdays,minutesPerWeekday,rows.AsReadOnly());
  }
