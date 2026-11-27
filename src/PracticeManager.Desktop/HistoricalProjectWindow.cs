@@ -47,8 +47,8 @@ internal sealed class HistoricalProjectWindow:Window
         AddColumn("Source authorization","Source.LegacyAuthorizationStatus",145);
         grid.SelectionChanged+=(_,_)=>ShowDetail();root.Children.Add(grid);Content=root;
         Loaded+=(_,_)=>{Refresh();guard.Start();};
-        Activated+=(_,_)=>CheckAccess();
-        guard.Tick+=(_,_)=>CheckAccess();
+        Activated+=(_,_)=>CheckArchiveAccess();
+        guard.Tick+=(_,_)=>CheckArchiveAccess();
         Closed+=(_,_)=>{guard.Stop();Clear();};
     }
     private void AddColumn(string label,string binding,double width)
@@ -57,14 +57,14 @@ internal sealed class HistoricalProjectWindow:Window
     {
         grid.ItemsSource=null;client.ItemsSource=null;detail.Clear();import.IsEnabled=false;
     }
-    private void CheckAccess()
+    private void CheckArchiveAccess()
     {
         try
         {
             if(!service.Can("HistoricalProjects.View")||!service.Can("Clients.View"))
-            {Clear();status.Text="Access denied or session expired.";return;}
+            {Clear();mayImport=false;status.Text="Access denied or session expired.";return;}
             var next=syntheticAcceptance&&service.CanImportHistoricalProjects();
-            if(next!=mayImport){mayImport=next;Refresh();}
+            if(next!=mayImport||grid.ItemsSource==null){mayImport=next;Refresh();}
         }
         catch(Exception){Clear();status.Text="Archive access could not be verified.";}
     }
