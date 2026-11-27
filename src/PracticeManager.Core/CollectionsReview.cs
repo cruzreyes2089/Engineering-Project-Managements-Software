@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 namespace PracticeManager.Core;
 
-public sealed record CollectionInvoice(Guid Key,string Reference,DateOnly Issued,decimal Amount,decimal Outstanding)
+public sealed record CollectionInvoice(Guid Key,string Reference,DateOnly Issued,decimal Amount,decimal Outstanding,Guid? CustomerKey=null)
 {
  public override string ToString()=>"[Synthetic collection invoice]";
 }
@@ -51,7 +51,12 @@ public sealed partial class ManagerDesktopProbe
     if(reference!=null&&(reference.Length>180||reference.Any(char.IsControl)))throw new AcquisitionStop("CollectionReferenceUnverified");
     var registerRow=root.GetProperty("salesInvoices").EnumerateArray().Single(x=>Id(x,"key")==row.Key);
     if(registerRow.TryGetProperty("reference",out var registerRef)&&registerRef.ValueKind!=JsonValueKind.Null&&(registerRef.ValueKind!=JsonValueKind.String||registerRef.GetString()!=reference))throw new AcquisitionStop("CollectionReferenceMismatch");
-    rows.Add(new(row.Key,reference??"",DateOnly.FromDateTime(issued),row.Amount,balance));
+    Guid? customer=null;
+    if(detail.TryGetProperty("Customer",out var customerNode)&&customerNode.ValueKind!=JsonValueKind.Null){
+     if(customerNode.ValueKind!=JsonValueKind.String||!Guid.TryParseExact(customerNode.GetString(),"D",out var customerId)||customerId==Guid.Empty)throw new AcquisitionStop("CollectionCustomerIdentityInvalid");
+     customer=customerId;
+    }
+    rows.Add(new(row.Key,reference??"",DateOnly.FromDateTime(issued),row.Amount,balance,customer));
    }
    return(rows.ToArray(),evidence.ToArray());
   }
