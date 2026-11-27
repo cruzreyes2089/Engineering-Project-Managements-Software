@@ -92,9 +92,20 @@ public sealed partial class LocalPractice
         if(HistoricalTarget(c,t,p)!="AlreadyImported")throw new InvalidOperationException("Historical import evidence mismatch.");
         Audit(c,t,actor,"ImportHistoricalProjects","HistoricalProjectBatch",1);t.Commit();return "Imported";
     }
+    public bool CanImportHistoricalProjects()
+    {
+        using var c=Open();using var t=c.BeginTransaction();
+        try{RequireHistoricalImport(c,t);return true;}catch(UnauthorizedAccessException){return false;}
+    }
     public IReadOnlyList<HistoricalArchiveItem> ReadHistoricalProjects()
     {
         using var c=Open();using var t=c.BeginTransaction();RequireHistoricalView(c,t);
-        return HistoricalRows(c,t);
+        var rows=HistoricalRows(c,t);
+        try{RequireHistoricalImport(c,t);return rows;}
+        catch(UnauthorizedAccessException)
+        {
+            return Array.AsReadOnly(rows.Select(x=>x with
+                {Source=x.Source with {AuthorizationEvidenceRef=""}}).ToArray());
+        }
     }
 }
