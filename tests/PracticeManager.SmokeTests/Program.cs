@@ -161,6 +161,7 @@ try{
  await WorkEntriesTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-entries.db"),pw,Check);
  ProjectEvidenceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-evidence.db"),pw,Check);
   SyntheticFolderProvisioningTests.Run(Path.GetDirectoryName(path)!,Check);
+  SyntheticFolderJournalTests.Run(Path.GetDirectoryName(path)!,Check);
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);
  RecoveryCopyTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"recovery-source.db"),pw,Check);
  OwnerApprovalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"owner-approval.db"),pw,Check);
