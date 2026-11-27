@@ -49,7 +49,7 @@ internal sealed class HistoricalProjectImportWindow:Window
         note.TextChanged+=(_,_)=>UpdateCommit();
         commit.Click+=(_,_)=>Run(Commit);p.Children.Add(commit);
         Content=new ScrollViewer{Content=p,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-        Loaded+=(_,_)=>{CheckAccess();guard.Start();};guard.Tick+=(_,_)=>CheckAccess();
+        Loaded+=(_,_)=>{guard.Start();CheckAccess();};guard.Tick+=(_,_)=>CheckAccess();
         Closed+=(_,_)=>{guard.Stop();InvalidateReview();Array.Clear(paths);note.Clear();};
     }
     private void CheckAccess()
@@ -62,7 +62,7 @@ internal sealed class HistoricalProjectImportWindow:Window
     private void InvalidateReview()
     {
         if(snapshots!=null)foreach(var bytes in snapshots)if(bytes!=null)Array.Clear(bytes);
-        snapshots=null;reviewedHashes=null;preview=null;confirmed.IsChecked=false;commit.IsEnabled=false;
+        snapshots=null;reviewedHashes=null;preview=null;confirmed.IsChecked=false;note.Clear();commit.IsEnabled=false;
         status.Text="Package requires a fresh preview.";
     }
     private void Run(Action action)
