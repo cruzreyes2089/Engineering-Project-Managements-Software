@@ -48,10 +48,9 @@ internal static class ProjectBudgetServiceTests
   Denied(()=>worker.ReadProjectBudgetHistory(project),"candidate budget read needs explicit budget grant");
   var op=Guid.NewGuid();var first=admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true);
   check(!first.Replayed&&first.Entry.Model.Minutes==120&&admin.ReadProjectBudgetHistory(project).Budgets.Count==1,"actual service records first budget in transaction");
-  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
-  {
-   db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO role_permissions SELECT id,'Projects.Budget.View',1 FROM roles WHERE name='Engineer';INSERT INTO role_permissions SELECT id,'Projects.Budget.Record',1 FROM roles WHERE name='Engineer'";q.ExecuteNonQuery();
-  }
+  admin.SetStaffGrant(role.Id,"Projects.Budget.View",true,false);
+  try{admin.SetStaffGrant(role.Id,"Projects.Budget.Record",true,false);throw new Exception("FAIL: budget recording delegated");}
+  catch(ArgumentException){check(true,"budget recording grant cannot be delegated");}
   check(worker.ReadProjectBudgetHistory(project).Budgets.Single().Model.Hash==first.Entry.Model.Hash,"budget history read requires assigned permission");
   var view=worker.ReadProjectBudgetWorkspace(project);
   check(!view.CanRecord&&view.History.Budgets.Single().Model.Hash==first.Entry.Model.Hash&&view.ReviewedSnapshotHash==snapshot,"budget workspace provides consistent read-only history and current evidence");

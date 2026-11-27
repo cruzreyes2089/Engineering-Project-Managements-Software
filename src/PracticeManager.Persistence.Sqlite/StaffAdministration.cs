@@ -27,7 +27,8 @@ public sealed partial class LocalPractice
  public void SetStaffGrant(long role,string permission,bool allowed,bool expected)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireAdministration(c,t);
-  if(Scalar(c,t,"SELECT name FROM roles WHERE id=$r",("$r",role)) is not string name||name=="Administrator"||permission=="Administration.Manage"||!Grants.Contains(permission))throw new ArgumentException("Protected or unknown grant.");
+  if(Scalar(c,t,"SELECT name FROM roles WHERE id=$r",("$r",role)) is not string name||name=="Administrator"||permission is "Administration.Manage" or "Projects.Budget.Record"||(!Grants.Contains(permission)&&permission!="Projects.Budget.View"))throw new ArgumentException("Protected or unknown grant.");
+  if(permission=="Projects.Budget.View"&&(Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"))!=48||Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM permissions WHERE code=$p",("$p",permission)))!=1))throw new ArgumentException("Budget permission is not enabled.");
   var current=Convert.ToInt64(Scalar(c,t,"SELECT coalesce((SELECT allowed FROM role_permissions WHERE role_id=$r AND permission_code=$p),0)",("$r",role),("$p",permission)))==1;
   if(current!=expected)throw new ArgumentException("Grant changed. Refresh.");
   if(current!=allowed){Exec(c,t,"INSERT INTO role_permissions(role_id,permission_code,allowed) VALUES($r,$p,$a) ON CONFLICT(role_id,permission_code) DO UPDATE SET allowed=excluded.allowed",("$r",role),("$p",permission),("$a",allowed?1:0));Audit(c,t,actor,(allowed?"Grant:":"Revoke:")+permission,"Role",role);}t.Commit();
