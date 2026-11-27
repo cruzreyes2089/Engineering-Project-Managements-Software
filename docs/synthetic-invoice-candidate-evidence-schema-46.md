@@ -8,3 +8,5 @@ Dependent on schema 45 candidate 9670918. The existing Manager comparison is a b
 - Test-first stubs deliberately fail. Add authorization, failed-audit rollback, SQL guard, migration/restore and GET-only tests; full Windows regression before promotion. No main merge, real accounting transactions, production data or executable distribution.
 
 Candidate implementation: explicit fresh GET-only capture with session/profile/marker/link recheck inside immediate transaction, exact approved payload and observed provider UUID evidence, history view, SQL immutability and scope checks, audit rollback. Database cannot independently prove provider observation or external issuance; no authoritative link or balance ledger created. Windows and desktop qualification pending.
+
+Functional run 45950572227 exposed an invalid SQL column reference p.client_id. The corrected guard follows projects → engagements → accepted proposals → client_id, matching ProjectRow, also verifies the link business scope and current actor grants. Rollback and direct SQL tests now require the specific intended constraint error rather than accepting unrelated SQL failures. Full requalification required.
