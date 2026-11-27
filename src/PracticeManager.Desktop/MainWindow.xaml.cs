@@ -25,7 +25,7 @@ public partial class MainWindow : Window
   var hash=new TextBox{MaxLength=64};p.Children.Add(hash);var b=new Button{Content="Choose new destination and verify"};p.Children.Add(b);w.Content=p;
   b.Click+=(_,_)=>{try{var save=new Microsoft.Win32.SaveFileDialog{Title="New isolated restored database",Filter="SQLite database (*.db)|*.db",DefaultExt=".db",FileName="CRC-isolated-restore.db",AddExtension=true,OverwritePrompt=true};if(save.ShowDialog(w)!=true)return;
    var result=S.RestoreRecoveryCopyToNewFile(open.FileName,hash.Text.Trim(),save.FileName);
-   MessageBox.Show(w,$"Isolated restore verified.\nClients: {result.Clients}; projects: {result.Projects}; document copies: {result.Documents}\nSHA-256: {result.Sha256}\nCurrent database remains unchanged.","Recovery",MessageBoxButton.OK,MessageBoxImage.Information);w.DialogResult=true;
+   MessageBox.Show(w,$"Isolated restore verified.\nClients: {result.Clients}; projects: {result.Projects}; historical projects: {result.HistoricalProjects}; document copies: {result.Documents}\nSHA-256: {result.Sha256}\nCurrent database remains unchanged.","Recovery",MessageBoxButton.OK,MessageBoxImage.Information);w.DialogResult=true;
   }catch(ArgumentException ex){MessageBox.Show(w,ex.Message);}catch(UnauthorizedAccessException){MessageBox.Show(w,"Access denied.");}catch(Exception){MessageBox.Show(w,"Restore failed; no success assumed.");}};
   w.ShowDialog();
  });
