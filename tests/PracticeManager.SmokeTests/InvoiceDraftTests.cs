@@ -138,5 +138,34 @@ internal static class InvoiceDraftTests
   Invalid(()=>s.InvalidateApprovedWork(correctedId,"Allocated",true),"even unissued allocated fact requires reconciliation");
   s.DecideInvoiceDraft(project,allocated,allocatedDetail.Summary.PayloadHash,false,"Synthetic cancellation");
   Invalid(()=>s.InvalidateApprovedWork(correctedId,"Previously allocated",true),"prior cancelled allocation remains protected from invalidation");
+  Denied(()=>worker.ReadWorkAllocationReview(project,correctedId),"employee cannot read allocation reconciliation");
+  Denied(()=>worker.ReconcileCancelledWorkAllocations(project,correctedId,"wrong",null,"Unauthorized",true),"employee cannot reconcile allocated work");
+  Invalid(()=>s.ReadWorkAllocationReview(long.MaxValue,correctedId),"allocation review requires exact project");
+  var approvedAllocation=s.ReadWorkAllocationReview(project,time);
+  check(!approvedAllocation.Eligible&&approvedAllocation.Allocations.Count==2&&approvedAllocation.Allocations.Any(x=>x.State=="Approved"),"approved or possibly exported allocation remains ineligible");
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,time,approvedAllocation.EvidenceHash,null,"Approved allocation",true),"approved allocation cannot be reconciled as cancelled");
+  var cancelledAllocation=s.ReadWorkAllocationReview(project,correctedId);
+  check(cancelledAllocation.Eligible&&cancelledAllocation.Allocations.Single().DraftId==allocated&&cancelledAllocation.Allocations.Single().PayloadHash==allocatedDetail.Summary.PayloadHash,"cancelled allocation review binds exact immutable draft evidence");
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,correctedId,"wrong",null,"Stale evidence",true),"allocation reconciliation rejects wrong evidence hash");
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,correctedId,cancelledAllocation.EvidenceHash,null,"",true),"allocation reconciliation requires reason");
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,correctedId,cancelledAllocation.EvidenceHash,null,"Unconfirmed",false),"allocation reconciliation requires confirmation");
+  var laterDraft=s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),Array.Empty<FixedFeeInput>(),new[]{correctedId}));
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,correctedId,cancelledAllocation.EvidenceHash,null,"Stale list",true),"new allocation prevents stale reconciliation");
+  var laterDetail=s.ReadInvoiceDraft(project,laterDraft);
+  s.DecideInvoiceDraft(project,laterDraft,laterDetail.Summary.PayloadHash,false,"Synthetic cancellation");
+  var currentAllocation=s.ReadWorkAllocationReview(project,correctedId);
+  check(currentAllocation.Eligible&&currentAllocation.Allocations.Count==2&&currentAllocation.EvidenceHash!=cancelledAllocation.EvidenceHash,"all cancelled allocations bound to reviewed evidence");
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,correctedId,cancelledAllocation.EvidenceHash,null,"Stale hash",true),"even new cancelled allocation changes reviewed identity");
+  var reconciliation=s.ReconcileCancelledWorkAllocations(project,correctedId,currentAllocation.EvidenceHash,null,"Verified erroneous work; all allocations cancelled before approval or export",true);
+  check(s.ReadWorkInvalidation(correctedId)==reconciliation&&s.ReadInvoiceCandidates(project,day).Count==0,"reconciled source invalidated without duplicate billing");
+  check(s.ReadInvoiceDraft(project,allocated).Summary.State=="Cancelled"&&s.ReadInvoiceDraft(project,laterDraft).Summary.State=="Cancelled"&&s.ReadInvoiceDraft(project,laterDraft).Summary.PayloadHash==laterDetail.Summary.PayloadHash,"cancelled drafts and immutable hashes retained");
+  check(s.ReadProjectFinancialReport(project,day,day).ApprovedMinutes==61&&s.ReadProjectFinancialReport(project,day,day).ApprovedInternalDraftValue==295.34m,"reconciliation removes only erroneous cost, not approved draft history");
+  Invalid(()=>s.ReconcileCancelledWorkAllocations(project,correctedId,currentAllocation.EvidenceHash,null,"Duplicate",true),"reconciliation cannot repeat");
+  var reconciledInput=correction with{OperationKey=Guid.NewGuid(),Minutes=8,Description="Verified actual corrected duration"};
+  var reconciledId=worker.ReplaceInvalidatedWork(correctedId,reconciledInput);
+  check(worker.ReadMyWorkReplacement(correctedId)?.ReplacementId==reconciledId&&worker.ReplaceInvalidatedWork(correctedId,reconciledInput)==reconciledId,"reconciled source permits one linked replacement");
+  check(s.ReadInvoiceCandidates(project,day).Count==0,"replacement remains unbillable before review");
+  s.ReviewWork(reconciledId,true,"Independent fact review");s.ClassifyWork(reconciledId,true,"Independent classification");
+  check(s.ReadInvoiceCandidates(project,day).Single().SourceId==reconciledId,"only corrected approved fact becomes billing candidate");
  }
 }
