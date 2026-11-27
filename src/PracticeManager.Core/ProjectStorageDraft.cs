@@ -38,11 +38,16 @@ public static class ProjectStorageDrafting
  }
  static bool Contains(string a,string b)=>string.Equals(a,b,StringComparison.OrdinalIgnoreCase)||
   b.StartsWith(a+"\\",StringComparison.OrdinalIgnoreCase);
- public static ProjectStorageDraft Build(string productionRoot,string restrictedRoot,long projectId,string projectNumber,
-  bool includeCorrespondence)
+ public static (string Production,string Restricted) ValidateRoots(string productionRoot,string restrictedRoot)
  {
   var p=Root(productionRoot);var r=Root(restrictedRoot);
   if(Contains(p,r)||Contains(r,p))throw new ArgumentException("Production and restricted directories must be separate, nonnested roots.");
+  return(p,r);
+ }
+ public static ProjectStorageDraft Build(string productionRoot,string restrictedRoot,long projectId,string projectNumber,
+  bool includeCorrespondence)
+ {
+  var (p,r)=ValidateRoots(productionRoot,restrictedRoot);
   var plan=ProjectFolderPlanning.Build(projectId,projectNumber,includeCorrespondence,true);
   foreach(var entry in plan.Entries)
   {

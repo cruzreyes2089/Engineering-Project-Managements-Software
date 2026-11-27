@@ -24,6 +24,9 @@ internal sealed class ProjectStorageDraftWindow:Window
   production.TextChanged+=(_,_)=>result.Text="";restricted.TextChanged+=(_,_)=>result.Text="";
   Closed+=(_,_)=>{production.Clear();restricted.Clear();result.Text="";};
   Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+  try{var saved=service.ReadFirmStoragePreference();production.Text=saved.ProductionRoot;restricted.Text=saved.RestrictedRoot;}
+  catch(UnauthorizedAccessException){production.Clear();restricted.Clear();result.Text="Access denied.";}
+  catch(Exception){result.Text="Saved preferences unavailable; no storage has been activated.";}
  }
  void Review()
  {
