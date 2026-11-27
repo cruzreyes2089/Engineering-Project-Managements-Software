@@ -24,23 +24,29 @@ internal static class SyntheticWindowsDirectoryIdentity
   readonly SafeFileHandle handle;
   public string Identity{get;}
   internal Pin(SafeFileHandle handle,string identity){this.handle=handle;Identity=identity;}
+  public string ReadCurrentIdentity()=>IdentityOf(handle);
   public void Dispose()=>handle.Dispose();
  }
  public static Pin Open(string path)
  {
   if(!OperatingSystem.IsWindows())throw new PlatformNotSupportedException("Windows directory identity required.");
   // Do not follow a reparse point in the final path component. Omit delete sharing
-  // while this handle is held. Ancestor checks are still separate.
+  // while this handle is held. Metadata-only opens do NOT guarantee rename exclusion.
+  // Ancestor checks and a production filesystem mutation boundary are still separate.
   var handle=CreateFile(path,ReadAttributes,ShareReadWrite,IntPtr.Zero,OpenExisting,BackupSemantics|OpenReparsePoint,IntPtr.Zero);
   try
   {
-   if(handle.IsInvalid||!GetFileInformationByHandle(handle,out var info))throw new IOException("Synthetic directory identity unavailable.");
-   if((info.Attributes&DirectoryAttribute)==0||(info.Attributes&ReparseAttribute)!=0)
-    throw new IOException("Synthetic directory identity is not a plain directory.");
-   if(info.IndexHigh==0&&info.IndexLow==0)throw new IOException("Synthetic directory file index unavailable.");
-   return new Pin(handle,$"{info.Volume:x8}:{info.IndexHigh:x8}{info.IndexLow:x8}");
+   return new Pin(handle,IdentityOf(handle));
   }
   catch{handle.Dispose();throw;}
+ }
+ static string IdentityOf(SafeFileHandle handle)
+ {
+  if(handle.IsInvalid||!GetFileInformationByHandle(handle,out var info))throw new IOException("Synthetic directory identity unavailable.");
+  if((info.Attributes&DirectoryAttribute)==0||(info.Attributes&ReparseAttribute)!=0)
+   throw new IOException("Synthetic directory identity is not a plain directory.");
+  if(info.IndexHigh==0&&info.IndexLow==0)throw new IOException("Synthetic directory file index unavailable.");
+  return $"{info.Volume:x8}:{info.IndexHigh:x8}{info.IndexLow:x8}";
  }
  public static string Observe(string path)
  {

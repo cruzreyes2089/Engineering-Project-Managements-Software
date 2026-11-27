@@ -7,7 +7,7 @@ using PracticeManager.Core;
 internal sealed class SyntheticFolderProvisioning
 {
  internal sealed record Step(string Boundary,string RelativeDirectory,bool Exists,string? DirectoryIdentity);
- internal sealed record Review(string PlanFingerprint,string ReviewFingerprint,IReadOnlyList<Step> Steps);
+ internal sealed record Review(string PlanFingerprint,string ReviewFingerprint,IReadOnlyList<Step> Steps,IReadOnlyList<string> RootIdentities);
  readonly string production,restricted;
  internal string WorkspaceRoot {get;}
  internal long ProjectId=>projectId;
@@ -77,7 +77,7 @@ internal sealed class SyntheticFolderProvisioning
    steps.Add(new(entry.Boundary,entry.RelativeDirectory,present,
     present&&OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Observe(target):null));
   }
-  return new(plan.Fingerprint,Hash(new{plan.Fingerprint,production,restricted,rootIdentities,steps}),steps.AsReadOnly());
+  return new(plan.Fingerprint,Hash(new{plan.Fingerprint,production,restricted,rootIdentities,steps}),steps.AsReadOnly(),Array.AsReadOnly(rootIdentities));
  }
  public Review Preview(bool correspondence,bool includeRestricted)=>Build(correspondence,includeRestricted);
  public (int Created,int AlreadyPresent) Apply(bool correspondence,bool includeRestricted,
@@ -91,6 +91,7 @@ internal sealed class SyntheticFolderProvisioning
   var reviewed=Build(correspondence,includeRestricted);
   if(reviewed.ReviewFingerprint!=expectedReviewFingerprint)throw new ArgumentException("Stale synthetic folder review.");
   var created=0;var existing=0;
+  var completed=new List<Step>();
   foreach(var step in reviewed.Steps)
   {
    var target=Resolve(new(step.Boundary,step.RelativeDirectory));
@@ -103,15 +104,17 @@ internal sealed class SyntheticFolderProvisioning
    {
     if(OperatingSystem.IsWindows()&&SyntheticWindowsDirectoryIdentity.Observe(target)!=step.DirectoryIdentity)
      throw new IOException("Synthetic directory replaced after review.");
-    existing++;continue;
+    completed.Add(step);existing++;continue;
    }
    Directory.CreateDirectory(target);
    RequireDirectory(target);
+   completed.Add(step with{Exists=true,DirectoryIdentity=OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Observe(target):null});
    created++;
    afterCreate?.Invoke(created);
   }
   var final=Build(correspondence,includeRestricted);
-  if(final.Steps.Any(s=>!s.Exists))throw new IOException("Synthetic folder verification failed.");
+  if(!final.RootIdentities.SequenceEqual(reviewed.RootIdentities)||!final.Steps.SequenceEqual(completed))
+   throw new IOException("Synthetic folder verification or directory identity reconciliation failed.");
   return(created,existing);
  }
 }
@@ -169,17 +172,36 @@ internal static class SyntheticFolderProvisioningTests
    var qa=Path.Combine(pp,"QA-QC");var moved=Path.Combine(pp,"QA-QC-original");
    var beforeReplacement=candidate.Preview(true,true);
    var identity=SyntheticWindowsDirectoryIdentity.Observe(qa);
+   bool renamed=false;
    using(var pin=SyntheticWindowsDirectoryIdentity.Open(qa))
    {
     check(pin.Identity==identity,"Windows directory identity is stable across handles");
-    // No deletion or replacement is performed by the candidate.
-    Reject<IOException>(()=>Directory.Move(qa,moved),"Windows pinned directory refuses rename");
+    // Metadata-only handles can permit rename even without delete sharing.
+    try{Directory.Move(qa,moved);renamed=true;}
+    catch(IOException){}
+    catch(UnauthorizedAccessException){}
+    check(pin.ReadCurrentIdentity()==identity,"Windows open handle retains original directory identity");
+    if(renamed)
+    {
+     check(SyntheticWindowsDirectoryIdentity.Observe(moved)==identity,"renamed directory retains its identity");
+     Console.WriteLine("NOT QUALIFIED: Windows metadata handle does not exclude rename.");
+    }
+    else check(SyntheticWindowsDirectoryIdentity.Observe(qa)==identity,"blocked rename preserves original identity");
    }
-   Directory.Move(qa,moved);Directory.CreateDirectory(qa);
+   if(!renamed)Directory.Move(qa,moved);
+   Directory.CreateDirectory(qa);
    check(SyntheticWindowsDirectoryIdentity.Observe(qa)!=identity,"same-path directory replacement changes Windows identity");
    Reject<ArgumentException>(()=>candidate.Apply(true,true,beforeReplacement.ReviewFingerprint,true),"same-path replacement invalidates folder review");
    Directory.Delete(qa,false);Directory.Move(moved,qa);
    check(candidate.Preview(true,true).ReviewFingerprint==beforeReplacement.ReviewFingerprint,"restored original directory identity reconciles review");
+   // A new directory can also be replaced after creation but before final readback.
+   var replaced=new SyntheticFolderProvisioning(root,4,"PRJ-000004");
+   var replacementReview=replaced.Preview(false,false);
+   var project4=Path.Combine(production,"PRJ-000004");
+   var firstChild=Path.Combine(project4,"Architectural");var originalChild=Path.Combine(project4,"Architectural-original");
+   Reject<IOException>(()=>replaced.Apply(false,false,replacementReview.ReviewFingerprint,true,n=>{
+    if(n==3){Directory.Move(firstChild,originalChild);Directory.CreateDirectory(firstChild);}
+   }),"same-path replacement during provisioning fails final identity reconciliation");
   }
   else Console.WriteLine("NOT QUALIFIED: Windows directory identity checks unavailable.");
   var other=new SyntheticFolderProvisioning(root,2,"PRJ-000002");

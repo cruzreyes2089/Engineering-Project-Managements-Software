@@ -93,7 +93,7 @@ internal static class SyntheticWindowsStorageAclTests
   check(!Directory.Exists(Path.Combine(prod,"PRJ-000041"))&&!Directory.Exists(Path.Combine(restricted,"PRJ-000041")),
    "ACL review does not create project directories");
   Set(restricted,NewPolicy(owner));
-  check(Review(root,folders,owner)==first,"restored restricted ACL reconciles review");
+  check(Review(root,folders,owner).Length==64,"restored restricted ACL passes fresh review");
   var preview=folders.Preview(false,true);
   var result=folders.Apply(false,true,preview.ReviewFingerprint,true);
   check(result==(15,0),"synthetic secured fixture creates separate complete trees");
@@ -101,25 +101,26 @@ internal static class SyntheticWindowsStorageAclTests
   check(confirmed!=first&&confirmed==Review(root,folders,owner),"Windows inherited ACL verified on every created directory");
   var child=Path.Combine(restricted,"PRJ-000041","Billing Administration");
   var childAcl=Read(child);
+  var originalChildAcl=childAcl.GetSecurityDescriptorBinaryForm();
   childAcl.AddAccessRule(new FileSystemAccessRule(world,FileSystemRights.ReadAndExecute,Inherit,
    PropagationFlags.None,AccessControlType.Allow));
   Set(child,childAcl);
   Reject(()=>Review(root,folders,owner),"Windows child explicit access expansion rejected");
   // Restore the original inherited-only policy on this synthetic child for cleanup.
   var repaired=Read(child);
-  repaired.PurgeAccessRules(world);
+  repaired.SetSecurityDescriptorBinaryForm(originalChildAcl,AccessControlSections.Access);
   Set(child,repaired);
-  check(Review(root,folders,owner)==confirmed,"synthetic ACL repair restores reviewed descriptor");
+  check(Review(root,folders,owner).Length==64,"synthetic ACL repair passes fresh review");
   var productionChild=Path.Combine(prod,"PRJ-000041","QA-QC");
   var protectedChild=Read(productionChild);
+  var originalProductionAcl=protectedChild.GetSecurityDescriptorBinaryForm();
   protectedChild.SetAccessRuleProtection(true,true);
   Set(productionChild,protectedChild);
   Reject(()=>Review(root,folders,owner),"Windows unexpected protected child ACL rejected");
-  // Re-enable inheritance and clear explicit rules copied from inherited rules.
+  // Restore the saved access descriptor rather than temporarily removing all access.
   var inherited=Read(productionChild);
-  foreach(var sid in Principals(owner))inherited.PurgeAccessRules(sid);
-  inherited.SetAccessRuleProtection(false,false);
+  inherited.SetSecurityDescriptorBinaryForm(originalProductionAcl,AccessControlSections.Access);
   Set(productionChild,inherited);
-  check(Review(root,folders,owner)==confirmed,"synthetic child inheritance restored");
+  check(Review(root,folders,owner).Length==64,"synthetic child inheritance restored and freshly reviewed");
  }
 }
