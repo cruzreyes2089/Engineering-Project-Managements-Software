@@ -77,8 +77,12 @@ def compare_values(actual, expected):
                 sorted(wanted, key=lambda r: r["legacyId"]),
                 "Full normalized fixture field comparison: " + entity)
 
+def native_mode(empty, shared):
+    require(not (empty and shared), "Distinct synthetic fixture modes required")
+    return "empty" if empty else "shared" if shared else "populated"
+
 def qualify(folder, powershell, empty, native_smoke=False, shared=False):
-    require(not (shared and native_smoke), "Shared-key native fixture not yet qualified")
+    require(not (empty and shared), "Distinct synthetic fixture modes required")
     checks = []
     def check(condition, label):
         require(condition, label)
@@ -225,7 +229,7 @@ def qualify(folder, powershell, empty, native_smoke=False, shared=False):
     else:
         raise ValueError("Substituted identity accepted")
     if native_smoke:
-        mode = "empty" if empty else "populated"
+        mode = native_mode(empty, shared)
         run = subprocess.run(["dotnet", "run", "--project",
                               str(ROOT / "tests/PracticeManager.SmokeTests/PracticeManager.SmokeTests.csproj"),
                               "-c", "Release", "--no-build", "--no-restore", "--",
@@ -267,11 +271,11 @@ def main():
                                          ("sharedContactKey", False, True)):
                 folder = base / label
                 folder.mkdir()
-                runs[label] = qualify(folder, powershell, empty, args.native_smoke and not shared, shared)
+                runs[label] = qualify(folder, powershell, empty, args.native_smoke, shared)
         print(json.dumps({"checks": runs, "daoFixtureChecksPassed": True,
                           "nativeImportExecuted": args.native_smoke,
-                          "nativeCases": ["populated", "emptyContacts"] if args.native_smoke else [],
-                          "sharedKeyNativeQualified": False, "releaseAuthorized": False}, sort_keys=True))
+                          "nativeCases": ["populated", "emptyContacts", "sharedContactKey"] if args.native_smoke else [],
+                          "sharedKeyNativeQualified": args.native_smoke, "releaseAuthorized": False}, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
         print("Synthetic DAO qualification did not complete successfully; inspect local prerequisites.", file=sys.stderr)

@@ -111,6 +111,9 @@ class SyntheticQualificationTests(unittest.TestCase):
         self.assertEqual({c["name"] for c in plan["contacts"]["columns"]},
                          {"Id", "Name", "PrimaryFlag"})
 
-    def test_shared_key_native_mode_fails_before_running_subprocess(self):
-        with self.assertRaisesRegex(ValueError, "Shared-key native fixture not yet qualified"):
-            q.qualify(None, None, False, native_smoke=True, shared=True)
+    def test_native_fixture_mode_selection(self):
+        self.assertEqual(q.native_mode(False, False), "populated")
+        self.assertEqual(q.native_mode(True, False), "empty")
+        self.assertEqual(q.native_mode(False, True), "shared")
+        with self.assertRaisesRegex(ValueError, "Distinct synthetic fixture modes required"):
+            q.qualify(None, None, True, native_smoke=True, shared=True)

@@ -17,19 +17,20 @@ internal static class SyntheticCrmNativeTests
     };
     private static Contact ExpectedContact(string id) => id switch
     {
-        "11" => new(0,0,"Synthetic First","","","","",true),
-        "12" => new(0,0,"Synthetic Second","","","","",false),
+        "11" or "001" => new(0,0,"Synthetic First","","","","",true),
+        "12" or "002" => new(0,0,"Synthetic Second","","","","",false),
         _ => throw new ArgumentException("Unexpected synthetic contact.")
     };
-    private static string Parent(string id) => id == "11" ? "001" : id == "12" ? "002" : throw new ArgumentException("Unexpected contact.");
+    private static string Parent(string id) => id is "11" or "001" ? "001" : id is "12" or "002" ? "002" : throw new ArgumentException("Unexpected contact.");
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
-    public static void VerifyFixture(byte[] bytes, bool empty)
+    public static void VerifyFixture(byte[] bytes, bool empty, bool shared=false)
     {
+        if(empty&&shared)throw new ArgumentException("Distinct synthetic fixture modes required.");
         var p = LegacyCrmTransfer.Parse(bytes);
         if (p.Clients.Count != 2 || p.Contacts.Count != (empty ? 0 : 2) ||
             !p.Clients.Select(x=>x.LegacyId).ToHashSet(StringComparer.Ordinal).SetEquals(new[]{"001","002"}) ||
-            !p.Contacts.Select(x=>x.LegacyId).ToHashSet(StringComparer.Ordinal).SetEquals(empty?Array.Empty<string>():new[]{"11","12"}))
+            !p.Contacts.Select(x=>x.LegacyId).ToHashSet(StringComparer.Ordinal).SetEquals(empty?Array.Empty<string>():shared?new[]{"001","002"}:new[]{"11","12"}))
             throw new ArgumentException("Synthetic identities do not match.");
         foreach (var row in p.Clients)
             if (row.LegacyNumber != "" || row.Value != ExpectedClient(row.LegacyId))
@@ -39,8 +40,9 @@ internal static class SyntheticCrmNativeTests
                 throw new ArgumentException("Synthetic contact values do not match.");
     }
 
-    public static byte[] Fixture(bool empty)
+    public static byte[] Fixture(bool empty, bool shared=false)
     {
+        if(empty&&shared)throw new ArgumentException("Distinct synthetic fixture modes required.");
         object ClientRow(string id)
         {
             var x=ExpectedClient(id);
@@ -53,12 +55,19 @@ internal static class SyntheticCrmNativeTests
             return new{legacyId=id,legacyClientId=Parent(id),first=x.First,last=x.Last,title=x.Title,email=x.Email,phone=x.Phone,primary=x.Primary};
         }
         return JsonSerializer.SerializeToUtf8Bytes(new{format="CRC-Legacy-CRM-v1",
-            clients=new[]{ClientRow("001"),ClientRow("002")},contacts=empty?Array.Empty<object>():new[]{ContactRow("11"),ContactRow("12")}});
+            clients=new[]{ClientRow("001"),ClientRow("002")},contacts=empty?Array.Empty<object>():new[]{ContactRow(shared?"001":"11"),ContactRow(shared?"002":"12")}});
     }
 
-    public static void Run(string path, byte[] bytes, bool empty, Action<bool,string> check)
+    public static void Run(string path, byte[] bytes, bool empty, Action<bool,string> check, bool shared=false)
     {
-        VerifyFixture(bytes,empty);
+        VerifyFixture(bytes,empty,shared);
+        if(shared)
+        {
+            try{VerifyFixture(bytes,false);check(false,"Shared-key fixture rejects ordinary identity mode");}
+            catch(ArgumentException){check(true,"Shared-key fixture rejects ordinary identity mode");}
+            try{VerifyFixture(Fixture(false),false,true);check(false,"Ordinary fixture rejected in shared-key mode");}
+            catch(ArgumentException){check(true,"Ordinary fixture rejected in shared-key mode");}
+        }
         var parsed=LegacyCrmTransfer.Parse(bytes);
         var hash=Hash(bytes);
         var s=new LocalPractice(path);
@@ -138,6 +147,13 @@ internal static class SyntheticCrmNativeTests
         check(Count("SELECT count(*) FROM legacy_client_map")==2&&Count("SELECT count(*) FROM legacy_contact_map")==parsed.Contacts.Count,
             "DAO fixture stored mapping counts");
         check(Count("SELECT next_value FROM sequences WHERE name='Client'")==3,"DAO fixture sequence reconciles");
+        if(shared)
+        {
+            check(h.Mappings.Where(x=>x.Kind=="Client").Select(x=>x.LegacyId).ToHashSet().SetEquals(new[]{"001","002"})&&
+                h.Mappings.Where(x=>x.Kind=="Contact").Select(x=>x.LegacyId).ToHashSet().SetEquals(new[]{"001","002"})&&
+                h.Mappings.Where(x=>x.Kind=="Contact").All(x=>x.LegacyId==x.LegacyParentId),
+                "Shared-key native mappings preserve separate entity kinds and exact text identities");
+        }
         var postAudit=Count("SELECT count(*) FROM audit_events");
         check(s.ImportLegacyCrm(bytes,hash,true,"Synthetic repeat").Outcome=="AlreadyImported","DAO fixture repeat prevented");
         var changed=bytes.Concat(new byte[]{32}).ToArray();

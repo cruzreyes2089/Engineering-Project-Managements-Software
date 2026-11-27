@@ -9,7 +9,7 @@ void Denied(Action a,string name){try{a();}catch(UnauthorizedAccessException){Ch
 void Invalid(Action a,string name){try{a();}catch(ArgumentException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 try{
  if(args.Length!=0){
-  if(args.Length!=4||args[0]!="--synthetic-crm-transfer"||args[1] is not ("populated" or "empty")||
+  if(args.Length!=4||args[0]!="--synthetic-crm-transfer"||args[1] is not ("populated" or "empty" or "shared")||
       args[3].Length!=64||args[3].Any(c=>!char.IsAsciiHexDigit(c)))throw new ArgumentException("Invalid synthetic smoke-test arguments.");
   byte[] bytes;
   using(var file=new FileStream(args[2],FileMode.Open,FileAccess.Read,FileShare.Read)){
@@ -19,7 +19,7 @@ try{
   }
   var digest=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
   if(!string.Equals(digest,args[3],StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Synthetic transfer digest mismatch.");
-  SyntheticCrmNativeTests.Run(path,bytes,args[1]=="empty",Check);
+  SyntheticCrmNativeTests.Run(path,bytes,args[1]=="empty",Check,args[1]=="shared");
   Console.WriteLine($"Synthetic CRM native checks passed: {passed}; transfer SHA-256: {digest.ToLowerInvariant()}");
   return 0;
  }
@@ -153,5 +153,6 @@ try{
  HistoricalProjectTransferTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"historical-project-archive.db"),Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-populated.db"),SyntheticCrmNativeTests.Fixture(false),false,Check);
  SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-empty.db"),SyntheticCrmNativeTests.Fixture(true),true,Check);
+ SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-shared.db"),SyntheticCrmNativeTests.Fixture(false,true),false,Check,true);
  Console.WriteLine($"{passed} checks passed"); return 0;
 }catch(Exception e){if(args.Length==0)Console.Error.WriteLine(e);else Console.Error.WriteLine("Synthetic native qualification rejected or failed."); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
