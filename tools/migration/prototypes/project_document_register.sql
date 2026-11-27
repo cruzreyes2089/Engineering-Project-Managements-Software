@@ -68,6 +68,7 @@ CREATE TABLE project_transmittal_events(
  actor_id INTEGER NOT NULL REFERENCES users(id),
  recorded_utc TEXT NOT NULL CHECK(length(recorded_utc) BETWEEN 1 AND 64),
  audit_id INTEGER NOT NULL UNIQUE REFERENCES audit_events(id),
+ metadata_hash TEXT NOT NULL CHECK(length(metadata_hash)=64 AND metadata_hash NOT GLOB '*[^0-9a-f]*'),
  PRIMARY KEY(intent_id,sequence),UNIQUE(intent_id,event_hash),
  FOREIGN KEY(intent_id,previous_hash) REFERENCES project_transmittal_events(intent_id,event_hash)
 );

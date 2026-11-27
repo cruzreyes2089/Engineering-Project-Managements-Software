@@ -151,6 +151,7 @@ try{
  DocumentRegisterReviewTests.Run(Path.GetDirectoryName(path)!,Check);
  ProjectFolderRegisterStoreTests.Run(Path.GetDirectoryName(path)!,Check);
  FolderConfigurationTests.Run(Path.GetDirectoryName(path)!,Check);
+ TransmittalRegisterStoreTests.Run(Check);
  SyntheticBudgetHistoryTests.Run(Check);
  ProjectBudgetServiceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"budget-service-candidate.db"),pw,Check);
  BudgetAcceptanceStartupTests.Run(Path.GetDirectoryName(path)!,pw,Check);

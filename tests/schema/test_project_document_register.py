@@ -46,8 +46,8 @@ class DocumentRegisterTests(unittest.TestCase):
 
     def event(self, seq=1, ident=10, prior=None, state="Prepared", intent=1, project=1):
         aid=self.audit(project,"RecordTransmittalEvent")
-        self.db.execute("INSERT INTO project_transmittal_events VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                        (intent,seq,K(ident),prior,H(ident),state,"Synthetic external evidence","Reviewed",1,"UTC",aid))
+        self.db.execute("INSERT INTO project_transmittal_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (intent,seq,K(ident),prior,H(ident),state,"Synthetic external evidence","Reviewed",1,"UTC",aid,H(1000+ident)))
 
     def reject(self, operation):
         with self.assertRaises(sqlite3.IntegrityError):
