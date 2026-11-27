@@ -52,7 +52,7 @@ public sealed partial class LocalPractice
    }
   }
   if(Scalar(c,t,"SELECT id FROM overhead_time WHERE operation_key=$k",("$k",key))!=null)throw new ArgumentException("Operation conflict.");
-  if(Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id JOIN projects p ON p.id=h.project_id JOIN project_start_authorizations a ON a.project_id=p.id WHERE w.id=$i AND w.employee_id=$e AND w.state IN ('InProgress','Completed') AND p.state='Active' AND EXISTS(SELECT 1 FROM project_operational_state v WHERE v.project_id=p.id AND v.state='Active') AND $d>=w.start_on AND $d<=w.end_on",("$i",input.TaskId),("$e",employee),("$d",date)))!=1)throw new ArgumentException("Started own task, authorized project and date inside task plan required.");
+  if(Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id JOIN projects p ON p.id=h.project_id JOIN project_start_authorizations a ON a.project_id=p.id WHERE w.id=$i AND w.employee_id=$e AND w.state IN ('InProgress','Completed') AND NOT EXISTS(SELECT 1 FROM task_cancellations z WHERE z.task_id=w.id) AND p.state='Active' AND EXISTS(SELECT 1 FROM project_operational_state v WHERE v.project_id=p.id AND v.state='Active') AND $d>=w.start_on AND $d<=w.end_on",("$i",input.TaskId),("$e",employee),("$d",date)))!=1)throw new ArgumentException("Started own task, authorized project and date inside task plan required.");
   if(input.Kind=="Time"){
    var existing=Convert.ToInt64(Scalar(c,t,"SELECT coalesce((SELECT minutes FROM combined_daily_time WHERE employee_id=$e AND work_date=$d),0)",("$e",employee),("$d",date)));
    if(existing+input.Minutes!.Value>1440)throw new ArgumentException("Daily time exceeds 24 hours.");

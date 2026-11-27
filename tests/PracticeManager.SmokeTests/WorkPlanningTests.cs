@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 internal static class WorkPlanningTests
@@ -67,7 +68,17 @@ internal static class WorkPlanningTests
   Invalid(()=>s.CancelPlannedTask(project,rejectedTask,1,"Repeat",true),"repeat cancellation rejected");
   Invalid(()=>s.EditProjectTask(project,rejectedTask,1,plan with{ScopeChangeId=rejected}),"cancelled task cannot be edited");
   var baseCancel=s.CreateProjectTask(project,plan with{Title="Unneeded base work"});
-  s.CancelPlannedTask(project,baseCancel,1,"No longer required",true);
+  void Sql(string sql){using var db=new SqliteConnection($"Data Source={path};Pooling=False");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
+  Sql("CREATE TRIGGER test_cancel_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='CancelPlannedTask' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{s.CancelPlannedTask(project,baseCancel,1,"Synthetic rollback",true);throw new Exception("FAIL: cancellation rollback");}catch(SqliteException){check(s.ReadTaskCancellation(project,baseCancel)==null&&s.ReadProjectTasks(project).Single(x=>x.Id==baseCancel).State=="Planned","cancellation rolls back with audit failure");}
+  Sql("DROP TRIGGER test_cancel_audit_abort");
+  var peer=new LocalPractice(path);check(peer.Login("admin",pw),"cancellation concurrent admin session");
+  TaskCancellation? TryCancel(LocalPractice service){try{return service.CancelPlannedTask(project,baseCancel,1,"No longer required",true);}catch(ArgumentException){return null;}}
+  var results=Task.WhenAll(Task.Run(()=>TryCancel(s)),Task.Run(()=>TryCancel(peer))).GetAwaiter().GetResult();
+  check(results.Count(x=>x!=null)==1,"concurrent cancellation records exactly one decision");
+  Invalid(()=>s.EditProjectTask(project,baseCancel,1,plan),"cancelled base task cannot be edited");
+  foreach(var sql in new[]{$"UPDATE task_cancellations SET reason='Changed' WHERE task_id={baseCancel}",$"DELETE FROM task_cancellations WHERE task_id={baseCancel}",$"UPDATE project_tasks SET title='Changed' WHERE id={baseCancel}"}){try{Sql(sql);throw new Exception("FAIL: cancellation SQL guard");}catch(SqliteException){check(true,"database protects cancellation evidence and original plan");}}
+  try{Sql($"INSERT INTO task_cancellations(task_id,plan_revision,reason,actor_id,recorded_utc) VALUES({extra},2,'Invalid',1,'synthetic')");throw new Exception("FAIL: direct cancellation of started task");}catch(SqliteException){check(true,"database rejects cancellation of started task");}
   Invalid(()=>worker.AdvanceMyTask(baseCancel,1,"InProgress"),"cancelled base task cannot start");
   Denied(()=>worker.ReadTaskCancellation(project,rejectedTask),"ordinary employee cannot read management cancellation evidence");
   var employee=s.ReadEmployees().Single(x=>x.Id==e);s.EditEmployee(e,employee.Revision,new(employee.First,employee.Last,employee.Email,employee.Title,false));Denied(()=>worker.ReadMyWork(day,day.AddDays(10)),"inactive linked employee denied work access");

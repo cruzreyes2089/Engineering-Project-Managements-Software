@@ -9,3 +9,5 @@ Acceptance:
 - Update schema migration, restore version, historic migration fixtures, operational lifecycle SQL guard and read projections. Add concurrency, rollback and direct SQL regression; UI manager cancellation with required reason and confirmation. No changes to accounting posting controls.
 
 Test-first branch adds throwing API stubs and report contract only. Full Windows red then green verification required. No main merge, production data or executable distribution.
+
+Candidate implementation: schema 33 adds one cancellation row per task, immutable triggers, current-state guards, operational closeout integration, explicit UI controls, and migration fixtures. Original task estimate remains visible in history but excluded from operations report totals. Added atomic audit rollback and concurrent duplicate-decision regression. Green CI and desktop interaction acceptance pending.

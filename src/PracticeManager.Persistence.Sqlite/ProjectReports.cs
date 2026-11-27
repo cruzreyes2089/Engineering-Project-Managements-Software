@@ -44,7 +44,7 @@ public sealed partial class LocalPractice
   var conflict=ConflictCleared(c,t,project)?"Clear":CurrentConflict(c,t,project)==null?"NotReviewed":"Hold";
   int Count(string sql)=>Convert.ToInt32(Scalar(c,t,sql,("$p",project)));
   var phases=Count("SELECT count(*) FROM project_phases WHERE project_id=$p");
-  var tasks=Count("SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND w.state!='Completed'");
+  var tasks=Count("SELECT count(*) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND w.state!='Completed' AND NOT EXISTS(SELECT 1 FROM task_cancellations z WHERE z.task_id=w.id)");
   var quality=Count("SELECT count(*) FROM project_quality_items i WHERE i.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_quality_closures x WHERE x.item_id=i.id)");
   var scope=Count("SELECT count(*) FROM project_scope_changes s WHERE s.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_scope_decisions d WHERE d.change_id=s.id)");
   int Pending(string kind)=>Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM work_submissions s JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND s.kind=$k AND NOT EXISTS(SELECT 1 FROM work_reviews r WHERE r.submission_id=s.id)",("$p",project),("$k",kind)));
@@ -56,13 +56,13 @@ public sealed partial class LocalPractice
   var range=new (string,object?)[]{("$p",project),("$s",PlanDate(start)),("$e",PlanDate(end))};
   int Count(string sql)=>Convert.ToInt32(Scalar(c,t,sql,range));
   var phaseCount=Count("SELECT count(*) FROM project_phases WHERE project_id=$p AND start_on<=$e AND end_on>=$s");
-  int planned=0,started=0,complete=0;long estimate=0;
-  using(var q=Command(c,t,"SELECT w.state,count(*),coalesce(sum(w.estimate_minutes),0) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND w.start_on<=$e AND w.end_on>=$s GROUP BY w.state",range))using(var r=q.ExecuteReader()){while(r.Read()){var n=r.GetInt32(1);switch(r.GetString(0)){case "Planned":planned=n;break;case "InProgress":started=n;break;case "Completed":complete=n;break;}estimate+=r.GetInt64(2);}}
+  int planned=0,started=0,complete=0,cancelled=0;long estimate=0;
+  using(var q=Command(c,t,"SELECT CASE WHEN z.task_id IS NOT NULL THEN 'Cancelled' ELSE w.state END AS effective_state,count(*),coalesce(sum(CASE WHEN z.task_id IS NULL THEN w.estimate_minutes ELSE 0 END),0) FROM project_tasks w JOIN project_phases h ON h.id=w.phase_id LEFT JOIN task_cancellations z ON z.task_id=w.id WHERE h.project_id=$p AND w.start_on<=$e AND w.end_on>=$s GROUP BY effective_state",range))using(var r=q.ExecuteReader()){while(r.Read()){var n=r.GetInt32(1);switch(r.GetString(0)){case "Planned":planned=n;break;case "InProgress":started=n;break;case "Completed":complete=n;break;case "Cancelled":cancelled=n;break;}estimate+=r.GetInt64(2);}}
   long submitted=0,approved=0,rejected=0,pending=0;
   using(var q=Command(c,t,"SELECT coalesce(r.decision,'Submitted'),coalesce(sum(s.minutes),0) FROM work_submissions s JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id LEFT JOIN work_reviews r ON r.submission_id=s.id WHERE h.project_id=$p AND s.kind='Time' AND s.work_date BETWEEN $s AND $e GROUP BY coalesce(r.decision,'Submitted')",range))using(var r=q.ExecuteReader()){while(r.Read()){var n=r.GetInt64(1);submitted+=n;switch(r.GetString(0)){case "Approved":approved=n;break;case "Rejected":rejected=n;break;default:pending=n;break;}}}
   var expenses=Count("SELECT count(*) FROM work_submissions s JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND s.kind='Expense' AND s.work_date BETWEEN $s AND $e");
   var quality=Convert.ToInt32(Scalar(c,t,"SELECT count(*) FROM project_quality_items i WHERE i.project_id=$p AND NOT EXISTS(SELECT 1 FROM project_quality_closures x WHERE x.item_id=i.id)",("$p",project)));
-  return new(p.Number,start,end,phaseCount,planned,started,complete,estimate,submitted,approved,rejected,pending,expenses,quality);
+  return new(p.Number,start,end,phaseCount,planned,started,complete,estimate,submitted,approved,rejected,pending,expenses,quality,cancelled);
  }
  public ProjectFinancialReport ReadProjectFinancialReport(long project,DateOnly start,DateOnly end)
  {
