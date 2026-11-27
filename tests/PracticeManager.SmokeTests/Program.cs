@@ -141,6 +141,7 @@ try{
  await AccountingDirectoryTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"directory.db"),pw,Check);
  await AccountingDetailTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"detail.db"),pw,Check);
  TestLedgerReconciliationTests.Run(Check);
+  SyntheticReceiptCapacityTests.Run(Check);
  SyntheticRecoveryReviewTests.Run(Check);
  SyntheticWireCompilerTests.Run(Check);
  SyntheticWireReadbackTests.Run(Check);

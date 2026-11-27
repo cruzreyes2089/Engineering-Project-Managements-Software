@@ -66,3 +66,11 @@ These are completed source-regression runs, not field or interactive desktop acc
 | 54 | 277fd84edacb8004ef93ace3d3f9c6aa4123258d | 46064575362 | 91 | 2103 | Nested synthetic storage and journal recovery |
 
 The later read-only storage observation revision must be qualified separately. No live physical provisioning, DAO source migration, financial posting, final distribution or main merge is authorized.
+
+## Latest verified baseline and migration gate
+
+- Schema 54 read-only inspection: 7a8eecf0a722232f8c1aa036478a8b65a52e467d, run 46064829727: 91 Python, 2,118 native, zero compile warnings/errors.
+- Offline historical orchestration: 6e42e632026d6292d1df82d851cb8581eb0ee648, run 46065101729: 96 Python, 2,118 native, zero compile warnings/errors.
+- Installed DAO gate: 9b9a4b923aa0e53fce1d172f8ac451df3dbf001e, run 46065319255: 103 Python, 2,118 native, zero compile warnings/errors. Both 32/64-bit COM registrations absent; explicit NotQualified, no synthetic DAO execution. Windows rename exclusion also remains unqualified.
+
+Accounting receipt-capacity candidate added independently of production posting; G2, G3, G5–G8 remain open. No production access or release approval.
