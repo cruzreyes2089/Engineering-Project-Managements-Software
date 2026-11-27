@@ -30,7 +30,7 @@ internal sealed class DueFixtureWindow:Window
   var prior=observation;using var ct=new CancellationTokenSource();pending=ct;run.IsEnabled=false;reminder.IsEnabled=false;grid.IsEnabled=false;endpoint.IsEnabled=false;token.IsEnabled=false;confirmed.IsEnabled=false;
   status.Text="Rechecking selected invoice...";
   try{
-   var result=await service.PrepareDueFixtureReminderAsync(endpoint.Text,token.Password,confirmed.IsChecked==true,prior,row.InvoiceKey,ct.Token);
+   var result=await service.PrepareDueFixtureReminderAsync(endpoint.Text,token.Password,confirmed.IsChecked==true,prior,row.InvoiceKey,ct.Token);token.Clear();
    if(closed||ct.IsCancellationRequested)return;
    if(result.Outcome!="InternalReviewPrepared"){Invalidate();status.Text="Reminder review blocked: "+result.Outcome+". Acquire current balances again.";return;}
    status.Text="Internal synthetic preview prepared. No message sent.";

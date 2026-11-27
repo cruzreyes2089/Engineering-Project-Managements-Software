@@ -1,8 +1,10 @@
 using System.Text.Json;
 using PracticeManager.Core;
+using PracticeManager.Persistence;
+using Microsoft.Data.Sqlite;
 internal static class DueFixtureTests
 {
- public static async Task Run(Action<bool,string> check)
+ public static async Task Run(string path,string pw,Action<bool,string> check)
  {
   var issue=new DateOnly(2026,11,1);
   ManagerInvoiceTerm? Parse(string json,DateOnly? d=null){using var doc=JsonDocument.Parse(json);return ManagerInvoiceTerms.Parse(doc.RootElement,d??issue);}
@@ -39,7 +41,7 @@ internal static class DueFixtureTests
   var fresh=ok with{ObservedUtc=when,DueDates=ok.DueDates!.Select(d=>d with{ObservedUtc=when}).ToArray()};
   var today=new DateOnly(2026,11,26);
   var reminder=CollectionReminderReview.Prepare(ok,fresh,ids[0],today,when);
-  check(reminder.Outcome=="InternalReviewPrepared"&&!reminder.MaySend&&reminder.Body!.Contains("DO NOT SEND")&&reminder.Body.Contains("USD 100.00")&&reminder.Body.Contains("25")&&!reminder.Body.Contains(customer.ToString()),"overdue fixture reminder preview only, no customer ID");
+  check(reminder.Outcome=="InternalReviewPrepared"&&!reminder.MaySend&&reminder.Body is string body&&body.Contains("DO NOT SEND")&&body.Contains("USD 100.00")&&body.Contains("Days overdue on 2026-11-26: 25")&&!body.Contains(customer.ToString()),"overdue fixture reminder preview only, no customer ID");
   check(CollectionReminderReview.Prepare(ok,fresh,ids[1],today,when).Outcome=="InvoiceNotOverdue","not-yet-due invoice excluded from reminder");
   check(CollectionReminderReview.Prepare(ok,fresh,ids[1],new DateOnly(2026,12,1),when).Outcome=="InvoiceNotOverdue","due-today invoice excluded from reminder");
   check(CollectionReminderReview.Prepare(ok,ok,ids[0],today,when).Outcome=="FreshObservationRequired","cached balance cannot prepare reminder");
@@ -52,5 +54,30 @@ internal static class DueFixtureTests
   check((await Read((r,_)=>r.StartsWith("sales-invoice-form")?responses[r].Replace("\"DueDateDays\":30","\"DueDateDays\":31"):responses[r])).Outcome=="DueFixtureTermsMismatch","changed net days blocked");
   check((await Read((r,_)=>r=="text-custom-fields"?responses[r].Replace("CRC DUE DATE TEST","Other"):responses[r])).Outcome=="CollectionMarkerMismatch","wrong business blocked");
   check((await Read((r,n)=>r=="text-custom-fields"&&n==10?responses[r].Replace(marker.ToString(),Guid.NewGuid().ToString()):responses[r])).Outcome=="CollectionMarkerMismatch","changed marker blocked");
+  // Exercise actual authorization and the one-time-credential path, without
+  // repointing an existing enrolled original accounting profile.
+  var s=new LocalPractice(path);s.Bootstrap("Synthetic Due Fixture Firm","admin",pw,"CL");check(s.Login("admin",pw)&&s.CanReviewCollections(),"due fixture reviewer authorized");
+  var originalMarker=Guid.NewGuid();var originalBusiness=new{name="CRC ACCOUNTING TEST"};
+  await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>{
+   check((await s.SaveAccountingProfileAsync(url,"synthetic-original-key")).Success,"original profile configured");
+   check((await s.EnrollOrVerifyMarkerAsync(true)).Success,"original marker enrolled");
+  },2,responseFor:req=>req.StartsWith("GET /api2/customers ")?J(new{customers=Array.Empty<object>()}):J(new{business=originalBusiness,skip=0,pageSize=2,totalRecords=1,textCustomFields=new[]{new{key=originalMarker,name=BusinessMarker.TestName}}}));
+  var originalProfile=s.ReadAccountingProfile();check(originalProfile!=null&&s.ReadBusinessMarker().Enrolled,"original profile and marker present");
+  string? MarkerValue(){using var c=new SqliteConnection($"Data Source={path};Pooling=False");c.Open();using var q=c.CreateCommand();q.CommandText="SELECT marker_key FROM accounting_business_marker WHERE id=1";return q.ExecuteScalar() as string;}
+  var beforeMarker=MarkerValue();
+  check(beforeMarker==originalMarker.ToString("D"),"original marker identity before dedicated read");
+  int requests=0;bool allGets=true;
+  await AccountingProbeTests.WithServer(200,"{}",async(url,_)=>{
+   var initial=await s.ReadDueDateFixtureAsync(url,"synthetic-due-key",true);
+   check(initial.Outcome=="ObservedForReview"&&initial.DueFixtureMarker==marker,"authorized one-time acquisition succeeds");
+   var preview=await s.PrepareDueFixtureReminderAsync(url,"synthetic-due-key",true,initial,ids[0]);
+   check(preview.Outcome=="InternalReviewPrepared"&&!preview.MaySend,"service re-acquires before reminder review");
+   check((await s.PrepareDueFixtureReminderAsync(url,"synthetic-due-key",false,initial,ids[0])).Outcome=="OperatorScopeEvidenceRequired","no explicit scope confirmation blocks acquisition");
+  },20,observe:req=>{requests++;allGets&=req.StartsWith("GET /api2/");},responseFor:req=>responses[req.Split(' ')[1]["/api2/".Length..].Split('?')[0]]);
+  check(allGets&&requests==20,"initial and reminder read each make ten GET requests");
+  check(s.ReadAccountingProfile()==originalProfile&&MarkerValue()==beforeMarker,"dedicated reminder never changes enrolled profile or marker");
+  using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Reports.Financial'";q.ExecuteNonQuery();}
+  check(!s.CanReviewCollections(),"financial permission revoked");
+  try{await s.PrepareDueFixtureReminderAsync("http://127.0.0.1:1/api2","synthetic",true,ok,ids[0]);throw new Exception("FAIL: revoked reminder review");}catch(UnauthorizedAccessException){check(true,"revoked grant blocks reminder before network access");}
  }
 }
