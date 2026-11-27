@@ -3,8 +3,12 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
+public sealed record WorkAllocationEvidence(long DraftId,string DraftNumber,string PayloadHash,string State,decimal Amount);
+public sealed record WorkAllocationReview(long ProjectId,long SubmissionId,string EvidenceHash,IReadOnlyList<WorkAllocationEvidence> Allocations,bool Eligible);
 public sealed partial class LocalPractice
 {
+ public WorkAllocationReview ReadWorkAllocationReview(long project,long submission)=>throw new NotImplementedException("Cancelled allocation review not implemented.");
+ public WorkInvalidation ReconcileCancelledWorkAllocations(long project,long submission,string expectedHash,long? closureId,string reason,bool confirmed)=>throw new NotImplementedException("Cancelled allocation reconciliation not implemented.");
  private const long MaxBillingCents=999999999999;
  private static long BillingCents(decimal value,bool positive=false)
  {
