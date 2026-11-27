@@ -157,6 +157,7 @@ try{
  CollectionDueAgingTests.Run(Check);
  SyntheticInvoiceSettlementTests.Run(Check);
  SyntheticAdvanceTests.Run(Check);
+ SyntheticFinancialCorrectionTests.Run(Check);
  await DueFixtureTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"due-fixture.db"),pw,Check);
  await PostingRehearsalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"rehearsal.db"),pw,Check);
  await SyntheticWireDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"wire-draft.db"),pw,Check);

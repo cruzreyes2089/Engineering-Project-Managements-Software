@@ -80,3 +80,5 @@ Accounting receipt-capacity candidate added independently of production posting;
 - Concurrent receipt reference-provider regression: e1c001de176bb85456b1fd6095b41c5d2083ec7f, run 46073194557: 103 Python, 2,158 native, zero warnings/errors. No actual provider concurrency, DAO or Windows rename exclusion qualification. Accounting backup/restore regression candidate pending.
 
 - Accounting restore qualification: 1599d72b59509afe4b9b4d33e0f9d982da887c3e, run 46076454245: 103 Python, 2,183 native checks, zero warnings/errors. Actual DAO and Windows rename exclusion remain unqualified. Offline invoice terms/settlement review candidate pending.
+
+- Refundable advance reconciliation: f702076bb230ea90200c32f03a6e421412cea8f4, run 46081613128: 103 Python, 2,217 native, zero warnings/errors. Financial correction reference model pending. No actual accounting or migration authority.
