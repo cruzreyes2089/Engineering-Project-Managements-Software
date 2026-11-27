@@ -5,6 +5,10 @@ internal static class WorkEntriesTests
 {
  public static async Task Run(string path,string pw,Action<bool,string> check)
  {
+  check(WorkDuration.Parse("1","30")==90&&WorkDuration.Parse("","45")==45&&WorkDuration.Parse("24","0")==1440,"hours and minutes preserve exact stored duration");
+  check(WorkDuration.Fields(125)==("2","5")&&WorkDuration.Fields(null)==("",""),"existing duration round trips without rounding");
+  foreach(var (h,m) in new[]{("",""),("24","1"),("0","60"),("-1","30"),("1.5","0"),("25","0"),(" 1","0")})
+  {try{WorkDuration.Parse(h,m);throw new Exception("FAIL: invalid duration");}catch(ArgumentException){check(true,"invalid hours/minutes denied");}}
   var admin=new LocalPractice(path);admin.Bootstrap("Synthetic Time Firm","admin",pw,"CL");check(admin.Login("admin",pw),"work entries admin login");
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
