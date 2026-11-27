@@ -6,7 +6,7 @@ using PracticeManager.Core;
 // No application entry point, existing business folder adoption, ACL or live storage approval.
 internal sealed class SyntheticFolderProvisioning
 {
- internal sealed record Step(string Boundary,string RelativeDirectory,bool Exists);
+ internal sealed record Step(string Boundary,string RelativeDirectory,bool Exists,string? DirectoryIdentity);
  internal sealed record Review(string PlanFingerprint,string ReviewFingerprint,IReadOnlyList<Step> Steps);
  readonly string production,restricted;
  internal string WorkspaceRoot {get;}
@@ -63,31 +63,48 @@ internal sealed class SyntheticFolderProvisioning
  {
   var plan=ProjectFolderPlanning.Build(projectId,projectNumber,correspondence,includeRestricted);
   var steps=new List<Step>();
+  // Bind both root identities in the owned synthetic workspace, including the parent.
+  // Other platforms keep the preceding existence-only test and are not identity-qualified.
+  string[] identities=OperatingSystem.IsWindows()?[WorkspaceRoot,production,restricted]:[];
+  var rootIdentities=identities.Select(SyntheticWindowsDirectoryIdentity.Observe).ToArray();
   foreach(var entry in plan.Entries)
   {
    var target=Resolve(entry);
    // For the flat v2 template the project directory precedes every child.
    var parent=Path.GetDirectoryName(target)!;
    if(IsDirectory(parent))RequireDirectory(parent);
-   steps.Add(new(entry.Boundary,entry.RelativeDirectory,IsDirectory(target)));
+   var present=IsDirectory(target);
+   steps.Add(new(entry.Boundary,entry.RelativeDirectory,present,
+    present&&OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Observe(target):null));
   }
-  return new(plan.Fingerprint,Hash(new{plan.Fingerprint,production,restricted,steps}),steps.AsReadOnly());
+  return new(plan.Fingerprint,Hash(new{plan.Fingerprint,production,restricted,rootIdentities,steps}),steps.AsReadOnly());
  }
  public Review Preview(bool correspondence,bool includeRestricted)=>Build(correspondence,includeRestricted);
  public (int Created,int AlreadyPresent) Apply(bool correspondence,bool includeRestricted,
   string expectedReviewFingerprint,bool confirmed,Action<int>? afterCreate=null)
  {
   if(!confirmed)throw new ArgumentException("Explicit synthetic review required.");
+  // Pin the synthetic workspace and both roots during physical execution on Windows.
+  using var workspacePin=OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Open(WorkspaceRoot):null;
+  using var productionPin=OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Open(production):null;
+  using var restrictedPin=OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Open(restricted):null;
   var reviewed=Build(correspondence,includeRestricted);
   if(reviewed.ReviewFingerprint!=expectedReviewFingerprint)throw new ArgumentException("Stale synthetic folder review.");
   var created=0;var existing=0;
   foreach(var step in reviewed.Steps)
   {
    var target=Resolve(new(step.Boundary,step.RelativeDirectory));
-   RequireDirectory(Path.GetDirectoryName(target)!);
+   var parent=Path.GetDirectoryName(target)!;
+   RequireDirectory(parent);
+   using var parentPin=OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Open(parent):null;
    var present=IsDirectory(target);
    if(present!=step.Exists)throw new IOException("Synthetic directory changed after review.");
-   if(present){existing++;continue;}
+   if(present)
+   {
+    if(OperatingSystem.IsWindows()&&SyntheticWindowsDirectoryIdentity.Observe(target)!=step.DirectoryIdentity)
+     throw new IOException("Synthetic directory replaced after review.");
+    existing++;continue;
+   }
    Directory.CreateDirectory(target);
    RequireDirectory(target);
    created++;
@@ -147,6 +164,24 @@ internal static class SyntheticFolderProvisioningTests
    "optional correspondence and separate restricted synthetic roots");
   check(Directory.Exists(Path.Combine(pp,"Reference Documents"))&&Directory.GetDirectories(Path.Combine(pp,"Reference Documents")).Length==0,
    "physical reference folder contains no automatic MEP subdirectories");
+  if(OperatingSystem.IsWindows())
+  {
+   var qa=Path.Combine(pp,"QA-QC");var moved=Path.Combine(pp,"QA-QC-original");
+   var beforeReplacement=candidate.Preview(true,true);
+   var identity=SyntheticWindowsDirectoryIdentity.Observe(qa);
+   using(var pin=SyntheticWindowsDirectoryIdentity.Open(qa))
+   {
+    check(pin.Identity==identity,"Windows directory identity is stable across handles");
+    // No deletion or replacement is performed by the candidate.
+    Reject<IOException>(()=>Directory.Move(qa,moved),"Windows pinned directory refuses rename");
+   }
+   Directory.Move(qa,moved);Directory.CreateDirectory(qa);
+   check(SyntheticWindowsDirectoryIdentity.Observe(qa)!=identity,"same-path directory replacement changes Windows identity");
+   Reject<ArgumentException>(()=>candidate.Apply(true,true,beforeReplacement.ReviewFingerprint,true),"same-path replacement invalidates folder review");
+   Directory.Delete(qa,false);Directory.Move(moved,qa);
+   check(candidate.Preview(true,true).ReviewFingerprint==beforeReplacement.ReviewFingerprint,"restored original directory identity reconciles review");
+  }
+  else Console.WriteLine("NOT QUALIFIED: Windows directory identity checks unavailable.");
   var other=new SyntheticFolderProvisioning(root,2,"PRJ-000002");
   Reject<ArgumentException>(()=>other.Apply(true,true,combined.ReviewFingerprint,true),"folder review cannot be transferred to another project");
   check(!Directory.Exists(Path.Combine(production,"PRJ-000002")),"other project remains untouched");
