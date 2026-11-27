@@ -3,8 +3,13 @@ using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record WorkReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
 public sealed record WorkInvalidation(long SubmissionId,string Reason,long ActorId,string RecordedUtc);
+public sealed record AttendanceCorrection(long Id,long SessionId,DateTimeOffset ClockIn,DateTimeOffset ClockOut,string Reason,long ActorId,string RecordedUtc);
+public sealed record AttendanceReviewRow(long Id,long EmployeeId,string Employee,DateTimeOffset OriginalIn,DateTimeOffset? OriginalOut,DateTimeOffset ClockIn,DateTimeOffset? ClockOut,long? CorrectionId);
 public sealed partial class LocalPractice
 {
+ public IReadOnlyList<AttendanceReviewRow> ReadAttendanceReview(DateOnly start,DateOnly end)=>throw new NotImplementedException("Attendance review not implemented.");
+ public IReadOnlyList<AttendanceCorrection> ReadAttendanceCorrections(long session)=>throw new NotImplementedException("Attendance correction history not implemented.");
+ public AttendanceCorrection CorrectAttendance(long session,long? expectedCorrection,DateTimeOffset clockIn,DateTimeOffset clockOut,string reason,bool confirmed)=>throw new NotImplementedException("Attendance correction not implemented.");
  private long RequireWorkCorrection(SqliteConnection c,SqliteTransaction t)
  {var actor=RequireWorkReview(c,t,"Work.Review");Require(c,t,"Work.Correct");return actor;}
  public WorkInvalidation? ReadWorkInvalidation(long id)
