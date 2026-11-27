@@ -10,12 +10,15 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 SUPPLEMENTAL = frozenset(("CRC-LC-01", "CRC-LC-02", "CRC-LC-03", "CRC-BILL-01",
                           "CRC-BILL-02", "CRC-ACCT-01", "CRC-REC-01"))
+ARCHIVE = frozenset(f"CRC-ARC-{i:02d}" for i in range(1, 8))
 ORIGINAL_COUNTS = {"SEC": 5, "CRM": 1, "ENG": 6, "PRJ": 3, "DOC": 2,
                    "WORK": 2, "QA": 1, "FIN": 10, "REP": 1, "MIG": 3,
                    "REL": 3, "NET": 2, "HR": 1, "UX": 1, "COM": 1}
 ORIGINAL = frozenset(f"{prefix}-{number:02d}"
                      for prefix, count in ORIGINAL_COUNTS.items()
                      for number in range(1, count + 1))
+V1_IDS = ORIGINAL | SUPPLEMENTAL
+V2_IDS = V1_IDS | ARCHIVE
 STATUSES = ("Pass", "Fail", "Blocked", "Not run")
 FIELDS = frozenset(("reviewer", "date", "environment", "session", "fixture",
                     "observed", "evidenceRef"))
@@ -31,7 +34,7 @@ def hex_id(value, length):
 def nonempty(value):
     return isinstance(value, str) and bool(value.strip()) and len(value) <= 2048
 
-def scenario_ids(path):
+def scenario_ids(path, schema47=False):
     with Path(path).open(encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream)
         require(reader.fieldnames == ["Test ID", "Requirement ID", "Fixture/scenario",
@@ -42,16 +45,17 @@ def scenario_ids(path):
             "Original scenario register is incomplete or malformed")
     require(all(None not in row and all(nonempty(value) for value in row.values()) for row in rows),
             "Malformed scenario register row")
-    return frozenset(ids) | SUPPLEMENTAL
+    return V2_IDS if schema47 else V1_IDS
 
 def validate(manifest, expected_ids, expected_commit, expected_digest):
-    require(set(expected_ids) == ORIGINAL | SUPPLEMENTAL, "Invalid expected scenario scope")
+    require(set(expected_ids) in (V1_IDS, V2_IDS), "Invalid expected scenario scope")
+    version = "v2" if set(expected_ids) == V2_IDS else "v1"
     require(hex_id(expected_commit, 40) and hex_id(expected_digest, 64),
             "Expected candidate identifiers must be full lowercase hex")
     require(isinstance(manifest, dict) and set(manifest) ==
             {"format", "commit", "artifactSha256", "syntheticOnly", "results"},
             "Invalid evidence manifest fields")
-    require(manifest["format"] == "CRC-Acceptance-Evidence-v1" and
+    require(manifest["format"] == "CRC-Acceptance-Evidence-" + version and
             manifest["syntheticOnly"] is True, "Only synthetic acceptance evidence is supported")
     require(manifest["commit"] == expected_commit and manifest["artifactSha256"] == expected_digest,
             "Evidence candidate does not match the expected candidate")
@@ -91,7 +95,7 @@ def validate(manifest, expected_ids, expected_commit, expected_digest):
             "releaseAuthorized": False}
 
 def initialize(path, expected_ids, expected_commit, expected_digest):
-    manifest = {"format": "CRC-Acceptance-Evidence-v1", "commit": expected_commit,
+    manifest = {"format": "CRC-Acceptance-Evidence-" + ("v2" if set(expected_ids) == V2_IDS else "v1"), "commit": expected_commit,
                 "artifactSha256": expected_digest, "syntheticOnly": True,
                 "results": [{"testId": ident, "status": "Not run"} for ident in sorted(expected_ids)]}
     validate(manifest, expected_ids, expected_commit, expected_digest)
@@ -120,11 +124,12 @@ def main():
     parser.add_argument("--commit", required=True)
     parser.add_argument("--artifact-sha256", required=True)
     parser.add_argument("--initialize", action="store_true", help="Create an empty private manifest; never overwrite")
+    parser.add_argument("--schema47", action="store_true", help="Require all 56 schema-47 scenarios and v2 evidence")
     args = parser.parse_args()
     try:
         private_path = args.manifest.resolve()
         require(not private_path.is_relative_to(ROOT.resolve()), "Evidence must remain outside the checkout")
-        ids = scenario_ids(ROOT / "docs/legacy-acceptance-register.csv")
+        ids = scenario_ids(ROOT / "docs/legacy-acceptance-register.csv", args.schema47)
         if args.initialize:
             initialize(private_path, ids, args.commit, args.artifact_sha256)
         result = validate(load(private_path), ids, args.commit, args.artifact_sha256)

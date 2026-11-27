@@ -134,3 +134,35 @@ class AcceptanceEvidenceTests(unittest.TestCase):
             path.write_text('{"format":"one","format":"two"}', encoding="utf-8")
             with self.assertRaises(ValueError):
                 m.load(path)
+
+    def test_schema47_requires_all_56_cases_and_v2(self):
+        import tempfile
+        ids = m.scenario_ids(ROOT / "docs/legacy-acceptance-register.csv", schema47=True)
+        self.assertEqual(len(ids), 56)
+        self.assertEqual(ids - self.ids, m.ARCHIVE)
+        with self.assertRaises(ValueError):
+            m.validate(self.manifest, ids, self.commit, self.digest)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "v2.json"
+            upgraded = m.initialize(path, ids, self.commit, self.digest)
+            self.assertEqual(upgraded["format"], "CRC-Acceptance-Evidence-v2")
+            self.assertEqual(m.validate(m.load(path), ids, self.commit, self.digest)["counts"]["Not run"], 56)
+            with self.assertRaises(ValueError):
+                m.validate(upgraded, self.ids, self.commit, self.digest)
+            for key in ("format", "results"):
+                bad = copy.deepcopy(upgraded)
+                if key == "format": bad[key] = "CRC-Acceptance-Evidence-v1"
+                else: bad[key] = [r for r in bad[key] if r["testId"] != "CRC-ARC-07"]
+                with self.assertRaises(ValueError):
+                    m.validate(bad, ids, self.commit, self.digest)
+
+    def test_schema47_archive_blocker_never_authorizes(self):
+        ids = m.V2_IDS
+        data = copy.deepcopy(self.manifest)
+        data["format"] = "CRC-Acceptance-Evidence-v2"
+        data["results"] += [{"testId": i, "status": "Blocked",
+                             "reason": "Interactive acceptance not authorized"} for i in sorted(m.ARCHIVE)]
+        result = m.validate(data, ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Blocked"], 7)
+        self.assertFalse(result["releaseAuthorized"])
+        self.assertFalse(result["evidenceAuthenticityVerified"])

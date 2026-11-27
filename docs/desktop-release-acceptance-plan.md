@@ -73,3 +73,35 @@ These supplement, not replace, the original register. All remain not executed at
 ## Exit criteria
 
 All required single-user scenarios must pass on the exact approved release revision or have an explicit owner-approved scope exclusion; blocked accounting, migration, installer or security requirements cannot be treated as passed. No claim of full commercial parity until deferred scenarios are executed. Preserve defect/retest records and prior evidence.
+
+## Schema 47 historical archive supplement (seven additional required cases)
+
+Use the version-2 evidence register: all 42 original IDs, seven existing supplemental IDs, and the seven below (56 total). Initialize/validate with `--schema47`; a v1 manifest is not sufficient for schema 47. All seven remain **Not run** interactively. Source-level and prior-source upgrade results are supporting evidence only.
+
+| ID | Procedure | Required observation |
+|---|---|---|
+| CRC-ARC-01 | In the approved isolated synthetic acceptance workspace, import reviewed synthetic CRM, open Historical Project Register before archive import; compare ordinary workspace and role grants. | Empty archive; import offered only in synthetic workspace with administrative and both view grants. |
+| CRC-ARC-02 | Prepare fixture using the script below; preview correct four digests and files, then preview wrong-parent census with its own matching digest; change one hash or selected file after valid preview. | Valid preview two records, one duplicate number group; wrong parent denied; changed input invalidates commit. No writes. |
+| CRC-ARC-03 | Preview valid package; attempt missing note/checkbox, cancel final dialog, then explicitly review and commit. Reopen and preview exact repeat. | Cancel does not write; one sealed batch; exact repeat not offered for commit; original IDs and whitespace retained; no operational project created. |
+| CRC-ARC-04 | Search by P01, OLD-001, title, site, nonexistent term; filter legacy client 001 then 002; inspect detail and clear filters. | Accurate counts and client selection, both duplicate numbers retained, inactive client history visible, Work authorized: No, no editing. |
+| CRC-ARC-05 | With separate staff session, grant only archive view, then client view, then revoke import/view independently using approved test controls. Attempt import as non-admin. | Service denies missing grant; restricted evidence absent for staff; no import. Open register clears restricted data at activation or next guard tick, within expected 20s plus dispatcher availability. |
+| CRC-ARC-06 | With modal confirmation open, revoke administrator import grant using separate controlled session; confirm after guard invalidates review. Repeat with window closed/cancelled. | No import despite prior preview; no stale success or retained reviewed bytes accessible through UI. |
+| CRC-ARC-07 | Reopen sealed archive in isolated recovery copy; exercise missing/wrong audit evidence through native disposable fault harness, verify desktop failure state and no data shown. | Valid copy preserves history, no current work authority; damaged copy refused or register fails closed. No replacement of live database. |
+
+### Fixed synthetic input preparation
+
+From the reviewed source checkout, with Python 3.12, use the following on a trusted private local machine. The destination must not yet exist and its parent must exist outside checkout.
+
+```
+python tools/migration/prepare_synthetic_archive_desktop.py "C:\\PrivateAcceptance\\archive-fixture" --confirm-synthetic
+```
+
+The six fixed files include a synthetic provenance marker (not a real Access file), CRM, project transfer, valid census, wrong-parent census and manifest. Use manifest hashes exactly; for the negative case use its separately listed digest. The generator takes no source data. It does not prove independent real-world census provenance, desktop execution or source authenticity. Keep all files private; no need to execute the quarantined binary to prepare inputs. Actual interactive steps remain prohibited until exact-artifact independent security approval and an isolated acceptance environment are available.
+
+Initialize a new **private** manifest only after the exact approved artifact digest and source revision are available:
+
+```
+python tools/release/validate_acceptance_evidence.py PRIVATE_NEW_MANIFEST.json --commit FULL_COMMIT --artifact-sha256 FULL_SHA256 --initialize --schema47
+```
+
+Revalidate with the same options except `--initialize`. Do not overwrite v1 evidence or copy prior Pass statuses without exact-revision evidence. Structure validation never authorizes release.
