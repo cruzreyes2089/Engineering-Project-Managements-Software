@@ -34,6 +34,33 @@ class SyntheticQualificationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     q.compare_values(actual, expected)
 
+    def test_field_comparison_requires_exact_json_scalar_types(self):
+        expected = q.expected_transfer(False)
+        for index, value in ((0, 1), (1, 0), (0, "true"), (1, None)):
+            with self.subTest(index=index, value=value):
+                actual = copy.deepcopy(expected)
+                actual["contacts"][index]["primary"] = value
+                with self.assertRaises(ValueError):
+                    q.compare_values(actual, expected)
+
+    def test_field_comparison_rejects_malformed_shape(self):
+        expected = q.expected_transfer(False)
+        for change in ("missing", "extra", "duplicate", "object", "numeric_id"):
+            with self.subTest(change=change):
+                actual = copy.deepcopy(expected)
+                if change == "missing":
+                    del actual["clients"][0]["legacyId"]
+                elif change == "extra":
+                    actual["clients"][0]["unmapped"] = ""
+                elif change == "duplicate":
+                    actual["clients"][1] = copy.deepcopy(actual["clients"][0])
+                elif change == "object":
+                    actual["clients"] = {}
+                else:
+                    actual["clients"][0]["legacyId"] = 1
+                with self.assertRaises(ValueError):
+                    q.compare_values(actual, expected)
+
     def test_unrelated_source_columns_not_selected(self):
         fixture = fixtures.CrmMappingTests()
         fixture.setUp()
