@@ -12,8 +12,8 @@ internal static class TransmittalRegisterStoreTests
   CREATE TABLE audit_events(id INTEGER PRIMARY KEY,actor_id INTEGER REFERENCES users(id),action TEXT,entity TEXT,entity_id INTEGER,occurred_at TEXT);
   CREATE TABLE project_documents(id INTEGER PRIMARY KEY,project_id INTEGER REFERENCES projects(id),supersedes_id INTEGER REFERENCES project_documents(id),classification TEXT,category TEXT,file_name TEXT,file_hash TEXT,file_bytes BLOB);
   INSERT INTO projects VALUES(1),(2);INSERT INTO users VALUES(1)");
-  using(var stream=typeof(TransmittalRegisterStoreTests).Assembly.GetManifestResourceStream("SyntheticDocumentRegister.sql")!)
-  using(var reader=new StreamReader(stream))Sql(reader.ReadToEnd());
+  foreach(var resource in new[]{"SyntheticFolderConfiguration.sql","SyntheticDocumentRegister.sql"})
+  {using var stream=typeof(TransmittalRegisterStoreTests).Assembly.GetManifestResourceStream(resource)!;using var reader=new StreamReader(stream);Sql(reader.ReadToEnd());}
   var pdf="%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray();var hash=Convert.ToHexString(SHA256.HashData(pdf));
   void Doc(long id,long? prior)
   {

@@ -7,7 +7,7 @@ public static class ProjectFolderPolicy
 {
  static readonly StringComparison Comparison=OperatingSystem.IsWindows()?StringComparison.OrdinalIgnoreCase:StringComparison.Ordinal;
  static bool Within(string root,string path)=>path.StartsWith(Path.TrimEndingDirectorySeparator(root)+Path.DirectorySeparatorChar,Comparison);
- public static ProjectFolderReference Review(string approvedRoot,string relativePath,string databasePath)
+ public static string ResolveReference(string approvedRoot,string relativePath)
  {
   if(string.IsNullOrWhiteSpace(relativePath)||relativePath.Length>240||relativePath!=relativePath.Trim()||
      Path.IsPathRooted(relativePath)||relativePath.Contains(':')||relativePath.Any(char.IsControl))
@@ -16,10 +16,16 @@ public static class ProjectFolderPolicy
   var parts=relativePath.Split(new[]{'/','\\'},StringSplitOptions.None);
   if(parts.Any(p=>p.Length==0||p=="."||p==".."||p.EndsWith('.')||p.EndsWith(' ')))
    throw new ArgumentException("Unsafe project folder component.");
-  var root=ReviewRoot(approvedRoot,databasePath);
-  var full=LocalStoragePath.DirectoryPath(Path.Combine(root,Path.Combine(parts)));
+  var root=LocalStoragePath.Normalize(approvedRoot);
+  var full=LocalStoragePath.Normalize(Path.Combine(root,Path.Combine(parts)));
   if(!Within(root,full))throw new ArgumentException("Project folder outside reviewed root.");
-  return new(string.Join("/",parts),full);
+  return full;
+ }
+ public static ProjectFolderReference Review(string approvedRoot,string relativePath,string databasePath)
+ {
+  var root=ReviewRoot(approvedRoot,databasePath);
+  var full=LocalStoragePath.DirectoryPath(ResolveReference(root,relativePath));
+  return new(relativePath.Replace('\\','/'),full);
  }
  public static string ReviewRoot(string approvedRoot,string databasePath)
  {

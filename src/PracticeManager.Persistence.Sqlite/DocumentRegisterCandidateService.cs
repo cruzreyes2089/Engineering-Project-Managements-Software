@@ -39,4 +39,17 @@ public sealed partial class LocalPractice
  {
   using var c=Open();return CandidateTransmittalStore(c).Append(project,id,operation,expected,state,evidence,note,confirmed);
  }
+ private ProjectFolderRegisterStore CandidateProjectFolders(SqliteConnection c)=>new(c,(t,project,write)=>{
+  var actor=RequireDocuments(c,t,write);RequireAdministration(c,t);RequireDocumentRegisterCandidate(c,t);
+  ProjectRow(c,t,project);return actor;
+ },c.DataSource);
+ internal IReadOnlyList<FolderRegisterEntry> ReadCandidateProjectFolders(long project)
+ {
+  using var c=Open();return CandidateProjectFolders(c).Read(project);
+ }
+ internal (FolderRegisterEntry Entry,bool Replayed) RecordCandidateProjectFolder(long project,Guid operation,string? expected,string configHash,string state,string path,string reason,bool confirmed)
+ {
+  using var c=Open();return CandidateProjectFolders(c).Record(project,operation,expected,configHash,state,path,reason,confirmed);
+ }
+
 }

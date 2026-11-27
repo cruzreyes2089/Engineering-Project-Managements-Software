@@ -10,6 +10,9 @@ CREATE TABLE project_folder_revisions(
  -- Canonical ASCII uppercase slash-separated full path key produced by the future service.
  path_key TEXT NOT NULL CHECK(length(path_key) BETWEEN 4 AND 512 AND path_key=upper(path_key)
    AND path_key NOT GLOB '*[^A-Z0-9 _./:-]*' AND substr(path_key,-1)!='/' AND instr(path_key,'//')=0),
+ configuration_hash TEXT NOT NULL REFERENCES project_folder_configurations(record_hash),
+ relative_path TEXT NOT NULL CHECK(length(relative_path) BETWEEN 1 AND 240),
+ display_path TEXT NOT NULL CHECK(length(display_path) BETWEEN 4 AND 512),
  reason TEXT NOT NULL CHECK(length(trim(reason)) BETWEEN 1 AND 1000),
  actor_id INTEGER NOT NULL REFERENCES users(id),
  recorded_utc TEXT NOT NULL CHECK(length(recorded_utc) BETWEEN 1 AND 64),
@@ -29,7 +32,9 @@ BEGIN
  SELECT CASE WHEN NEW.revision!=1+coalesce((SELECT max(revision) FROM project_folder_revisions WHERE project_id=NEW.project_id),0)
  OR NEW.previous_hash IS NOT (SELECT record_hash FROM project_folder_revisions WHERE project_id=NEW.project_id ORDER BY revision DESC LIMIT 1)
  THEN RAISE(ABORT,'Stale folder predecessor') END;
- SELECT CASE WHEN NEW.state='Retired' AND NOT EXISTS(SELECT 1 FROM current_project_folder_references f WHERE f.project_id=NEW.project_id AND f.path_key=NEW.path_key)
+ SELECT CASE WHEN NEW.state='Registered' AND NEW.configuration_hash IS NOT (SELECT record_hash FROM project_folder_configurations ORDER BY revision DESC LIMIT 1)
+ THEN RAISE(ABORT,'Current folder configuration required') END;
+ SELECT CASE WHEN NEW.state='Retired' AND NOT EXISTS(SELECT 1 FROM current_project_folder_references f WHERE f.project_id=NEW.project_id AND f.path_key=NEW.path_key AND f.configuration_hash=NEW.configuration_hash AND f.relative_path=NEW.relative_path AND f.display_path=NEW.display_path)
  THEN RAISE(ABORT,'Current matching folder required to retire') END;
  SELECT CASE WHEN NEW.state='Registered' AND EXISTS(SELECT 1 FROM current_project_folder_references f WHERE f.project_id=NEW.project_id AND f.path_key=NEW.path_key)
  THEN RAISE(ABORT,'Unchanged folder reference') END;

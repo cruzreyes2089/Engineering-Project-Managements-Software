@@ -25,6 +25,8 @@ class DocumentRegisterTests(unittest.TestCase):
             (2,1,None,"Restricted","Drawings","private.pdf",H(102)),
             (3,2,None,"Production","Reports","report.pdf",H(103)),
             (4,1,None,"Production","Reports","report.txt",H(104))])
+        self.db.executescript("CREATE TABLE project_folder_configurations(revision INTEGER PRIMARY KEY,record_hash TEXT UNIQUE);")
+        self.db.execute("INSERT INTO project_folder_configurations VALUES(1,?)",(H(900),))
         self.db.executescript(DDL)
 
     def tearDown(self):
@@ -35,8 +37,8 @@ class DocumentRegisterTests(unittest.TestCase):
 
     def folder(self, project=1, rev=1, ident=1, prior=None, state="Registered", path="C:/PROJECTS/A"):
         aid=self.audit(project,"RecordProjectFolderReference")
-        self.db.execute("INSERT INTO project_folder_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                        (project,rev,K(ident),prior,H(ident),state,path,"Synthetic review",1,"UTC",aid))
+        self.db.execute("INSERT INTO project_folder_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (project,rev,K(ident),prior,H(ident),state,path,H(900),path.removeprefix("C:/PROJECTS/"),path,"Synthetic review",1,"UTC",aid))
 
     def intent(self, ident=1, project=1, count=1):
         self.db.execute("INSERT INTO project_transmittal_intents VALUES(?,?,?,?,?,?,?)",(ident,project,K(ident),H(ident),"Synthetic recipient","Review",count))

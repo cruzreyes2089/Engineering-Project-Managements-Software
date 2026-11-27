@@ -15,7 +15,7 @@ internal static class DocumentRegisterVerification
  {
   if(Count(db,t,"PRAGMA user_version")!=49)throw new ArgumentException("Candidate document schema required.");
   var config=new FolderConfigurationStore(db,(_,_)=>throw new UnauthorizedAccessException(),db.DataSource).ReadCore(t);
-  var folder=new ProjectFolderRegisterStore(db,(_,_,_)=>throw new UnauthorizedAccessException(),_=>throw new InvalidOperationException(),db.DataSource);
+  var folder=new ProjectFolderRegisterStore(db,(_,_,_)=>throw new UnauthorizedAccessException(),db.DataSource);
   var transmittals=new TransmittalRegisterStore(db,(_,_,_)=>throw new UnauthorizedAccessException(),(_,_)=>throw new InvalidOperationException());
   if(Count(db,t,"SELECT count(*) FROM project_folder_revisions")>10000||
      Count(db,t,"SELECT count(*) FROM project_transmittal_intents")>500||
