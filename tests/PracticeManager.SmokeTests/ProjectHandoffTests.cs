@@ -31,6 +31,24 @@ internal static class ProjectHandoffTests
   Invalid(()=>s.RecordProjectSetupItem(project,"ScopeReviewed",false,"Stale",false,""),"stale setup edit rejected");
   foreach(var item in setup.Items.Where(x=>!x.Complete))s.RecordProjectSetupItem(project,item.Item,true,"Synthetic review",false,"");
   check(s.ReadProjectSetup(project).State=="Complete"&&s.SearchPendingProjects().Single().SetupState=="Complete"&&s.ReadProjectHandoff(project).State=="Pending","complete setup not start authorization");
+  var designer=s.SaveClient(new Client(0,"","Architect / Designer","Synthetic Designer","","","","","","","","","","","Active"));
+  var contact=s.SaveContact(new Contact(0,designer,"Synthetic","Contact","","","",true));
+  Invalid(()=>s.RegisterProjectParty(project,designer,contact,"Client","Wrong client",true),"project client role bound to engagement");
+  Invalid(()=>s.RegisterProjectParty(project,c,contact,"Contractor","Wrong contact",true),"cross-client contact blocked");
+  Invalid(()=>s.RegisterProjectParty(project,designer,contact,"Designer","Not confirmed",false),"party confirmation required");
+  var party=s.RegisterProjectParty(project,designer,contact,"Designer","Synthetic design participant",true);
+  check(s.ReadProjectParties(project).Single().ContactName=="Synthetic Contact"&&s.ReadProjectSetup(project).State=="InProgress"&&!s.ReadProjectSetup(project).Items.Single(x=>x.Item=="ProjectContacts").Complete,"party registration invalidates completed contact checklist");
+  Invalid(()=>s.RegisterProjectParty(project,designer,contact,"Designer","Duplicate",true),"duplicate active party blocked");
+  var row=s.SearchClients("").Single(x=>x.Id==designer);s.SaveClient(row with{Company="Changed synthetic name"});
+  check(s.ReadProjectParties(project).Single().PartyName=="Synthetic Designer","party identity snapshot retained after CRM edit");
+  check(s.RetireProjectParty(project,party,"Synthetic retired",true)=="Retired"&&s.ReadProjectParties(project).Count==0&&s.ReadProjectParties(project,true).Single().State=="Retired","retirement retains historical party");
+  check(s.RetireProjectParty(project,party,"Repeat",true)=="AlreadyRetired","retirement cannot repeat");
+  check(s.RegisterProjectParty(project,designer,contact,"Designer","New participation",true)!=party&&s.ReadProjectParties(project,true).Count==2,"new participation retains prior history");
+  var contactsItem=s.ReadProjectSetup(project).Items.Single(x=>x.Item=="ProjectContacts");
+  s.RecordProjectSetupItem(project,"ProjectContacts",true,"Synthetic reviewed parties",contactsItem.Complete,contactsItem.Note);
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Contacts.View'");
+  Denied(()=>s.ReadProjectParties(project),"contact grant required to view parties");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Contacts.View'");
   ConflictReviewTests.Clear(s,project);
   Sql("CREATE TRIGGER test_start_abort BEFORE UPDATE OF state ON projects BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
   try{s.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic");throw new Exception("FAIL: rollback");}catch(SqliteException){check(true,"start failure injected");}
