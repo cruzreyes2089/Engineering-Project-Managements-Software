@@ -72,6 +72,7 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Export");ProjectRow(c,t,project);
   var d=InvoiceDetail(c,t,project,invoice);if(d.Summary.State!="Approved")throw new ArgumentException("Approved internal draft required.");
+  if(d.Summary.ReconciliationHold)throw new ArgumentException("Reconciliation hold blocks retrieval of export bytes; metadata remains available.");
   var result=RetrieveReview(c,t,actor,null,invoice,document,hash);t.Commit();return result;
  }
  public GeneratedReviewDocument PrepareProposalReviewDocx(long id,int expectedRevision,string? expectedIssuedHash)
@@ -95,7 +96,7 @@ public sealed partial class LocalPractice
  public GeneratedReviewDocument PrepareInvoiceReviewDocx(long project,long id,string expectedHash)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Export");var p=ProjectRow(c,t,project);var d=InvoiceDetail(c,t,project,id);
-  if(d.Summary.PayloadHash!=expectedHash||d.Summary.State!="Approved")throw new ArgumentException("Exact approved internal draft required.");
+  if(d.Summary.PayloadHash!=expectedHash||d.Summary.State!="Approved"||d.Summary.ReconciliationHold)throw new ArgumentException("Exact approved internal draft without reconciliation hold required.");
   using var json=JsonDocument.Parse(p.Snapshot);
   var firm=Convert.ToString(Scalar(c,t,"SELECT name FROM firms WHERE id=1"))??"";
   var rows=new List<ReviewParagraph>{new(firm,true),new("NOT AN ISSUED INVOICE — NO PAYMENT REQUEST",true),new("Internal draft: "+d.Summary.Number),new("Project: "+p.Number),new("Client: "+ReviewClient(json.RootElement)),new("Draft date: "+SafeCsv.Date(d.Summary.InvoiceDate)),new("Proposed due date: "+SafeCsv.Date(d.Summary.DueDate)),new("Approved draft lines",true)};

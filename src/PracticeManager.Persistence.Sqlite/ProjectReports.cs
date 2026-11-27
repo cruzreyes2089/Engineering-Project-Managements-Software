@@ -79,13 +79,15 @@ public sealed partial class LocalPractice
   }
   decimal draft=0,ready=0,cancelled=0;
   using(var q=Command(c,t,"SELECT coalesce(x.decision,'Draft'),coalesce(sum(d.total_cents),0) FROM invoice_drafts d LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id WHERE d.project_id=$p AND d.invoice_date BETWEEN $s AND $e GROUP BY coalesce(x.decision,'Draft')",range))using(var r=q.ExecuteReader()){while(r.Read()){var n=r.GetInt64(1)/100m;switch(r.GetString(0)){case "Draft":draft=n;break;case "Approved":ready=n;break;case "Cancelled":cancelled=n;break;}}}
-  return new(p.Number,start,end,minutes,billable,nonbillable,unclassified,missing==0?cost:null,missing,expense,draft,ready,cancelled);
+  decimal held=0;int heldCount=0;
+  using(var q=Command(c,t,"SELECT coalesce(sum(d.total_cents),0),count(*) FROM invoice_drafts d JOIN approved_invoice_holds h ON h.draft_id=d.id WHERE d.project_id=$p AND d.invoice_date BETWEEN $s AND $e",range))using(var r=q.ExecuteReader()){if(r.Read()){held=r.GetInt64(0)/100m;heldCount=r.GetInt32(1);}}
+  return new(p.Number,start,end,minutes,billable,nonbillable,unclassified,missing==0?cost:null,missing,expense,draft,ready,cancelled,held,heldCount);
  }
  public string ExportInvoiceDraftCsv(long project,long id,string expectedHash)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Export");var p=ProjectRow(c,t,project);var d=InvoiceDetail(c,t,project,id);
   if(d.Summary.PayloadHash!=expectedHash)throw new ArgumentException("Draft identity changed.");
-  if(d.Summary.State!="Approved")throw new ArgumentException("Only approved internal drafts may be exported for manual accounting preparation.");
+  if(d.Summary.State!="Approved"||d.Summary.ReconciliationHold)throw new ArgumentException("Only approved internal drafts without reconciliation hold may be exported for manual accounting preparation.");
   var rows=new List<IReadOnlyList<string?>>{new[]{"INTERNAL DRAFT ONLY — NOT AN ISSUED INVOICE"},new[]{"Project","Draft reference","Draft date","Due date","State","Currency","Total","Payload SHA256"},new[]{p.Number,d.Summary.Number,SafeCsv.Date(d.Summary.InvoiceDate),SafeCsv.Date(d.Summary.DueDate),d.Summary.State,"USD",SafeCsv.Amount(d.Summary.Total),d.Summary.PayloadHash},new[]{"Kind","Source","Description","Minutes","Billing USD/hour","Amount USD"}};
   rows.AddRange(d.Lines.Select(l=>(IReadOnlyList<string?>)new[]{l.Kind,SafeCsv.Number(l.SourceId),l.Description,SafeCsv.Number(l.Minutes),SafeCsv.Amount(l.BillingRate),SafeCsv.Amount(l.Amount)}));
   var csv=SafeCsv.Build(rows);Audit(c,t,actor,"PrepareManualExport","InvoiceDraft",id);t.Commit();return csv;

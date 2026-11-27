@@ -183,7 +183,14 @@ internal static class InvoiceDraftTests
   Invalid(()=>s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"",true),"hold requires discrepancy evidence");
   Invalid(()=>s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Unconfirmed",false),"hold requires explicit confirmation");
   var beforeHold=s.ReadProjectFinancialReport(project,day,day);
-  var hold=s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Potential duplicate charge; external accounting review required",true);
+  CorrectionSql("CREATE TRIGGER test_hold_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='HoldApprovedInvoice' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Synthetic rollback",true);throw new Exception("FAIL: hold rollback");}catch(SqliteException){check(s.ReadApprovedInvoiceHold(project,next)==null&&s.ReadProjectFinancialReport(project,day,day)==beforeHold,"failed hold audit rolls back protective evidence");}
+  CorrectionSql("DROP TRIGGER test_hold_audit_abort");
+  ApprovedInvoiceHold? TryHold(LocalPractice service){try{return service.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Potential duplicate charge; external accounting review required",true);}catch(ArgumentException){return null;}}
+  var holds=await Task.WhenAll(Task.Run(()=>TryHold(s)),Task.Run(()=>TryHold(correctionPeer)));
+  check(holds.Count(x=>x!=null)==1,"concurrent invoice hold records one decision");
+  var hold=holds.Single(x=>x!=null)!;
+  foreach(var sql in new[]{$"UPDATE approved_invoice_holds SET reason='Changed' WHERE draft_id={next}",$"DELETE FROM approved_invoice_holds WHERE draft_id={next}",$"INSERT INTO approved_invoice_holds(draft_id,payload_hash,reason,actor_id,recorded_utc) VALUES({draft},'{detail.Summary.PayloadHash}','Cancelled',1,'synthetic')",$"INSERT INTO audit_events(actor_id,action,entity,entity_id) VALUES(1,'PrepareManualExport','InvoiceDraft',{next})",$"INSERT INTO audit_events(actor_id,action,entity,entity_id) VALUES(1,'RetrieveReviewDocument','GeneratedReviewDocument',{doc.Id})"}){try{CorrectionSql(sql);throw new Exception("FAIL: hold SQL guard");}catch(SqliteException){check(true,"database preserves hold evidence and rejects forbidden export audit or cancelled source");}}
   check(s.ReadApprovedInvoiceHold(project,next)==hold&&hold.PayloadHash==nextDetail.Summary.PayloadHash,"exact immutable invoice hold evidence recorded");
   var held=s.ReadInvoiceDraft(project,next);
   check(held.Summary.State=="Approved"&&held.Summary.ReconciliationHold&&held.Summary.PayloadHash==nextDetail.Summary.PayloadHash&&held.Lines.SequenceEqual(nextDetail.Lines),"hold preserves original approval and immutable lines");

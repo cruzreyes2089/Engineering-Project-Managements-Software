@@ -8,8 +8,21 @@ public sealed record WorkAllocationReview(long ProjectId,long SubmissionId,strin
 public sealed record ApprovedInvoiceHold(long DraftId,string PayloadHash,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
- public ApprovedInvoiceHold? ReadApprovedInvoiceHold(long project,long draft)=>throw new NotImplementedException("Approved invoice hold history not implemented.");
- public ApprovedInvoiceHold HoldApprovedInvoice(long project,long draft,string expectedHash,string reason,bool confirmed)=>throw new NotImplementedException("Approved invoice hold not implemented.");
+ public ApprovedInvoiceHold? ReadApprovedInvoiceHold(long project,long draft)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireInvoices(c,t,"Billing.Invoices.View");ProjectRow(c,t,project);InvoiceDetail(c,t,project,draft);
+  using var q=Command(c,t,"SELECT draft_id,payload_hash,reason,actor_id,recorded_utc FROM approved_invoice_holds WHERE draft_id=$i",("$i",draft));using var r=q.ExecuteReader();
+  return r.Read()?new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetInt64(3),r.GetString(4)):null;
+ }
+ public ApprovedInvoiceHold HoldApprovedInvoice(long project,long draft,string expectedHash,string reason,bool confirmed)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Edit");Require(c,t,"Billing.Invoices.Approve");ProjectRow(c,t,project);
+  if(!confirmed)throw new ArgumentException("Explicit discrepancy hold confirmation required.");
+  var note=Validation.Text(reason,1000,"Discrepancy and reconciliation evidence",true);
+  var summary=InvoiceDetail(c,t,project,draft).Summary;
+  if(summary.State!="Approved"||summary.PayloadHash!=expectedHash||summary.ReconciliationHold)throw new ArgumentException("Exact approved draft not already held required.");
+  var utc=UtcNow();Exec(c,t,"INSERT INTO approved_invoice_holds(draft_id,payload_hash,reason,actor_id,recorded_utc) VALUES($i,$h,$n,$a,$u)",("$i",draft),("$h",expectedHash),("$n",note),("$a",actor),("$u",utc));Audit(c,t,actor,"HoldApprovedInvoice","InvoiceDraft",draft);t.Commit();return new(draft,expectedHash,note,actor,utc);
+ }
  public WorkAllocationReview ReadWorkAllocationReview(long project,long submission)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireWorkCorrection(c,t);RequireInvoices(c,t,"Billing.Invoices.View");return AllocationReview(c,t,project,submission);
@@ -85,8 +98,8 @@ public sealed partial class LocalPractice
  }
  private static string DraftPayloadHash(long project,string number,DateOnly date,DateOnly due,IReadOnlyList<InvoiceDraftLine> lines)
  =>HashProposal(JsonSerializer.Serialize(new{Format="CRC-INV-DRAFT-1",Project=project,Number=number,Date=date,Due=due,Currency="USD",Lines=lines.Select(l=>new{l.Kind,l.SourceId,l.Description,l.Minutes,RateCents=l.BillingRate.HasValue?(long?)BillingCents(l.BillingRate.Value):null,AmountCents=BillingCents(l.Amount,true)}).ToArray()}));
- private const string InvoiceProjection="SELECT d.id,d.project_id,d.draft_no,d.invoice_date,d.due_date,d.total_cents,coalesce(x.decision,'Draft'),d.payload_hash FROM invoice_drafts d LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id";
- private static InvoiceDraftSummary InvoiceRow(SqliteDataReader r)=>new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),ReadPlanDate(r.GetString(3)),ReadPlanDate(r.GetString(4)),r.GetInt64(5)/100m,r.GetString(6),r.GetString(7));
+ private const string InvoiceProjection="SELECT d.id,d.project_id,d.draft_no,d.invoice_date,d.due_date,d.total_cents,coalesce(x.decision,'Draft'),d.payload_hash,EXISTS(SELECT 1 FROM approved_invoice_holds h WHERE h.draft_id=d.id) FROM invoice_drafts d LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id";
+ private static InvoiceDraftSummary InvoiceRow(SqliteDataReader r)=>new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),ReadPlanDate(r.GetString(3)),ReadPlanDate(r.GetString(4)),r.GetInt64(5)/100m,r.GetString(6),r.GetString(7),r.GetBoolean(8));
  private static InvoiceDraftDetail InvoiceDetail(SqliteConnection c,SqliteTransaction t,long project,long id)
  {
   InvoiceDraftSummary summary;
