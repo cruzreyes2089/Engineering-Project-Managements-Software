@@ -13,10 +13,19 @@ internal static class ProjectEvidenceTests
   (long Id,string Hash) Project(string title){var p=s.CreateProposal(new(client,title,"Site","Scope",100m));var h=ConflictReviewTests.Issue(s,p,1);return(s.RecordProposalDecision(p,h,true,"Synthetic").ProjectId!.Value,h);}
   var p=Project("First");var other=Project("Other");var bytes="Synthetic document"u8.ToArray();var key=Guid.NewGuid();
   var folders=s.ReadProjectFolderPreview(p.Id);
-  check(folders.ProjectId==p.Id&&folders.TemplateRevision=="CRC-Production-1"&&!folders.Provisioned&&!folders.FilesystemInspected,"folder preview bound to project without disk activity");
+  check(folders.ProjectId==p.Id&&folders.TemplateRevision=="CRC-Production-2"&&!folders.Provisioned&&!folders.FilesystemInspected,"folder preview bound to project without disk activity");
   check(folders.Production.Select(x=>x.Name).SequenceEqual(new[]{"Architectural","Calculations","Construction Administration","Plancheck Comment Responses","QA-QC","Reference Documents","Send Outs","Site Pictures","Structural DWGs"}),"approved default production folder names");
-  var mep=folders.Production.Single(x=>x.Name=="Reference Documents").Children.Single();
-  check(mep.Name=="MEP"&&mep.Children.Select(x=>x.Name).SequenceEqual(new[]{"Mechanical","Electrical","Plumbing"}),"MEP stays below reference documents");
+  check(folders.Production.All(x=>x.Children.Count==0)&&s.ReadProjectFolderPreview(p.Id,true).Production.All(x=>x.Children.Count==0),"no default or optional MEP subdirectories");
+  var plan=folders.Plan;
+  check(plan.ProjectId==p.Id&&plan.ProjectNumber==folders.ProjectNumber&&plan.TemplateRevision==folders.TemplateRevision&&!plan.Provisioned&&!plan.StorageApproved,"logical folder plan preserves identity and no storage authorization");
+  check(plan.Entries.Count==15&&plan.Entries.Count(x=>x.Boundary=="Production")==10&&plan.Entries.Count(x=>x.Boundary=="Restricted")==5,"logical folder plan uses separate roots");
+  check(plan.Entries.Any(x=>x.Boundary=="Production"&&x.RelativeDirectory==folders.ProjectNumber+"/Reference Documents")&&
+    plan.Entries.All(x=>!x.RelativeDirectory.Contains("/MEP",StringComparison.OrdinalIgnoreCase)),"logical plan keeps reference documents flat");
+  check(plan.Fingerprint.Length==64&&s.ReadProjectFolderPreview(p.Id).Plan.Fingerprint==plan.Fingerprint,"logical plan fingerprint stable");
+  check(s.ReadProjectFolderPreview(p.Id,true).Plan.Fingerprint!=plan.Fingerprint&&s.ReadProjectFolderPreview(other.Id).Plan.Fingerprint!=plan.Fingerprint,"logical plan fingerprint binds selection and project");
+  foreach(var name in new[]{"../PRJ-1","PRJ/1","PRJ\\1","C:PRJ-1","PRJ-1.","PRJ-1 ","-PRJ1","PRJ1"})
+   Invalid(()=>ProjectFolderPlanning.Build(p.Id,name,false,false),"unsafe project folder identity rejected");
+  Invalid(()=>ProjectFolderPlanning.Build(0,folders.ProjectNumber,false,false),"invalid folder plan project identity rejected");
   check(folders.Restricted.Count==4&&folders.Production.All(x=>x.Name!="Billing Administration"),"restricted layout separate from production");
   check(s.ReadProjectFolderPreview(p.Id,true).Production.Count(x=>x.Name=="Correspondence")==1&&s.ReadProjectFolderPreview(p.Id).Production.All(x=>x.Name!="Correspondence"),"optional correspondence does not modify default");
   check(s.ReadProjectFolderPreview(other.Id).ProjectNumber!=folders.ProjectNumber,"folder preview preserves project context");
@@ -47,6 +56,8 @@ internal static class ProjectEvidenceTests
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'");
   check(s.ReadProjectDocuments(p.Id,false).All(x=>x.Id!=restricted),"restricted document omitted from list");
   check(s.ReadProjectFolderPreview(p.Id).Restricted.Count==0&&s.ReadProjectFolderPreview(p.Id).Production.Count==9,"restricted folder projection omitted when grant revoked");
+  var publicPlan=s.ReadProjectFolderPreview(p.Id).Plan;
+  check(publicPlan.Entries.Count==10&&publicPlan.Entries.All(x=>x.Boundary=="Production")&&publicPlan.Fingerprint!=plan.Fingerprint,"restricted logical paths and fingerprint omitted from ordinary projection");
   Denied(()=>s.RetrieveProjectDocument(p.Id,restricted,rd.Hash),"restricted document direct retrieval denied");
   Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","secret.txt",bytes),"restricted write denied");
   Invalid(()=>s.RecordProjectLifecycle(p.Id,null,true,"Synthetic pending closure",true),"pending project cannot close");

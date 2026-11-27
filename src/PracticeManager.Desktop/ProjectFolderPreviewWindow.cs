@@ -16,7 +16,7 @@ internal sealed class ProjectFolderPreviewWindow:Window
   MinWidth=480;MinHeight=400;WindowStartupLocation=WindowStartupLocation.CenterOwner;ShowInTaskbar=false;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();
   head.Children.Add(new TextBlock{Text="Project folders",FontSize=24,FontWeight=FontWeights.SemiBold});
-  head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
+  head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. Store MEP reference files directly in Reference Documents when needed. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
   head.Children.Add(correspondence);
   var bar=new WrapPanel();WorkWindowFields.Button(bar,"Refresh preview",Refresh);WorkWindowFields.Button(bar,"Close",Close);
   head.Children.Add(bar);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
@@ -34,14 +34,14 @@ internal sealed class ProjectFolderPreviewWindow:Window
   try
   {
    var preview=service.ReadProjectFolderPreview(project,correspondence.IsChecked==true);
-   var production=new TreeViewItem{Header="Production",IsExpanded=true};
+   var production=new TreeViewItem{Header="Production / "+preview.ProjectNumber,IsExpanded=true};
    foreach(var folder in preview.Production)production.Items.Add(Item(folder));tree.Items.Add(production);
    if(preview.Restricted.Count>0)
    {
-    var restricted=new TreeViewItem{Header="Restricted administration — separate root",IsExpanded=true};
+    var restricted=new TreeViewItem{Header="Restricted administration / "+preview.ProjectNumber+" — separate root",IsExpanded=true};
     foreach(var folder in preview.Restricted)restricted.Items.Add(Item(folder));tree.Items.Add(restricted);
    }
-   status.Text=$"Project: {preview.ProjectNumber}   |   Template: {preview.TemplateRevision}   |   Preview only";
+   status.Text=$"Project: {preview.ProjectNumber}   |   Template: {preview.TemplateRevision}   |   {preview.Plan.Entries.Count} planned directories including project roots   |   Preview only";
   }
   catch(UnauthorizedAccessException){status.Text="Access denied.";}
   catch(Exception){status.Text="Project folder preview unavailable. No changes were made.";}

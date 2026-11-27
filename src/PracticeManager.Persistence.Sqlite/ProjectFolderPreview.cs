@@ -2,7 +2,7 @@ using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 
 public sealed record ProjectFolderPreview(long ProjectId,string ProjectNumber,string TemplateRevision,
- IReadOnlyList<ProjectFolderNode> Production,IReadOnlyList<ProjectFolderNode> Restricted)
+ IReadOnlyList<ProjectFolderNode> Production,IReadOnlyList<ProjectFolderNode> Restricted,ProjectFolderPlan Plan)
 {
  public bool Provisioned=>false;
  public bool FilesystemInspected=>false;
@@ -16,7 +16,9 @@ public sealed partial class LocalPractice
   RequireDocuments(c,t,false);
   var row=ProjectRow(c,t,project);
   // An ordinary production viewer does not receive the restricted structure.
-  var restricted=CanInTransaction(c,t,"Documents.Restricted")?ProjectFolderTemplate.Restricted():Array.Empty<ProjectFolderNode>();
-  return new(project,row.Number,ProjectFolderTemplate.Revision,ProjectFolderTemplate.Production(includeCorrespondence),restricted);
+  var allowed=CanInTransaction(c,t,"Documents.Restricted");
+  var restricted=allowed?ProjectFolderTemplate.Restricted():Array.Empty<ProjectFolderNode>();
+  var plan=ProjectFolderPlanning.Build(project,row.Number,includeCorrespondence,allowed);
+  return new(project,row.Number,ProjectFolderTemplate.Revision,ProjectFolderTemplate.Production(includeCorrespondence),restricted,plan);
  }
 }

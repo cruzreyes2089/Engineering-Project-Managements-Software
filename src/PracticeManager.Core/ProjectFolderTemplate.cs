@@ -4,14 +4,14 @@ namespace PracticeManager.Core;
 public sealed record ProjectFolderNode(string Name,IReadOnlyList<ProjectFolderNode> Children);
 public static class ProjectFolderTemplate
 {
- public const string Revision="CRC-Production-1";
+ public const string Revision="CRC-Production-2";
  static ProjectFolderNode Node(string name,params ProjectFolderNode[] children)=>new(name,Array.AsReadOnly(children));
  public static IReadOnlyList<ProjectFolderNode> Production(bool includeCorrespondence=false)
  {
   var folders=new List<ProjectFolderNode>{
    Node("Architectural"),Node("Calculations"),Node("Construction Administration"),
    Node("Plancheck Comment Responses"),Node("QA-QC"),
-   Node("Reference Documents",Node("MEP",Node("Mechanical"),Node("Electrical"),Node("Plumbing"))),
+   Node("Reference Documents"),
    Node("Send Outs"),Node("Site Pictures"),Node("Structural DWGs")
   };
   if(includeCorrespondence)folders.Insert(3,Node("Correspondence"));
