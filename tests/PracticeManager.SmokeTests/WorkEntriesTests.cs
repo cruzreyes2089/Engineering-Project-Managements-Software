@@ -154,6 +154,8 @@ internal static class WorkEntriesTests
   var lateId=worker.SubmitWork(late);
   check(worker.ReadMySubmissions(day.AddDays(-1),day).Any(x=>x.Id==lateId),"actual historical work on stop date remains reportable");
   Invalid(()=>worker.SubmitWork(late with{OperationKey=Guid.NewGuid(),Date=day.AddDays(1)}),"future work after discontinuation is not permitted");
+  using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText=$"INSERT INTO work_submissions(operation_key,employee_id,task_id,kind,work_date,minutes,description,submitted_by,submitted_utc) SELECT '{Guid.NewGuid():D}',employee_id,task_id,kind,date(work_date,'+1 day'),minutes,description,submitted_by,submitted_utc FROM work_submissions WHERE id={lateId}";try{q.ExecuteNonQuery();throw new Exception("FAIL: post-stop database work insert");}catch(SqliteException e){check(e.Message.Contains("Work date after task discontinuation"),"database rejects work dated after discontinuation");}}
+  check(worker.ReadMyWork(day,day).Single(x=>x.Id==startedTask).StoppedOn==day,"own projection includes stop date without decision reason");
   Invalid(()=>admin.RecordProjectLifecycle(project,reopened.Id,true,"Synthetic premature closure",true),"unreviewed discontinued-task work still blocks closure");
   check(admin.ReviewWork(actualId,true,"Reviewed actual work")=="Approved"&&admin.ReviewWork(lateId,true,"Reviewed late actual work")=="Approved","discontinued assignment facts remain reviewable");
   check(admin.ClassifyWork(actualId,true,"Synthetic actual billable work")=="Billable","discontinuation does not void approved billable work");

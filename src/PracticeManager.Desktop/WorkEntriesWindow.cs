@@ -46,7 +46,7 @@ internal sealed class WorkEntriesWindow:Window
  void Submit(bool expense)
  {
   var w=new Window{Owner=this,Title=expense?"Submit expense":"Submit time",Width=570,Height=470,WindowStartupLocation=WindowStartupLocation.CenterOwner};var p=new StackPanel{Margin=new Thickness(16)};
-  var task=new ComboBox{ItemsSource=service.ReadMyWork(WorkWindowFields.Day(start),WorkWindowFields.Day(end)).Where(x=>x.ProjectState=="Active"&&x.State is "InProgress" or "Completed").ToArray(),DisplayMemberPath="Title"};p.Children.Add(new TextBlock{Text="Own started task"});p.Children.Add(task);
+  var task=new ComboBox{ItemsSource=service.ReadMyWork(WorkWindowFields.Day(start),WorkWindowFields.Day(end)).Where(x=>x.ProjectState=="Active"&&x.State is "InProgress" or "Completed" or "Discontinued").ToArray(),DisplayMemberPath="WorkEntryLabel"};p.Children.Add(new TextBlock{Text="Own started task — discontinued assignments: historical actual work only, through stop date.",TextWrapping=TextWrapping.Wrap});p.Children.Add(task);
   var date=new DatePicker{SelectedDate=DateTime.Today};p.Children.Add(new TextBlock{Text="Work / expense date"});p.Children.Add(date);
   var amount=new TextBox{MaxLength=20};p.Children.Add(new TextBlock{Text=expense?"Expense USD":"Actual minutes"});p.Children.Add(amount);
   var category=new ComboBox{ItemsSource=LocalPractice.ExpenseCategories};if(expense){p.Children.Add(new TextBlock{Text="Expense category"});p.Children.Add(category);}

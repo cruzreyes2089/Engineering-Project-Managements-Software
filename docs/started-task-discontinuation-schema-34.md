@@ -12,3 +12,5 @@ Acceptance:
 - Migration, restore, historical fixture and UI updates; add concurrency, rollback and SQL negative checks. Synthetic tests only. No production posting, main merge or executable distribution.
 
 Test-first stubs intentionally nonfunctional; require observed red then full green Windows CI before promotion.
+
+Candidate implementation: schema 34 records a local calendar stop date using SQLite's local clock, UTC evidence, immutable decision and original assignment, and blocks post-stop dated facts at database and service boundaries. Added rollback, concurrent decision, SQL and employee projection regressions. Historical work entry UI explicitly identifies discontinued assignments. Calendar-day granularity and later closeout corrections remain limitations. Full Windows verification and interactive acceptance pending.

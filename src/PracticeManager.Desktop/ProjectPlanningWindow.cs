@@ -14,12 +14,12 @@ internal sealed class ProjectPlanningWindow:Window
  public ProjectPlanningWindow(LocalPractice service,long project)
  {
   this.service=service;this.project=project;Title="Project phases and tasks";Width=1000;Height=670;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text="Project planning",FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Planning is allowed while Pending; employees may start work only after explicit project authorization. Estimate is original total task hours, not allocated daily capacity. Cancelled assignments remain visible for history and are excluded from operational estimate totals.",TextWrapping=TextWrapping.Wrap});head.Children.Add(status);
+  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text="Project planning",FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Planning is allowed while Pending; employees may start work only after explicit project authorization. Estimate is original total task hours, not allocated daily capacity. Cancelled and discontinued assignments remain visible for history and are excluded from operational estimate totals.",TextWrapping=TextWrapping.Wrap});head.Children.Add(status);
   var buttons=new WrapPanel();void Add(string label,Action a){var b=new Button{Content=label,Margin=new Thickness(2)};b.Click+=(_,_)=>Run(a);buttons.Children.Add(b);}
-  Add("New phase",()=>EditPhase(null));Add("Edit phase",()=>EditPhase(phases.SelectedItem as ProjectPhase??throw new ArgumentException("Select phase.")));Add("New task",()=>EditTask(null));Add("Edit planned task",()=>EditTask(tasks.SelectedItem as ProjectTask??throw new ArgumentException("Select task.")));Add("Cancel planned task",CancelTask);Add("Cancellation evidence",ViewCancellation);Add("Refresh",Refresh);head.Children.Add(buttons);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
+  Add("New phase",()=>EditPhase(null));Add("Edit phase",()=>EditPhase(phases.SelectedItem as ProjectPhase??throw new ArgumentException("Select phase.")));Add("New task",()=>EditTask(null));Add("Edit planned task",()=>EditTask(tasks.SelectedItem as ProjectTask??throw new ArgumentException("Select task.")));Add("Cancel planned task",CancelTask);Add("Cancellation evidence",ViewCancellation);Add("Discontinue started task",DiscontinueTask);Add("Discontinuation evidence",ViewDiscontinuation);Add("Refresh",Refresh);head.Children.Add(buttons);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   void Col(DataGrid g,string title,string prop)=>g.Columns.Add(new DataGridTextColumn{Header=title,Binding=new Binding(prop),Width=DataGridLength.Auto});
   foreach(var (label,prop) in new[]{("Phase","Name"),("Start","Start"),("End","End")})Col(phases,label,prop);
-  foreach(var (label,prop) in new[]{("Task","Title"),("Phase","Phase"),("Employee","Employee"),("Start","Start"),("End","End"),("Estimated hours","EstimatedHours"),("Scope status","ScopeState"),("Conflict screening","ConflictStatus"),("State","State")})Col(tasks,label,prop);
+  foreach(var (label,prop) in new[]{("Task","Title"),("Phase","Phase"),("Employee","Employee"),("Start","Start"),("End","End"),("Estimated hours","EstimatedHours"),("Scope status","ScopeState"),("Conflict screening","ConflictStatus"),("State","State"),("Stopped on","StoppedOn")})Col(tasks,label,prop);
   var split=new Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition{Height=new GridLength(2,GridUnitType.Star)});Grid.SetRow(phases,0);Grid.SetRow(tasks,1);split.Children.Add(phases);split.Children.Add(tasks);root.Children.Add(split);Content=root;Refresh();
  }
  void Run(Action a){try{a();}catch(UnauthorizedAccessException){status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
@@ -46,6 +46,21 @@ internal sealed class ProjectPlanningWindow:Window
   var evidence=service.ReadTaskCancellation(project,x.Id)??throw new ArgumentException("No cancellation recorded.");
   MessageBox.Show(this,$"Task: {x.Title}\nPlan revision: {evidence.PlanRevision}\nRecorded by ID: {evidence.ActorId}\nUTC: {evidence.RecordedUtc}\nReason: {evidence.Reason}","Cancellation evidence");
  }
+ void DiscontinueTask()
+ {
+  var x=tasks.SelectedItem as ProjectTask??throw new ArgumentException("Select task.");
+  if(x.State!="InProgress")throw new ArgumentException("Select a started task.");
+  var p=new StackPanel{Margin=new Thickness(18)};p.Children.Add(new TextBlock{Text=$"Discontinue {x.Title}? Stop future work now. Actual work and financial history remain. This cannot be undone; create a separate assignment for remaining work.",TextWrapping=TextWrapping.Wrap});
+  var reason=Field(p,"Discontinuation reason","");reason.MaxLength=1000;
+  var confirm=new CheckBox{Content="I explicitly authorize stopping this assignment."};p.Children.Add(confirm);
+  Editor("Discontinue started task",p,()=>service.DiscontinueStartedTask(project,x.Id,x.Revision,reason.Text,confirm.IsChecked==true));
+ }
+ void ViewDiscontinuation()
+ {
+  var x=tasks.SelectedItem as ProjectTask??throw new ArgumentException("Select task.");
+  var evidence=service.ReadTaskDiscontinuation(project,x.Id)??throw new ArgumentException("No discontinuation recorded.");
+  MessageBox.Show(this,$"Task: {x.Title}\nRevision: {evidence.TaskRevision}\nStop date: {evidence.StoppedOn:yyyy-MM-dd}\nRecorded by ID: {evidence.ActorId}\nUTC: {evidence.RecordedUtc}\nReason: {evidence.Reason}","Discontinuation evidence");
+ }
  void EditPhase(ProjectPhase? x)
  {
   var p=new StackPanel{Margin=new Thickness(18)};var name=Field(p,"Phase",x?.Name??"");var today=DateOnly.FromDateTime(DateTime.Today);var s=DateField(p,"Start",x?.Start??today);var e=DateField(p,"End",x?.End??today);Editor("Phase",p,()=>{if(x==null)service.CreateProjectPhase(project,name.Text,Day(s),Day(e));else service.EditProjectPhase(project,x.Id,x.Revision,name.Text,Day(s),Day(e));});
@@ -69,8 +84,8 @@ internal sealed class WorkScheduleWindow:Window
  public WorkScheduleWindow(LocalPractice service,bool own)
  {
   this.service=service;this.own=own;Title=own?"My work":"Staff schedule";Width=1050;Height=590;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Inclusive overlapping date range; original task estimate is not a daily workload allocation. Cancelled rows are history, not outstanding workload. A conflict hold blocks starting new work. Contact the responsible reviewer; record actual work accurately.",TextWrapping=TextWrapping.Wrap});var bar=new WrapPanel();bar.Children.Add(new TextBlock{Text="From"});bar.Children.Add(start);bar.Children.Add(new TextBlock{Text="Through"});bar.Children.Add(end);void Add(string label,Action action){var b=new Button{Content=label,Margin=new Thickness(2)};b.Click+=(_,_)=>Run(action);bar.Children.Add(b);}Add("Refresh",Refresh);if(own){Add("Start selected",()=>Advance("InProgress"));Add("Complete selected",()=>Advance("Completed"));}head.Children.Add(bar);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
-  foreach(var (label,prop) in new[]{("Project","ProjectNumber"),("Project state","ProjectState"),("Phase","Phase"),("Task","Title"),("Employee","Employee"),("Start","Start"),("End","End"),("Estimate hours","EstimatedHours"),("Scope status","ScopeState"),("Conflict screening","ConflictStatus"),("State","State")})grid.Columns.Add(new DataGridTextColumn{Header=label,Binding=new Binding(prop),Width=DataGridLength.Auto});
+  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Inclusive overlapping date range; original task estimate is not a daily workload allocation. Cancelled and discontinued rows are history, not outstanding workload. A conflict hold blocks starting new work. Contact the responsible reviewer; record actual work accurately.",TextWrapping=TextWrapping.Wrap});var bar=new WrapPanel();bar.Children.Add(new TextBlock{Text="From"});bar.Children.Add(start);bar.Children.Add(new TextBlock{Text="Through"});bar.Children.Add(end);void Add(string label,Action action){var b=new Button{Content=label,Margin=new Thickness(2)};b.Click+=(_,_)=>Run(action);bar.Children.Add(b);}Add("Refresh",Refresh);if(own){Add("Start selected",()=>Advance("InProgress"));Add("Complete selected",()=>Advance("Completed"));}head.Children.Add(bar);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
+  foreach(var (label,prop) in new[]{("Project","ProjectNumber"),("Project state","ProjectState"),("Phase","Phase"),("Task","Title"),("Employee","Employee"),("Start","Start"),("End","End"),("Estimate hours","EstimatedHours"),("Scope status","ScopeState"),("Conflict screening","ConflictStatus"),("State","State"),("Stopped on","StoppedOn")})grid.Columns.Add(new DataGridTextColumn{Header=label,Binding=new Binding(prop),Width=DataGridLength.Auto});
   root.Children.Add(grid);Content=root;Run(Refresh);
  }
  void Run(Action action){try{action();}catch(UnauthorizedAccessException){grid.ItemsSource=null;status.Text="Access denied or no active employee link.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}

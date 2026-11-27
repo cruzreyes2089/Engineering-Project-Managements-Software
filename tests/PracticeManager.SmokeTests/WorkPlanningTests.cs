@@ -92,7 +92,14 @@ internal static class WorkPlanningTests
   var currentScreen=s.ReadConflictHistory(project).First();
   var hold=s.RecordConflictReview(project,currentScreen.Id,new("Synthetic jurisdiction","No","No","No","Yes","Synthetic new concern"),true);
   check(s.ReadProjectConflictStatus(project)=="Hold","conflict hold exists before discontinuation");
-  var stopped=s.DiscontinueStartedTask(project,extra,2,"Stop assignment because of concern",true);
+  Sql("CREATE TRIGGER test_stop_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='DiscontinueStartedTask' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{s.DiscontinueStartedTask(project,extra,2,"Synthetic rollback",true);throw new Exception("FAIL: discontinuation rollback");}catch(SqliteException){check(s.ReadTaskDiscontinuation(project,extra)==null&&s.ReadProjectTasks(project).Single(x=>x.Id==extra).State=="InProgress","discontinuation rolls back with failed audit");}
+  Sql("DROP TRIGGER test_stop_audit_abort");
+  TaskDiscontinuation? TryStop(LocalPractice service){try{return service.DiscontinueStartedTask(project,extra,2,"Stop assignment because of concern",true);}catch(ArgumentException){return null;}}
+  var stops=Task.WhenAll(Task.Run(()=>TryStop(s)),Task.Run(()=>TryStop(peer))).GetAwaiter().GetResult();
+  check(stops.Count(x=>x!=null)==1,"concurrent discontinuation records one decision");
+  var stopped=stops.Single(x=>x!=null)!;
+  foreach(var sql in new[]{$"UPDATE task_discontinuations SET reason='Changed' WHERE task_id={extra}",$"DELETE FROM task_discontinuations WHERE task_id={extra}",$"UPDATE project_tasks SET state='Completed' WHERE id={extra}",$"INSERT INTO task_discontinuations(task_id,task_revision,stopped_on,reason,actor_id,recorded_utc) VALUES({otherTask},1,date('now','localtime'),'Invalid',1,'synthetic')"}){try{Sql(sql);throw new Exception("FAIL: discontinuation SQL guard");}catch(SqliteException){check(true,"database prevents discontinuation history mutation or invalid transition");}}
   check(stopped.TaskId==extra&&stopped.TaskRevision==2&&stopped.StoppedOn==DateOnly.FromDateTime(DateTime.Today)&&s.ReadTaskDiscontinuation(project,extra)==stopped,"discontinuation records immutable reviewed revision and stop date despite conflict hold");
   check(s.ReadProjectTasks(project).Single(x=>x.Id==extra).State=="Discontinued"&&worker.ReadMyWork(day,day.AddDays(10)).Single(x=>x.Id==extra).State=="Discontinued","discontinued assignment remains visible to manager and assigned worker");
   Invalid(()=>worker.AdvanceMyTask(extra,2,"Completed"),"discontinued task cannot be marked completed");
