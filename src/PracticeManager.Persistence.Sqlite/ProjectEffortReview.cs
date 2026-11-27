@@ -8,7 +8,11 @@ public sealed partial class LocalPractice
 {
  public ProjectEffortReview ReadProjectEffort(long project)
  {
-  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");var p=ProjectRow(c,t,project);
+  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");return ReadProjectEffortCore(c,t,project);
+ }
+ static ProjectEffortReview ReadProjectEffortCore(SqliteConnection c,SqliteTransaction t,long project)
+ {
+  var p=ProjectRow(c,t,project);
   using var q=Command(c,t,@"WITH facts AS (
    SELECT s.task_id,
     sum(CASE WHEN z.submission_id IS NULL AND r.decision='Approved' THEN s.minutes ELSE 0 END) approved,

@@ -147,6 +147,7 @@ try{
  ProjectEffortTests.Run(Check);
  ProjectBudgetTests.Run(Check);
  SyntheticBudgetHistoryTests.Run(Check);
+ ProjectBudgetServiceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"budget-service-candidate.db"),pw,Check);
  await WorkEntriesTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-entries.db"),pw,Check);
  ProjectEvidenceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-evidence.db"),pw,Check);
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);

@@ -1,189 +1,34 @@
-using System.Globalization;
-using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
+using PracticeManager.Persistence;
 
-// Test-only native persistence exercise. No LocalPractice entry point, no runtime
-// migration, no user-supplied database path. Caller actor is synthetic, not authorization.
+// Same compiled store as the application-facing candidate, with a synthetic actor
+// and synthetic current source in this test fixture only.
 internal sealed class SyntheticBudgetHistory(SqliteConnection db)
 {
- internal sealed record BudgetEntry(BudgetRevision Model,string Operation,long Actor,string Utc,long AuditId);
- internal sealed record ForecastEntry(BudgetForecastReview Model,int Sequence,string? Previous,string Hash,string Reason,string Operation,long Actor,string Utc,long AuditId);
- static readonly JsonSerializerOptions Json=new(){IgnoreReadOnlyProperties=true};
- static byte[] Encode<T>(T value)=>JsonSerializer.SerializeToUtf8Bytes(value,Json);
- // Do not use the snapshot serializer here: IgnoreReadOnlyProperties would
- // omit the get-only properties of the anonymous envelope, hashing "{}".
- static string Hash(object value)=>Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value))).ToLowerInvariant();
- static string Key(Guid operation)=>operation==Guid.Empty?throw new ArgumentException("Operation identity required."):operation.ToString("N");
- static bool IsKey(string value)=>Guid.TryParseExact(value,"N",out var id)&&id!=Guid.Empty&&id.ToString("N")==value;
- static string Utc()=>DateTimeOffset.UtcNow.ToString("O",CultureInfo.InvariantCulture);
- static void CheckMeta(string operation,long actor,string utc,long audit)
+ EffortBudgetStore Store(long actor)=>new(db,(_,_,_)=>actor,Current);
+ ProjectEffortReview Current(SqliteTransaction t,long project)
  {
-  if(!IsKey(operation)||actor<=0||audit<=0||!DateTimeOffset.TryParseExact(utc,"O",CultureInfo.InvariantCulture,DateTimeStyles.None,out var time)||time.Offset!=TimeSpan.Zero)
-   throw new InvalidOperationException("Invalid synthetic history metadata.");
- }
- static void Reason(string reason)
- {
-  if(string.IsNullOrWhiteSpace(reason)||reason.Length>1000||reason!=reason.Trim()||reason.Any(char.IsControl))
-   throw new ArgumentException("Explicit concise review reason required.");
- }
- SqliteCommand Q(SqliteTransaction t,string sql,params (string Name,object? Value)[] args)
- {
-  var q=db.CreateCommand();q.Transaction=t;q.CommandText=sql;
-  foreach(var (name,value) in args)q.Parameters.AddWithValue(name,value??DBNull.Value);
-  return q;
- }
- long Count(SqliteTransaction t,string sql,params (string,object?)[] args)
- {using var q=Q(t,sql,args);return Convert.ToInt64(q.ExecuteScalar());}
- void Exec(SqliteTransaction t,string sql,params (string,object?)[] args)
- {using var q=Q(t,sql,args);q.ExecuteNonQuery();}
- static byte[] SnapshotBytes(ProjectEffortReview r)=>Encode(r with{Tasks=Array.AsReadOnly(r.Tasks.OrderBy(x=>x.TaskId).ToArray())});
- static ProjectEffortReview DecodeSnapshot(long project,byte[] bytes,string expected)
- {
-  if(bytes.Length is <1 or >2097152)throw new InvalidOperationException("Invalid snapshot byte length.");
-  var value=JsonSerializer.Deserialize<ProjectEffortReview>(bytes,Json)??throw new InvalidOperationException("Missing snapshot.");
-  if(ProjectBudgetReview.SnapshotHash(project,value)!=expected||!SnapshotBytes(value).SequenceEqual(bytes))
-   throw new InvalidOperationException("Snapshot bytes or digest mismatch.");
-  return value;
- }
- static string? Optional(SqliteDataReader r,int i)=>r.IsDBNull(i)?null:r.GetString(i);
- internal static string ForecastHash(BudgetForecastReview model,int sequence,string? prior,string reason,string operation,long actor,string utc,long audit)
-  =>Hash(new{Format="CRC-SyntheticEffortForecastRecord-v1",model.Hash,Sequence=sequence,Previous=prior,Reason=reason,Operation=operation,Actor=actor,Utc=utc,AuditId=audit});
- long Audit(SqliteTransaction t,long project,long actor,string action)
- {
-  using var q=Q(t,"INSERT INTO audit_events(actor_id,action,entity,entity_id) VALUES($a,$x,'Project',$p) RETURNING id",("$a",actor),("$x",action),("$p",project));
-  return Convert.ToInt64(q.ExecuteScalar());
- }
- void AuditCount(SqliteTransaction t,long project,string action,int expected)
- {
-  if(Count(t,"SELECT count(*) FROM audit_events WHERE action=$a AND entity='Project' AND entity_id=$p",("$a",action),("$p",project))!=expected)
-   throw new InvalidOperationException("Unpaired synthetic history audit.");
- }
- IReadOnlyList<BudgetEntry> Budgets(SqliteTransaction t,long project)
- {
-  var result=new List<BudgetEntry>();
-  using(var q=Q(t,@"SELECT b.revision,b.operation_key,b.previous_hash,b.record_hash,b.minutes,b.kind,b.reason,b.snapshot_hash,b.snapshot_bytes,
-   b.actor_id,b.recorded_utc,b.audit_id,a.id FROM effort_budget_revisions b LEFT JOIN audit_events a ON a.id=b.audit_id
-   AND a.actor_id=b.actor_id AND a.action='RecordEffortBudgetRevision' AND a.entity='Project' AND a.entity_id=b.project_id
-   WHERE b.project_id=$p ORDER BY b.revision",("$p",project)))
-  using(var r=q.ExecuteReader())while(r.Read())
-  {
-   if(result.Count==500||r.IsDBNull(12))throw new InvalidOperationException("Budget history incomplete.");
-   var operation=r.GetString(1);var actor=r.GetInt64(9);var utc=r.GetString(10);var audit=r.GetInt64(11);
-   CheckMeta(operation,actor,utc,audit);
-   var snapshot=DecodeSnapshot(project,(byte[])r.GetValue(8),r.GetString(7));
-   var model=ProjectBudgetReview.PrepareRevision(project,result.Select(x=>x.Model).ToArray(),Optional(r,2),snapshot,r.GetString(7),r.GetInt64(4),r.GetString(5),r.GetString(6),true);
-   if(model.Revision!=r.GetInt32(0)||model.Hash!=r.GetString(3))throw new InvalidOperationException("Budget chain digest mismatch.");
-   result.Add(new(model,operation,actor,utc,audit));
-  }
-  AuditCount(t,project,"RecordEffortBudgetRevision",result.Count);
-  return result.AsReadOnly();
- }
- IReadOnlyList<ForecastEntry> Forecasts(SqliteTransaction t,long project,IReadOnlyList<BudgetEntry> budgets)
- {
-  var result=new List<ForecastEntry>();var models=budgets.Select(x=>x.Model).ToArray();
-  using(var q=Q(t,@"SELECT f.sequence,f.operation_key,f.previous_hash,f.record_hash,f.budget_hash,f.snapshot_hash,f.snapshot_bytes,f.remaining_bytes,
-   f.first_budget_minutes,f.current_budget_minutes,f.approved_minutes,f.pending_minutes,f.remaining_minutes,f.total_minutes,f.reason,f.actor_id,f.recorded_utc,f.audit_id,a.id
-   FROM effort_forecast_records f LEFT JOIN audit_events a ON a.id=f.audit_id AND a.actor_id=f.actor_id
-   AND a.action='RecordEffortForecast' AND a.entity='Project' AND a.entity_id=f.project_id
-   WHERE f.project_id=$p ORDER BY f.sequence",("$p",project)))
-  using(var r=q.ExecuteReader())while(r.Read())
-  {
-   if(result.Count==500||r.IsDBNull(18))throw new InvalidOperationException("Forecast history incomplete.");
-   int sequence=r.GetInt32(0);var operation=r.GetString(1);var prior=Optional(r,2);
-   var snapshot=DecodeSnapshot(project,(byte[])r.GetValue(6),r.GetString(5));
-   var bytes=(byte[])r.GetValue(7);
-   var remaining=JsonSerializer.Deserialize<TaskRemainingInput[]>(bytes,Json)??throw new InvalidOperationException("Missing forecast input.");
-   if(!Encode(remaining.OrderBy(x=>x.TaskId).ToArray()).SequenceEqual(bytes))throw new InvalidOperationException("Noncanonical forecast input.");
-   var budgetIndex=Array.FindIndex(models,x=>x.Hash==r.GetString(4));
-   if(budgetIndex<0)throw new InvalidOperationException("Forecast budget missing.");
-   var model=ProjectBudgetReview.PrepareForecast(project,models.Take(budgetIndex+1).ToArray(),r.GetString(4),snapshot,r.GetString(5),remaining);
-   var reason=r.GetString(14);var actor=r.GetInt64(15);var utc=r.GetString(16);var audit=r.GetInt64(17);
-   CheckMeta(operation,actor,utc,audit);Reason(reason);
-   var hash=ForecastHash(model,sequence,prior,reason,operation,actor,utc,audit);
-   if(sequence!=result.Count+1||prior!=result.LastOrDefault()?.Hash||hash!=r.GetString(3)||
-      model.FirstBudgetMinutes!=r.GetInt64(8)||model.CurrentBudgetMinutes!=r.GetInt64(9)||
-      snapshot.CurrentApprovedMinutes+snapshot.HistoricalApprovedMinutes!=r.GetInt64(10)||
-      snapshot.CurrentPendingMinutes+snapshot.HistoricalPendingMinutes!=r.GetInt64(11)||
-      remaining.Sum(x=>(long)x.Minutes)!=r.GetInt64(12)||model.TotalForecastMinutes!=r.GetInt64(13))
-    throw new InvalidOperationException("Forecast chain or arithmetic mismatch.");
-   result.Add(new(model,sequence,prior,hash,reason,operation,actor,utc,audit));
-  }
-  AuditCount(t,project,"RecordEffortForecast",result.Count);
-  return result.AsReadOnly();
- }
- void OtherOperation(SqliteTransaction t,string key,long project,bool budget)
- {
-  if(Count(t,"SELECT (SELECT count(*) FROM effort_budget_revisions WHERE operation_key=$k AND (project_id!=$p OR $b=0))+(SELECT count(*) FROM effort_forecast_records WHERE operation_key=$k AND (project_id!=$p OR $b=1))",("$k",key),("$p",project),("$b",budget?1:0))!=0)
-   throw new ArgumentException("Operation already belongs to another record.");
- }
- ProjectEffortReview Current(SqliteTransaction t,long project,string reviewedHash)
- {
-  using var q=Q(t,"SELECT snapshot FROM synthetic_effort_source WHERE project_id=$p",("$p",project));
+  using var q=db.CreateCommand();q.Transaction=t;q.CommandText="SELECT snapshot FROM synthetic_effort_source WHERE project_id=$p";q.Parameters.AddWithValue("$p",project);
   if(q.ExecuteScalar() is not byte[] bytes)throw new ArgumentException("Synthetic effort missing.");
-  return DecodeSnapshot(project,bytes,reviewedHash);
+  return JsonSerializer.Deserialize<ProjectEffortReview>(bytes)??throw new InvalidOperationException("Synthetic effort missing.");
  }
- public (BudgetEntry Entry,bool Replayed) AppendBudget(long project,Guid operation,long actor,string? expected,string snapshotHash,long minutes,string kind,string reason,bool confirmed)
- {
-  if(!confirmed||actor<=0)throw new ArgumentException("Synthetic confirmation required.");
-  var key=Key(operation);Reason(reason);
-  using var t=db.BeginTransaction(deferred:false);
-  OtherOperation(t,key,project,true);
-  var prior=Budgets(t,project);_=Forecasts(t,project,prior);
-  if(prior.SingleOrDefault(x=>x.Operation==key) is BudgetEntry old)
-  {
-   if(old.Actor!=actor||old.Model.PreviousHash!=expected||old.Model.EffortSnapshotHash!=snapshotHash||old.Model.Minutes!=minutes||old.Model.Kind!=kind||old.Model.Reason!=reason)
-    throw new ArgumentException("Changed budget replay.");
-   t.Commit();return(old,true);
-  }
-  var snapshot=Current(t,project,snapshotHash);
-  var model=ProjectBudgetReview.PrepareRevision(project,prior.Select(x=>x.Model).ToArray(),expected,snapshot,snapshotHash,minutes,kind,reason,true);
-  var utc=Utc();var audit=Audit(t,project,actor,"RecordEffortBudgetRevision");
-  Exec(t,@"INSERT INTO effort_budget_revisions VALUES($p,$r,$o,$prev,$h,$m,$k,$n,$s,$bytes,$a,$u,$audit)",
-   ("$p",project),("$r",model.Revision),("$o",key),("$prev",expected),("$h",model.Hash),("$m",minutes),("$k",kind),("$n",reason),("$s",snapshotHash),("$bytes",SnapshotBytes(snapshot)),("$a",actor),("$u",utc),("$audit",audit));
-  var read=Budgets(t,project)[^1];
-  if(read.Model!=model||read.Operation!=key||read.Actor!=actor||read.AuditId!=audit)throw new InvalidOperationException("Budget read-back failed.");
-  t.Commit();return(read,false);
- }
- public (ForecastEntry Entry,bool Replayed) AppendForecast(long project,Guid operation,long actor,string? expectedForecast,string expectedBudget,string snapshotHash,IReadOnlyList<TaskRemainingInput> remaining,string reason,bool confirmed)
- {
-  if(!confirmed||actor<=0)throw new ArgumentException("Synthetic confirmation required.");
-  var key=Key(operation);Reason(reason);
-  var ordered=remaining.OrderBy(x=>x.TaskId).ToArray();
-  using var t=db.BeginTransaction(deferred:false);
-  OtherOperation(t,key,project,false);
-  var budgets=Budgets(t,project);var history=Forecasts(t,project,budgets);
-  if(history.SingleOrDefault(x=>x.Operation==key) is ForecastEntry old)
-  {
-   if(old.Actor!=actor||old.Previous!=expectedForecast||old.Model.BudgetHash!=expectedBudget||old.Model.EffortSnapshotHash!=snapshotHash||old.Reason!=reason||!old.Model.Remaining.SequenceEqual(ordered))
-    throw new ArgumentException("Changed forecast replay.");
-   t.Commit();return(old,true);
-  }
-  if(history.Count>=500||history.LastOrDefault()?.Hash!=expectedForecast)throw new ArgumentException("Stale forecast predecessor.");
-  var snapshot=Current(t,project,snapshotHash);
-  var model=ProjectBudgetReview.PrepareForecast(project,budgets.Select(x=>x.Model).ToArray(),expectedBudget,snapshot,snapshotHash,ordered);
-  int sequence=history.Count+1;var utc=Utc();var audit=Audit(t,project,actor,"RecordEffortForecast");
-  var hash=ForecastHash(model,sequence,expectedForecast,reason,key,actor,utc,audit);
-  Exec(t,@"INSERT INTO effort_forecast_records(project_id,sequence,operation_key,previous_hash,record_hash,budget_hash,snapshot_hash,snapshot_bytes,remaining_bytes,first_budget_minutes,current_budget_minutes,approved_minutes,pending_minutes,remaining_minutes,total_minutes,reason,actor_id,recorded_utc,audit_id) VALUES($p,$seq,$o,$prev,$h,$b,$s,$bytes,$remaining,$first,$current,$approved,$pending,$m,$total,$reason,$a,$u,$audit)",
-   ("$p",project),("$seq",sequence),("$o",key),("$prev",expectedForecast),("$h",hash),("$b",expectedBudget),("$s",snapshotHash),("$bytes",SnapshotBytes(snapshot)),("$remaining",Encode(ordered)),
-   ("$first",model.FirstBudgetMinutes),("$current",model.CurrentBudgetMinutes),("$approved",snapshot.CurrentApprovedMinutes+snapshot.HistoricalApprovedMinutes),("$pending",snapshot.CurrentPendingMinutes+snapshot.HistoricalPendingMinutes),
-   ("$m",ordered.Sum(x=>(long)x.Minutes)),("$total",model.TotalForecastMinutes),("$reason",reason),("$a",actor),("$u",utc),("$audit",audit));
-  var read=Forecasts(t,project,budgets)[^1];
-  if(read.Hash!=hash||read.Model.Hash!=model.Hash||read.Operation!=key||read.Actor!=actor||read.Sequence!=sequence||read.Previous!=expectedForecast||read.Reason!=reason||read.Utc!=utc||read.AuditId!=audit)throw new InvalidOperationException("Forecast read-back failed.");
-  t.Commit();return(read,false);
- }
+ internal static string ForecastHash(BudgetForecastReview model,int sequence,string? prior,string reason,string operation,long actor,string utc,long audit)
+  =>EffortBudgetStore.ForecastHash(model,sequence,prior,reason,operation,actor,utc,audit);
+ public (EffortBudgetEntry Entry,bool Replayed) AppendBudget(long project,Guid operation,long actor,string? expected,string snapshotHash,long minutes,string kind,string reason,bool confirmed)
+  =>Store(actor).AppendBudget(project,operation,expected,snapshotHash,minutes,kind,reason,confirmed);
+ public (EffortForecastEntry Entry,bool Replayed) AppendForecast(long project,Guid operation,long actor,string? expectedForecast,string expectedBudget,string snapshotHash,IReadOnlyList<TaskRemainingInput> remaining,string reason,bool confirmed)
+  =>Store(actor).AppendForecast(project,operation,expectedForecast,expectedBudget,snapshotHash,remaining,reason,confirmed);
  public (int Budgets,int Forecasts) Verify(long project)
  {
-  using var t=db.BeginTransaction(deferred:true);
-  var b=Budgets(t,project);var f=Forecasts(t,project,b);
-  return(b.Count,f.Count);
+  var history=Store(1).Read(project);return(history.Budgets.Count,history.Forecasts.Count);
  }
  public void SetSyntheticSnapshot(ProjectEffortReview snapshot)
  {
-  var hash=ProjectBudgetReview.SnapshotHash(snapshot.ProjectId,snapshot);_=DecodeSnapshot(snapshot.ProjectId,SnapshotBytes(snapshot),hash);
-  using var t=db.BeginTransaction(deferred:false);
-  Exec(t,"INSERT INTO synthetic_effort_source(project_id,snapshot) VALUES($p,$b) ON CONFLICT(project_id) DO UPDATE SET snapshot=excluded.snapshot",("$p",snapshot.ProjectId),("$b",SnapshotBytes(snapshot)));
-  t.Commit();
+  _=ProjectBudgetReview.SnapshotHash(snapshot.ProjectId,snapshot);
+  using var t=db.BeginTransaction(deferred:false);using var q=db.CreateCommand();q.Transaction=t;
+  q.CommandText="INSERT INTO synthetic_effort_source(project_id,snapshot) VALUES($p,$b) ON CONFLICT(project_id) DO UPDATE SET snapshot=excluded.snapshot";
+  q.Parameters.AddWithValue("$p",snapshot.ProjectId);q.Parameters.AddWithValue("$b",EffortBudgetStore.SnapshotBytes(snapshot));q.ExecuteNonQuery();t.Commit();
  }
 }

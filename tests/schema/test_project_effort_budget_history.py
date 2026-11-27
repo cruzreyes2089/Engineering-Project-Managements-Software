@@ -33,9 +33,9 @@ def audit(db, action, project=1, actor=1):
 def budget(db, rev=1, previous=None, minutes=120, project=1, ident=1, actor=1, audit_id=None, replace=False):
     if audit_id is None:
         audit_id = audit(db, "RecordEffortBudgetRevision", project, actor)
-    db.execute(("INSERT OR REPLACE" if replace else "INSERT") + " INTO effort_budget_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    db.execute(("INSERT OR REPLACE" if replace else "INSERT") + " INTO effort_budget_revisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                (project,rev,KEY(ident),previous,HASH(ident),minutes,"FirstRecorded" if rev==1 else "ScopeReview",
-                "Synthetic reviewed reason",HASH(99),b"synthetic snapshot",actor,"synthetic UTC",audit_id))
+                "Synthetic reviewed reason",HASH(99),b"synthetic snapshot",actor,"synthetic UTC",audit_id,HASH(1000+ident)))
 
 
 def forecast(db, seq=1, previous=None, budget_id=1, project=1, ident=10, first=120, current=120,
