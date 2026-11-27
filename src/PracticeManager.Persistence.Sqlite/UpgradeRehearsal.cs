@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 
 public sealed record UpgradeRehearsalResult(int SourceSchema,int TargetSchema,string SourceSha256,long Clients,long Contacts,long Users,bool SourceUnchanged)
@@ -9,6 +10,7 @@ public sealed record UpgradeRehearsalResult(int SourceSchema,int TargetSchema,st
  public long HistoricalProjects{get;init;}
  public bool HistoricalArchivePreserved{get;init;}
  public bool CrmAndExistingGrantsPreserved{get;init;}
+ public bool FullSchemaAndRowsPreserved{get;init;}
 }
 
 // Source-only qualification helper. Never open the original with SQLite and never
@@ -18,7 +20,7 @@ public static class UpgradeRehearsal
  const int CurrentSchema=47;
  const long MaximumBytes=4L*1024*1024*1024;
  static readonly string[] Sidecars=["-wal","-shm","-journal"];
- private sealed record Snapshot(int Version,long Clients,long Contacts,long Users,string IdentityHash,int ArchiveCount,string ArchiveDigest,string? CrmDigest);
+ private sealed record Snapshot(int Version,long Clients,long Contacts,long Users,string IdentityHash,int ArchiveCount,string ArchiveDigest,string? CrmDigest,string? FullDigest);
  private static void RequireNoSidecars(string path)
  {
   if(Sidecars.Any(s=>File.Exists(path+s)||Directory.Exists(path+s)))throw new ArgumentException("Closed source without database sidecars required.");
@@ -27,7 +29,7 @@ public static class UpgradeRehearsal
  {
   stream.Position=0;return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
  }
- private static Snapshot Inspect(string path)
+ private static Snapshot Inspect(string path,bool boundaryTarget=false)
  {
   using var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Mode=SqliteOpenMode.ReadOnly,Pooling=false,ForeignKeys=true,DefaultTimeout=10}.ToString());
   db.Open();using var q=db.CreateCommand();
@@ -75,13 +77,14 @@ public static class UpgradeRehearsal
    using var t=db.BeginTransaction(deferred:true);
    archive=LocalPractice.HistoricalArchiveFingerprint(db,t);
   }
-  return new(version,clients,contacts,users,Convert.ToHexString(h.GetHashAndReset()),archive.Count,archive.Digest,crmDigest);
+  var full=version>=46?DatabasePreservationWitness.Capture(db,version,boundaryTarget):null;
+  return new(version,clients,contacts,users,Convert.ToHexString(h.GetHashAndReset()),archive.Count,archive.Digest,crmDigest,full);
  }
  public static UpgradeRehearsalResult Run(string source,string expectedSha256,bool confirmed)
  {
   if(!confirmed)throw new ArgumentException("Confirm a trusted closed synthetic source copy.");
   if(expectedSha256==null||expectedSha256.Length!=64||!expectedSha256.All(Uri.IsHexDigit))throw new ArgumentException("Exact independently retained source SHA256 required.");
-  var input=Path.GetFullPath(source);
+  var input=LocalStoragePath.FilePath(source,mustExist:true,rejectSidecars:true);
   if(!string.Equals(Path.GetExtension(input),".db",StringComparison.OrdinalIgnoreCase)||!File.Exists(input)||(File.GetAttributes(input)&FileAttributes.ReparsePoint)!=0)throw new ArgumentException("Regular .db source copy required.");
   RequireNoSidecars(input);var root=Path.GetDirectoryName(input)!;
   if((File.GetAttributes(root)&FileAttributes.ReparsePoint)!=0||input.StartsWith(@"\\",StringComparison.Ordinal))throw new ArgumentException("Trusted local source directory required.");
@@ -97,7 +100,7 @@ public static class UpgradeRehearsal
   try
   {
    if(Directory.Exists(folder)||File.Exists(folder))throw new ArgumentException("Rehearsal directory already exists.");
-   Directory.CreateDirectory(folder);owned=true;
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(folder);owned=true;
    if((File.GetAttributes(folder)&FileAttributes.ReparsePoint)!=0)throw new ArgumentException("Unexpected redirected rehearsal directory.");
    src.Position=0;
    using(var dst=new FileStream(staging,FileMode.CreateNew,FileAccess.Write,FileShare.None)){src.CopyTo(dst);dst.Flush(true);if(dst.Length!=length)throw new InvalidOperationException("Source copy length changed.");}
@@ -105,12 +108,13 @@ public static class UpgradeRehearsal
    Snapshot before;
    try{before=Inspect(staging);}catch(SqliteException e){throw new ArgumentException("Source SQLite preflight failed.",e);}
    _=new LocalPractice(staging);
-   var after=Inspect(staging);
+   var after=Inspect(staging,boundaryTarget:before.Version==46);
    if(after.Version!=CurrentSchema||before.Clients!=after.Clients||before.Contacts!=after.Contacts||before.Users!=after.Users||before.IdentityHash!=after.IdentityHash||before.ArchiveCount!=after.ArchiveCount||before.ArchiveDigest!=after.ArchiveDigest||(before.CrmDigest!=null&&before.CrmDigest!=after.CrmDigest))throw new InvalidOperationException("Upgrade identity reconciliation failed.");
+   if(before.FullDigest!=null&&before.FullDigest!=after.FullDigest)throw new InvalidOperationException("Upgrade full schema and row reconciliation failed.");
    RequireNoSidecars(input);
    if(src.Length!=length||Hash(src)!=hash)throw new InvalidOperationException("Source copy changed during rehearsal.");
    return new(before.Version,after.Version,hash,after.Clients,after.Contacts,after.Users,true)
-   {HistoricalProjects=after.ArchiveCount,HistoricalArchivePreserved=true,CrmAndExistingGrantsPreserved=before.CrmDigest!=null};
+   {HistoricalProjects=after.ArchiveCount,HistoricalArchivePreserved=true,CrmAndExistingGrantsPreserved=before.CrmDigest!=null,FullSchemaAndRowsPreserved=before.FullDigest!=null};
   }
   finally
   {

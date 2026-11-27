@@ -14,6 +14,7 @@ internal static class UpgradeRehearsalTests
   var result=UpgradeRehearsal.Run(legacyPath,hash,true);
   check(result.SourceSchema==1&&result.TargetSchema==47&&result.SourceSha256==hash&&result.SourceUnchanged,"isolated rehearsal upgrades exact legacy copy only");
   check(result.Clients==1&&result.Contacts==0&&result.Users==2,"upgrade rehearsal preserves baseline identities");
+  check(!result.FullSchemaAndRowsPreserved,"older migration does not claim full additive preservation");
   check(Hash(legacyPath)==hash,"legacy source bytes remain unchanged after successful rehearsal");
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=legacyPath,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString())){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";check(Convert.ToInt32(q.ExecuteScalar())==1,"source remains on original schema");}
   var bad=Path.Combine(root,"upgrade-malformed.db");File.WriteAllBytes(bad,new byte[1024]);Invalid(()=>UpgradeRehearsal.Run(bad,Hash(bad),true),"non-SQLite copy rejected");

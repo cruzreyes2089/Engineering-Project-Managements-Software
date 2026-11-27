@@ -26,7 +26,7 @@ internal static class HistoricalArchiveRecoveryTests
         check(backup.Sha256==Hash(copy),"Archive recovery exact file hash");
         var rehearsal=UpgradeRehearsal.Run(copy,backup.Sha256,true);
         check(rehearsal.SourceSchema==47&&rehearsal.TargetSchema==47&&rehearsal.HistoricalProjects==package.Rows.Count&&
-            rehearsal.HistoricalArchivePreserved&&rehearsal.SourceUnchanged&&Hash(copy)==backup.Sha256,
+            rehearsal.HistoricalArchivePreserved&&rehearsal.FullSchemaAndRowsPreserved&&rehearsal.SourceUnchanged&&Hash(copy)==backup.Sha256,
             "Archive populated current-schema rehearsal preserves fingerprint and source");
         var restored=service.RestoreRecoveryCopyToNewFile(copy,backup.Sha256,target);
         check(restored.HistoricalProjects==package.Rows.Count&&restored.Projects==0&&restored.Sha256==backup.Sha256,

@@ -49,7 +49,7 @@ internal static class HistoricalArchiveUpgradeTests
         var hash=Hash(source);
         var result=UpgradeRehearsal.Run(source,hash,true);
         check(result.SourceSchema==46&&result.TargetSchema==47&&result.CrmAndExistingGrantsPreserved&&
-            result.HistoricalProjects==0&&result.HistoricalArchivePreserved&&Hash(source)==hash,
+            result.HistoricalProjects==0&&result.HistoricalArchivePreserved&&result.FullSchemaAndRowsPreserved&&Hash(source)==hash,
             "Archive boundary rehearsal preserves full CRM and existing grants");
         var target=Path.Combine(root,"historical-upgrade-v47.db");File.Copy(source,target);
         var upgraded=new LocalPractice(target);
@@ -78,6 +78,25 @@ internal static class HistoricalArchiveUpgradeTests
             Count(direct,"SELECT count(*) FROM legacy_client_map")==prior.Clients&&
             Count(direct,"SELECT count(*) FROM legacy_contact_map")==prior.Contacts,
             "Archive failed migration rolls back schema objects grants and version");
+        // These mutations occur during the real migration, outside the existing CRM/ID witness.
+        foreach(var (label,body) in new[]{
+            ("non-crm-row","UPDATE users SET failed_attempts=failed_attempts+1"),
+            ("non-crm-blob","UPDATE accounting_profiles SET protected_value=X'0908'"),
+            ("schema-object","INSERT INTO role_permissions(role_id,permission_code,allowed) SELECT id,'HistoricalProjects.View',1 FROM roles WHERE name='Engineer'")})
+        {
+            var changed=Path.Combine(root,"historical-witness-"+label+".db");File.Copy(source,changed);
+            if(label=="non-crm-blob")Sql(changed,"INSERT INTO accounting_profiles(user_id,endpoint,protected_value,last_success_utc,revision) SELECT id,'http://127.0.0.1:1/api2',X'0102','synthetic','synthetic' FROM users WHERE username='admin'");
+            Sql(changed,"CREATE TRIGGER synthetic_witness_fault AFTER INSERT ON permissions WHEN NEW.code='Administration.HistoricalProjectImport' BEGIN "+body+"; END");
+            var original=Hash(changed);
+            try{UpgradeRehearsal.Run(changed,original,true);check(false,"full witness rejects "+label);}
+            catch(InvalidOperationException){check(true,"full witness rejects "+label);}
+            check(Hash(changed)==original,"full witness leaves original unchanged: "+label);
+        }
+        var unexpected=Path.Combine(root,"historical-witness-unexpected.db");File.Copy(source,unexpected);
+        Sql(unexpected,"INSERT INTO permissions(code) VALUES('HistoricalProjects.View')");
+        try{UpgradeRehearsal.Run(unexpected,Hash(unexpected),true);check(false,"unexpected archive code in schema 46 refused");}
+        catch(ArgumentException){check(true,"unexpected archive code in schema 46 refused");}
+        check(!Directory.EnumerateDirectories(root,".crc-upgrade-*").Any(),"full witness failure removes disposable copies");
         check(Hash(source)==hash,"Archive original boundary fixture remains unchanged");
     }
 }
