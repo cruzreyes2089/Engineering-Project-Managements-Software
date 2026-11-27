@@ -36,7 +36,7 @@ internal sealed class SyntheticFolderProvisioning
  }
  static void RequireDirectory(string path)
  {
-  var current=new DirectoryInfo(path);
+  DirectoryInfo? current=new DirectoryInfo(path);
   while(current is not null)
   {
    if(!IsDirectory(current.FullName))throw new IOException("Synthetic root unavailable.");
