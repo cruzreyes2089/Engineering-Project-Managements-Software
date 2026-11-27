@@ -1,6 +1,7 @@
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 using Microsoft.Data.Sqlite;
+if(args.Length==2&&args[0]=="--synthetic-folder-lock-probe")return SyntheticFolderOperationFence.Probe(args[1]);
 var path = Path.Combine(Path.GetTempPath(), "CRC-test-" + Guid.NewGuid().ToString("N"), "test.db");
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 int passed=0;

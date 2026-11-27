@@ -8,6 +8,8 @@ internal sealed class SyntheticFolderJournal
  readonly long project;
  public SyntheticFolderJournal(string path,SyntheticFolderProvisioning folders,long project)
  {
+  if(project!=folders.ProjectId)throw new ArgumentException("Synthetic journal project identity mismatch.");
+  if(!string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)),folders.WorkspaceRoot,StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Synthetic journal must remain in its owned workspace.");
   this.folders=folders;this.project=project;
   connection=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString();
   using var c=Open();
@@ -67,6 +69,8 @@ internal sealed class SyntheticFolderJournal
   Action<int>? afterCreate=null,Action? beforeOutcome=null)
  {
   if(!confirmed)throw new ArgumentException("Explicit review required.");
+  // Hold the same workspace-wide OS handle through intent, all physical effects and outcome.
+  using var fence=SyntheticFolderOperationFence.Acquire(folders.WorkspaceRoot);
   var review=folders.Preview(correspondence,restricted);
   if(review.ReviewFingerprint!=reviewHash)throw new ArgumentException("Stale review.");
   var id=Guid.NewGuid().ToString("N");
@@ -92,6 +96,8 @@ internal sealed class SyntheticFolderJournal
   }
   var result=folders.Apply(correspondence,restricted,reviewHash,true,afterCreate);
   beforeOutcome?.Invoke();
+  var final=folders.Preview(correspondence,restricted);
+  if(final.PlanFingerprint!=review.PlanFingerprint||final.Steps.Any(x=>!x.Exists))throw new IOException("Folder outcome no longer matches the reviewed plan.");
   using(var c=Open())
   using(var t=c.BeginTransaction(deferred:false))
   {
@@ -110,18 +116,36 @@ internal static class SyntheticFolderJournalTests
   Directory.CreateDirectory(root);
   var production=Directory.CreateDirectory(Path.Combine(root,"SyntheticProduction")).FullName;
   Directory.CreateDirectory(Path.Combine(root,"SyntheticRestricted"));
+  using(var lockFile=new FileStream(Path.Combine(root,SyntheticFolderOperationFence.FileName),FileMode.CreateNew,FileAccess.Write,FileShare.None))lockFile.Flush(true);
   var folders=new SyntheticFolderProvisioning(root,11,"PRJ-000011");
   var path=Path.Combine(root,"synthetic-journal.db");
   var journal=new SyntheticFolderJournal(path,folders,11);
   void Reject<T>(Action action,string label) where T:Exception
   {try{action();}catch(T){check(true,label);return;}throw new Exception("FAIL: "+label);}
+  check(SyntheticFolderOperationFence.ProbeInOtherProcess(root)==0,"separate process can acquire free synthetic folder fence");
+  using(var held=SyntheticFolderOperationFence.Acquire(root))
+  {
+   check(SyntheticFolderOperationFence.ProbeInOtherProcess(root)==23,"separate process denied while folder fence is held");
+   Reject<IOException>(()=>journal.ExecuteReviewed(false,false,folders.Preview(false,false).ReviewFingerprint,true),"held workspace fence blocks journal execution");
+   check(journal.Pending()==null,"blocked execution records no intent");
+  }
+  check(SyntheticFolderOperationFence.ProbeInOtherProcess(root)==0,"folder fence released after handle disposal");
+  Reject<ArgumentException>(()=>new SyntheticFolderJournal(path,folders,12),"journal rejects mismatched project identity");
   var review=folders.Preview(false,false);
   Reject<ArgumentException>(()=>journal.ExecuteReviewed(false,false,review.ReviewFingerprint,false),"journal confirmation required");
   check(journal.Pending()==null,"unconfirmed folder review records no intent");
   Reject<IOException>(()=>journal.ExecuteReviewed(false,false,review.ReviewFingerprint,true,afterCreate:n=>{
    check(journal.Pending()!=null,"folder intent durable before external effect");
+   if(n==1)
+   {
+    check(SyntheticFolderOperationFence.ProbeInOtherProcess(root)==23,"folder fence held during physical effect");
+    var current=folders.Preview(false,false);
+    var active=journal.Pending()!;
+    Reject<IOException>(()=>journal.ExecuteReviewed(false,false,current.ReviewFingerprint,true,active),"running operation cannot be superseded");
+   }
    if(n==3)throw new IOException("Synthetic interruption");
   }),"folder journal interruption leaves uncertainty");
+  check(SyntheticFolderOperationFence.ProbeInOtherProcess(root)==0,"interrupted operation releases fence without clearing uncertainty");
   var first=journal.Pending()!;
   check(first!=null&&journal.State(first)=="Uncertain","interrupted intent remains open");
   journal=new SyntheticFolderJournal(path,folders,11);
@@ -147,9 +171,19 @@ internal static class SyntheticFolderJournalTests
   check(allPresent.Steps.All(s=>s.Exists),"lost acknowledgement requires fresh observation");
   var fourth=journal.ExecuteReviewed(true,false,allPresent.ReviewFingerprint,true,third);
   check(journal.State(third)=="Superseded"&&journal.State(fourth)=="Confirmed"&&journal.Pending()==null,"observed existing tree confirms reviewed repair without duplicate creation");
+  // Simulate disappearance between filesystem verification and outcome commit.
+  var finalReview=folders.Preview(true,false);
+  var missing=Path.Combine(production,"PRJ-000011","Correspondence");
+  Reject<IOException>(()=>journal.ExecuteReviewed(true,false,finalReview.ReviewFingerprint,true,beforeOutcome:()=>Directory.Delete(missing,false)),
+    "changed physical state before confirmation leaves uncertain outcome");
+  var fifth=journal.Pending()!;
+  check(journal.State(fifth)=="Uncertain","missing folder does not receive confirmed outcome");
+  var latest=folders.Preview(true,false);
+  var sixth=journal.ExecuteReviewed(true,false,latest.ReviewFingerprint,true,fifth);
+  check(journal.State(fifth)=="Superseded"&&journal.State(sixth)=="Confirmed"&&Directory.Exists(missing),"fresh review repairs disappearance");
   using var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false,ForeignKeys=true}.ToString());
   c.Open();using var q=c.CreateCommand();
-  q.CommandText="SELECT count(*) FROM attempts";check(Convert.ToInt64(q.ExecuteScalar())==4,"journal retains all attempt identities");
+  q.CommandText="SELECT count(*) FROM attempts";check(Convert.ToInt64(q.ExecuteScalar())==6,"journal retains all attempt identities");
   q.CommandText="SELECT count(*) FROM outcomes WHERE state='Confirmed' AND created_count=0";check(Convert.ToInt64(q.ExecuteScalar())==1,"zero-create recovery recorded");
   q.CommandText="DELETE FROM attempts";Reject<SqliteException>(()=>q.ExecuteNonQuery(),"journal attempt evidence immutable");
   q.CommandText="UPDATE outcomes SET state='Superseded'";Reject<SqliteException>(()=>q.ExecuteNonQuery(),"journal outcome evidence immutable");

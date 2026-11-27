@@ -9,6 +9,8 @@ internal sealed class SyntheticFolderProvisioning
  internal sealed record Step(string Boundary,string RelativeDirectory,bool Exists);
  internal sealed record Review(string PlanFingerprint,string ReviewFingerprint,IReadOnlyList<Step> Steps);
  readonly string production,restricted;
+ internal string WorkspaceRoot {get;}
+ internal long ProjectId=>projectId;
  readonly long projectId;
  readonly string projectNumber;
  public SyntheticFolderProvisioning(string ownedRoot,long projectId,string projectNumber)
@@ -16,6 +18,7 @@ internal sealed class SyntheticFolderProvisioning
   this.projectId=projectId;this.projectNumber=projectNumber;
   var root=Path.GetFullPath(ownedRoot);
   RequireDirectory(root);
+  WorkspaceRoot=root;
   production=Path.Combine(root,"SyntheticProduction");
   restricted=Path.Combine(root,"SyntheticRestricted");
   RequireDirectory(production);RequireDirectory(restricted);
