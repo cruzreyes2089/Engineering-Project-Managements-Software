@@ -10,6 +10,7 @@ internal sealed class FirmLaborCostWindow:Window
   Title="Restricted estimated labor cost";Width=920;Height=570;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var p=new StackPanel();p.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});
   p.Children.Add(new TextBlock{Text="Approved time only, valued at the recorded cost rate effective on each work date. Estimated cost is not payroll, compensation due, posted expense or profit. Incomplete rates are never silently treated as zero.",TextWrapping=TextWrapping.Wrap});
+  var review=new Button{Content="Overhead allocation scenario"};review.Click+=(_,_)=>new FirmOverheadWindow(service,start,end){Owner=this}.ShowDialog();p.Children.Add(review);
   var status=new TextBlock{TextWrapping=TextWrapping.Wrap};p.Children.Add(status);DockPanel.SetDock(p,Dock.Top);root.Children.Add(p);
   var grid=WorkWindowFields.Grid();WorkWindowFields.Columns(grid,("Category","Category"),("Approved minutes","ApprovedMinutes"),("Missing-rate minutes","MissingRateMinutes"),("Missing-rate records","MissingRateRecords"));
   grid.Columns.Add(new DataGridTextColumn{Header="Known partial cost USD",Binding=new Binding("KnownCost"){StringFormat="0.00"}});

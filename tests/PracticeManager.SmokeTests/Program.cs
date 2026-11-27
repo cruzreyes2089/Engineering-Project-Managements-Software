@@ -147,6 +147,7 @@ try{
  ProjectEffortTests.Run(Check);
  ProjectBudgetTests.Run(Check);
  ProjectCostScenarioTests.Run(Check);
+ OverheadPlanningTests.Run(Check);
  SyntheticBudgetHistoryTests.Run(Check);
  ProjectBudgetServiceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"budget-service-candidate.db"),pw,Check);
  BudgetAcceptanceStartupTests.Run(Path.GetDirectoryName(path)!,pw,Check);

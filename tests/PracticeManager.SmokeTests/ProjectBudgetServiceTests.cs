@@ -93,6 +93,8 @@ internal static class ProjectBudgetServiceTests
   admin.RecordEmployeeRate(new(employee,day.AddDays(1),180m,99m));
   var cost=admin.ReadProjectCostScenario(project,assumptions);
   check(cost.Evidence.ApprovedMinutes==60&&cost.Evidence.PendingMinutes==30&&cost.Evidence.ApprovedKnownLabor==35m&&cost.Evidence.PendingKnownLabor==17.50m&&cost.EstimatedDirectCost==172.50m&&cost.ProjectedDirectContribution==827.50m,"actual service uses effective dated rates and separates pending costs");
+  var loaded=OverheadPlanning.Project(cost,new(20m,20m));
+  check(loaded.TotalModeledCost==243m&&loaded.ContributionAfterAllocation==757m,"actual recorded costs support burden and overhead scenario");
   admin.SetStaffGrant(role.Id,"Reports.Financial",true,false);
   Denied(()=>worker.ReadProjectCostScenario(project,assumptions),"financial report without rates grant cannot see scenario");
   admin.SetStaffGrant(role.Id,"Billing.Rates",true,false);
