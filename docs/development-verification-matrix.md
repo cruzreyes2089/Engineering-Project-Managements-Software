@@ -82,3 +82,5 @@ Accounting receipt-capacity candidate added independently of production posting;
 - Accounting restore qualification: 1599d72b59509afe4b9b4d33e0f9d982da887c3e, run 46076454245: 103 Python, 2,183 native checks, zero warnings/errors. Actual DAO and Windows rename exclusion remain unqualified. Offline invoice terms/settlement review candidate pending.
 
 - Refundable advance reconciliation: f702076bb230ea90200c32f03a6e421412cea8f4, run 46081613128: 103 Python, 2,217 native, zero warnings/errors. Financial correction reference model pending. No actual accounting or migration authority.
+
+- Financial correction model: e426c2fb783f5e0764c1f65d16d8ef8a0a98eb85, run 46082419468: 103 Python, 2,238 native checks, zero warnings/errors. Accounting overview: fc0686babc33453f59e56371810b3170bf838352, run 46083750852: 103 Python, 2,242 native checks, zero warnings/errors. Desktop navigation candidate pending. Actual DAO, Windows rename exclusion, production accounting and interactive desktop acceptance remain open.
