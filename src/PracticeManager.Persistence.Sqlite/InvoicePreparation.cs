@@ -5,8 +5,11 @@ using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record WorkAllocationEvidence(long DraftId,string DraftNumber,string PayloadHash,string State,decimal Amount);
 public sealed record WorkAllocationReview(long ProjectId,long SubmissionId,string EvidenceHash,IReadOnlyList<WorkAllocationEvidence> Allocations,bool Eligible);
+public sealed record ApprovedInvoiceHold(long DraftId,string PayloadHash,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public ApprovedInvoiceHold? ReadApprovedInvoiceHold(long project,long draft)=>throw new NotImplementedException("Approved invoice hold history not implemented.");
+ public ApprovedInvoiceHold HoldApprovedInvoice(long project,long draft,string expectedHash,string reason,bool confirmed)=>throw new NotImplementedException("Approved invoice hold not implemented.");
  public WorkAllocationReview ReadWorkAllocationReview(long project,long submission)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireWorkCorrection(c,t);RequireInvoices(c,t,"Billing.Invoices.View");return AllocationReview(c,t,project,submission);
