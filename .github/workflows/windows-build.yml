@@ -44,6 +44,14 @@ jobs:
           $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/Export-LegacyCrmSnapshot.ps1').Path, [ref]$tokens, [ref]$errors)
           if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
           Write-Host 'CRM snapshot syntax checked; DAO execution is not qualified.'
+      - name: Parse disposable DAO fixture generator (no database access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/New-SyntheticLegacyCrmFixture.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Synthetic fixture syntax checked; actual DAO qualification is opt-in.'
       - name: Parse due-date diagnostic (no Manager access)
         shell: pwsh
         run: |
