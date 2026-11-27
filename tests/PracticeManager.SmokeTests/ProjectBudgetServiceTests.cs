@@ -70,6 +70,7 @@ internal static class ProjectBudgetServiceTests
   var saved=admin.ReadProjectBudgetWorkspace(project);
   check(saved.CanRecord&&saved.ReviewedSnapshotHash==nextSnapshot&&saved.History.Budgets.Count==2&&saved.History.Forecasts.Single().Hash==forecast.Entry.Hash,"budget workspace refresh reconciles revision and forecast");
   VerifyRecoveryCandidate(path,check);
+  VerifyRecoveryWorkflow(admin,path,check);
   worker.Logout();Denied(()=>worker.ReadProjectBudgetHistory(project),"budget read rejects signed-out actor");
   Denied(()=>worker.ReadProjectBudgetWorkspace(project),"budget workspace rejects signed-out actor");
   admin.Logout();Denied(()=>admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true),"budget replay requires current authorized actor");
@@ -102,6 +103,33 @@ internal static class ProjectBudgetServiceTests
    catch(ArgumentException){check(true,"candidate budget verifier rejects "+label);}
   }
   check(Verify(source)==original,"candidate budget verification failures leave source unchanged");
+ }
+
+ static void VerifyRecoveryWorkflow(LocalPractice admin,string path,Action<bool,string> check)
+ {
+  var root=Path.GetDirectoryName(path)!;
+  var recovery=Path.Combine(root,"budget-qualified-recovery.db");
+  var restored=Path.Combine(root,"budget-qualified-isolated.db");
+  var damaged=Path.Combine(root,"budget-damaged-recovery.db");
+  var refused=Path.Combine(root,"budget-refused-restore.db");
+  EffortBudgetVerification Verify(string file)
+  {
+   using var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=file,Mode=SqliteOpenMode.ReadOnly,ForeignKeys=true,Pooling=false}.ToString());db.Open();
+   using var t=db.BeginTransaction(deferred:true);EffortBudgetMigrationCandidate.VerifyLayout(db,t);return EffortBudgetStore.VerifyDatabase(db,t);
+  }
+  var original=Verify(path);var saved=admin.CreateRecoveryCopy(recovery);
+  check(Verify(recovery)==original,"actual recovery workflow preserves candidate budget witness after isolation and vacuum");
+  var copy=admin.RestoreRecoveryCopyToNewFile(recovery,saved.Sha256,restored);
+  check(copy.Sha256==saved.Sha256&&Verify(restored)==original,"actual isolated restore preserves candidate budget history");
+  File.Copy(recovery,damaged);
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=damaged,ForeignKeys=true,Pooling=false}.ToString()))
+  {
+   db.Open();using var q=db.CreateCommand();q.CommandText="DROP TRIGGER effort_forecast_no_update;UPDATE effort_forecast_records SET reason='Synthetic tamper'";q.ExecuteNonQuery();
+  }
+  var damagedHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(damaged))).ToLowerInvariant();
+  try{admin.RestoreRecoveryCopyToNewFile(damaged,damagedHash,refused);throw new Exception("FAIL: damaged budget restore");}
+  catch(InvalidOperationException){check(!File.Exists(refused),"actual isolated restore refuses corrupted candidate even with recomputed file hash");}
+  check(Verify(path)==original,"candidate recovery operations preserve active budget history");
  }
 
 }

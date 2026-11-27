@@ -33,6 +33,16 @@ internal static class EffortBudgetMigrationCandidate
   var before=Objects(db,t);Exec(db,t,Ddl());var after=Objects(db,t);
   return after.Where(x=>!before.ContainsKey(x.Key)).ToDictionary(x=>x.Key,x=>x.Value,StringComparer.Ordinal);
  }
+ internal static void VerifyLayout(SqliteConnection db,SqliteTransaction t)
+ {
+  if(Count(db,t,"PRAGMA user_version")!=48)throw new ArgumentException("Budget layout requires candidate schema 48.");
+  var expected=ExpectedAdditions();var actual=Objects(db,t);
+  if(expected.Any(x=>!actual.TryGetValue(x.Key,out var value)||value!=x.Value)||
+     actual.Keys.Any(k=>(k.Contains(":effort_",StringComparison.Ordinal)||k.Contains(":sqlite_autoindex_effort_",StringComparison.Ordinal))&&!expected.ContainsKey(k))||
+     Count(db,t,"SELECT count(*) FROM permissions WHERE code IN "+Codes)!=2||
+     Count(db,t,"SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id=rp.role_id WHERE r.name='Administrator' AND rp.allowed=1 AND rp.permission_code IN "+Codes)!=2)
+   throw new InvalidOperationException("Candidate budget layout or required administrator grants invalid.");
+ }
  internal static string Apply(SqliteConnection db,SqliteTransaction t)
  {
   if(Count(db,t,"PRAGMA user_version")!=47||Count(db,t,"PRAGMA foreign_keys")!=1)

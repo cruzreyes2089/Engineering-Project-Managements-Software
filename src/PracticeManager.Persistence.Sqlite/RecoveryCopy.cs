@@ -15,9 +15,11 @@ public sealed partial class LocalPractice
   var folder=Path.GetDirectoryName(target)??throw new ArgumentException("Choose an existing folder.");
   if(!Directory.Exists(folder)||File.Exists(target)||Directory.Exists(target))throw new ArgumentException("Choose a new file in an existing folder; existing files are never overwritten.");
   using var c=Open();
-  long actor;
+  long actor;long schema;EffortBudgetVerification? budget=null;
   using(var t=c.BeginTransaction(deferred:false)){
    actor=Require(c,t,"Administration.RecoveryCopy");
+   schema=Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"));
+   if(schema is not (47 or 48))throw new ArgumentException("Unsupported recovery schema.");
    Audit(c,t,actor,"RecoveryCopyRequested","Firm",1);
    t.Commit();
   }
@@ -30,6 +32,8 @@ public sealed partial class LocalPractice
     using(var t=copy.BeginTransaction(deferred:false)){
      if(Require(copy,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
      _=HistoricalRows(copy,t); // Refuse incomplete or inconsistent sealed archive before publishing.
+     if(Convert.ToInt64(Scalar(copy,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Recovery schema changed.");
+     if(schema==48){EffortBudgetMigrationCandidate.VerifyLayout(copy,t);budget=EffortBudgetStore.VerifyDatabase(copy,t);}
      Exec(copy,t,"PRAGMA secure_delete=ON");
      Exec(copy,t,"DELETE FROM accounting_profiles");
      Exec(copy,t,"INSERT OR IGNORE INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) VALUES(1,'Restore',$a,$u)",("$a",actor),("$u",UtcNow()));
@@ -40,6 +44,7 @@ public sealed partial class LocalPractice
     using(var q=copy.CreateCommand()){q.CommandText="VACUUM";q.ExecuteNonQuery();}
     using(var q=copy.CreateCommand()){q.CommandText="PRAGMA integrity_check";using var r=q.ExecuteReader();if(!r.Read()||r.GetString(0)!="ok"||r.Read())throw new InvalidOperationException("Recovery integrity check failed.");}
     using(var q=copy.CreateCommand()){q.CommandText="PRAGMA foreign_key_check";using var r=q.ExecuteReader();if(r.Read())throw new InvalidOperationException("Recovery foreign-key check failed.");}
+    if(schema==48){using var t=copy.BeginTransaction(deferred:true);EffortBudgetMigrationCandidate.VerifyLayout(copy,t);if(EffortBudgetStore.VerifyDatabase(copy,t)!=budget)throw new InvalidOperationException("Recovery budget history changed during isolation.");}
    }
    string hash;long bytes;
    using(var stream=new FileStream(temporary,FileMode.Open,FileAccess.ReadWrite,FileShare.None)){
@@ -47,6 +52,7 @@ public sealed partial class LocalPractice
    }
    using(var t=c.BeginTransaction(deferred:false)){
     if(Require(c,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
+    if(Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Recovery source schema changed.");
     Audit(c,t,actor,"RecoveryCopyPrepared","Firm",1);
     t.Commit();
    }
