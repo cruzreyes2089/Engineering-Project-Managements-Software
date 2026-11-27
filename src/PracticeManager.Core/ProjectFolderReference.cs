@@ -16,14 +16,19 @@ public static class ProjectFolderPolicy
   var parts=relativePath.Split(new[]{'/','\\'},StringSplitOptions.None);
   if(parts.Any(p=>p.Length==0||p=="."||p==".."||p.EndsWith('.')||p.EndsWith(' ')))
    throw new ArgumentException("Unsafe project folder component.");
+  var root=ReviewRoot(approvedRoot,databasePath);
+  var full=LocalStoragePath.DirectoryPath(Path.Combine(root,Path.Combine(parts)));
+  if(!Within(root,full))throw new ArgumentException("Project folder outside reviewed root.");
+  return new(string.Join("/",parts),full);
+ }
+ public static string ReviewRoot(string approvedRoot,string databasePath)
+ {
   var root=LocalStoragePath.DirectoryPath(approvedRoot);
   if(string.Equals(root,Path.GetPathRoot(root),Comparison))throw new ArgumentException("Select a dedicated project root, not a drive root.");
   var db=LocalStoragePath.Normalize(databasePath);var dbParent=Path.GetDirectoryName(db)!;
   if(string.Equals(root,dbParent,Comparison)||Within(root,db)||Within(dbParent,root))
    throw new ArgumentException("External project root must be separate from database storage.");
-  var full=LocalStoragePath.DirectoryPath(Path.Combine(root,Path.Combine(parts)));
-  if(!Within(root,full))throw new ArgumentException("Project folder outside reviewed root.");
-  return new(string.Join("/",parts),full);
+  return root;
  }
  public static bool Overlaps(string first,string second)
  {
