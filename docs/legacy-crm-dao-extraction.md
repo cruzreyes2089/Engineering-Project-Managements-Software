@@ -36,3 +36,11 @@ The binder converts the independent identity values using the mapped DAO types, 
 ## Source status
 
 Plan 9fe5dd4956c0acda65aa78701e8f157c889a6668; DAO candidate 34c399ba8f2f06184c8fdae041ba4d6fe13a321c; census binder 4c7c38d5dec073bc98e7a63c98f7435a150a9702; five Python regression methods 148d5f82dfdf723c9df785f4de8c3183ad79b376; Windows parser step 2ad689bc3aedf6746fe65e9e04ee04c2910468fa. These are committed candidates, not verified passing tests. No actual Access data, database schema increment or release authorization.
+
+## Integration audit and privacy hardening
+
+- Inventory revision 554a32156ca82ae9c374227e4afdd8c9807730c0 requires private fixed-drive paths outside the checkout, checks ancestor reparse points, rejects alternate data streams and requests exclusive read-only DAO opening. Extraction revision 147a87cf4f6747ae8a386140c7c0c10fe14d5331 also rejects alternate data streams and projects a shared contact primary/foreign key only once, while preserving both identity roles. This supports a declared one-to-one source relationship without manufacturing IDs.
+- Regression revision 0ec3f18beed80532e6df76418693f23c2af14946 includes the shared-key metadata and census case.
+- Local Python verification: five migration modules and four test files were transcribed into an isolated directory and checked against their exact Git blob SHA-1 values before execution. Mapping 7/7, row conversion 8/8, extraction-plan/census binding 6/6, identity reconciliation 8/8: **29/29 passed** using Python unittest discovery. These were exact source-level tests on synthetic metadata and rows, not DAO tests.
+- The new PowerShell path controls and shared-key recordset execution still require Windows qualification. Add controlled cases for checkout output, ancestor junctions, alternate data streams, locked sources, and a shared-key synthetic Access relationship. Path checks are defense in depth, not a sandbox or proof against concurrent replacement or filesystem aliases. Keep inputs and outputs in a separately access-controlled local directory.
+- No Windows PowerShell, DAO or .NET runtime was available for this local check. No combined build, actual source inventory or live database import is certified by this result; schema and release hold unchanged.
