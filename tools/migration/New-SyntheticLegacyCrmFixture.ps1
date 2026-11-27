@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [switch]$EmptyContacts,
     [switch]$SharedContactKey,
+    [switch]$IncludeHistoricalProjects,
     [switch]$ConfirmSyntheticFixture
 )
 Set-StrictMode -Version Latest
@@ -44,6 +45,11 @@ try {
             $db.Execute("INSERT INTO [SyntheticContacts] ([Id],[Parent],[Name],[PrimaryFlag],[Ignored]) VALUES (11,'001','Synthetic First',TRUE,'DO NOT EXPORT')",128)
             $db.Execute("INSERT INTO [SyntheticContacts] ([Id],[Parent],[Name],[PrimaryFlag],[Ignored]) VALUES (12,'002','Synthetic Second',FALSE,'DO NOT EXPORT')",128)
         }
+    }
+    if ($IncludeHistoricalProjects) {
+        $db.Execute('CREATE TABLE [SyntheticProjects] ([Id] LONG NOT NULL, [Parent] TEXT(20) NOT NULL, [Number] TEXT(50) NOT NULL, [Title] TEXT(100) NOT NULL, [Site] TEXT(100) NOT NULL, [Status] TEXT(30) NOT NULL, [Authorization] TEXT(30) NOT NULL, [Evidence] TEXT(50) NOT NULL, [Ignored] TEXT(100), CONSTRAINT [PKProjects] PRIMARY KEY ([Id]), CONSTRAINT [FKProjectParent] FOREIGN KEY ([Parent]) REFERENCES [SyntheticClients] ([Id]))',128)
+        $db.Execute("INSERT INTO [SyntheticProjects] ([Id],[Parent],[Number],[Title],[Site],[Status],[Authorization],[Evidence],[Ignored]) VALUES (101,'001','OLD-01','Synthetic Alpha Project','Synthetic site A','Active','Approved','REF-01','DO NOT EXPORT')",128)
+        $db.Execute("INSERT INTO [SyntheticProjects] ([Id],[Parent],[Number],[Title],[Site],[Status],[Authorization],[Evidence],[Ignored]) VALUES (102,'002','old-01','Synthetic Beta Project','Synthetic site B','Closed','Unknown','REF-02','DO NOT EXPORT')",128)
     }
     $db.Execute('INSERT INTO [Unrelated] ([Id]) VALUES (99)',128)
 } finally {
