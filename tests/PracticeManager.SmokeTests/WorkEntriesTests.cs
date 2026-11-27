@@ -71,6 +71,16 @@ internal static class WorkEntriesTests
   Denied(()=>admin.ReviewOverheadTime(ownerEntry,true,"Self"),"owner overhead review requires explicit confirmation");
   check(admin.ReviewOverheadTime(ownerEntry,true,"Reviewed owner time",true)=="Approved"&&admin.ReadOwnerDecisionEvidence().Single(x=>x.Kind=="Overhead review").PolicyEventId.HasValue,"owner overhead exception retained in history");
   check(admin.ReadBillingWork(day,day,false).Count==1,"overhead never enters project billing queue");
+  var mix=admin.ReadFirmTimeMix(day,day);
+  check(mix.Rows.Count==2&&mix.ApprovedMinutes==195&&mix.ApprovedOverheadMinutes==135&&mix.ApprovedProjectNonbillableMinutes==60&&mix.PendingMinutes==60&&mix.RejectedMinutes==1260&&mix.ApprovedBillableShare==0m,"firm time mix reconciles approved, pending and rejected overhead/project minutes");
+  Denied(()=>worker.ReadFirmTimeMix(day,day),"ordinary employee cannot see firm billing mix");
+  var unclassified=worker.SubmitWork(entry with{OperationKey=Guid.NewGuid(),Minutes=30});
+  check(admin.ReviewWork(unclassified,true,"Verified")=="Approved","additional approved project time recorded");
+  mix=admin.ReadFirmTimeMix(day,day);check(mix.ApprovedMinutes==225&&mix.ApprovedUnclassifiedMinutes==30&&mix.ApprovedBillableShare==null,"unclassified time prevents definitive share");
+  admin.ClassifyWork(unclassified,true,"Reviewed billable work");
+  mix=admin.ReadFirmTimeMix(day,day);check(mix.ApprovedBillableMinutes==30&&mix.ApprovedMinutes==225&&mix.ApprovedBillableShare==30m/225m,"firm share includes approved overhead in denominator");
+  var empty=admin.ReadFirmTimeMix(day.AddDays(-1),day.AddDays(-1));check(empty.Rows.Count==0&&empty.ApprovedBillableShare==null,"empty range does not fabricate utilization");
+  check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE overhead_time SET minutes=1";try{q.ExecuteNonQuery();throw new Exception("FAIL: mutable overhead");}catch(SqliteException){check(true,"SQL prevents overhead history edits");}}
  }
 }
