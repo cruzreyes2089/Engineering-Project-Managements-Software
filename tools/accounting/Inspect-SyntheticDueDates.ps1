@@ -1,7 +1,7 @@
 # Read-only diagnostic for a NEW, isolated, manually populated synthetic business.
 # Windows PowerShell 5.1 or PowerShell 7. No database or financial writes.
 [CmdletBinding()]
-param()
+param([switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.Net.Http
@@ -29,6 +29,7 @@ function Identity($root) {
 function Read-Json([string]$route) {
     # Strict fixed allowlist, no redirects, proxy, cookies, arbitrary URL or write method.
     Need ($route -match '^/(?:text-custom-fields\?term=CRC%20Due%20Date%20Test%20Identity&skip=0&pageSize=2|sales-invoices\?skip=0&pageSize=20|sales-invoice-form/[0-9a-fA-F-]{36})$') 'Route not permitted.'
+    if ($SelfTest) { return (Read-TestResponse $route) }
     $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get,($endpoint+$route))
     $response = $null; $stream = $null; $memory = $null
     $deadline = [Threading.CancellationTokenSource]::new([TimeSpan]::FromSeconds(15))
@@ -109,6 +110,73 @@ function Sweep {
     # Compare normalized selected fields and exact reference-to-key associations, not full JSON.
     return [pscustomobject]@{ report=$evidence.ToArray(); internalKeys=($referenceKeys.ToArray() -join ','); internalCustomer=(@($customers) -join ',') }
 }
+# Offline fixtures use invented due-field names. They qualify diagnostic mechanics,
+# never installed Manager field semantics. No endpoint, token or network client is used.
+function Read-TestResponse([string]$route) {
+    if ($route.StartsWith('/text-custom-fields?')) {
+        return [pscustomobject]@{ business=[pscustomobject]@{name=$script:testBusiness}; skip=0; totalRecords=1; textCustomFields=@([pscustomobject]@{name=$markerName;key=$script:testMarker}) }
+    }
+    if ($route.StartsWith('/sales-invoices?')) {
+        return [pscustomobject]@{ business=[pscustomobject]@{name=$script:testBusiness}; skip=0; pageSize=20; totalRecords=$script:testRows.Count; salesInvoices=$script:testRows }
+    }
+    if ($route.StartsWith('/sales-invoice-form/')) {
+        return $script:testDetails[$route.Substring('/sales-invoice-form/'.Length)]
+    }
+    throw 'Unexpected test route.'
+}
+function Run-SelfTest {
+    $script:testBusiness=$businessName
+    $script:testMarker='10000000-0000-0000-0000-000000000001'
+    $customer='20000000-0000-0000-0000-000000000001'
+    $script:testRows=@()
+    $script:testDetails=@{}
+    $i=0
+    foreach ($reference in $expected.Keys) {
+        $i++
+        $key='30000000-0000-0000-0000-00000000000'+$i
+        $money=[pscustomobject]@{currency=$null;value=100}
+        $script:testRows+= [pscustomobject]@{key=$key;reference=$reference;invoiceAmount=$money;balanceDue=$money;dueDate=$expected[$reference]}
+        $script:testDetails[$key]=[pscustomobject]@{Key=$key;id=$key;Reference=$reference;IssueDate='2026-11-01T00:00:00';Customer=$customer;DueMode=$i;DueDate=$expected[$reference];DuePrivate=$customer;Unrelated='not for output'}
+    }
+    function Expect-Block([scriptblock]$action,[string]$label) {
+        $blocked=$false
+        try { $null = & $action } catch { $blocked=$true }
+        Need $blocked ('Expected rejection: '+$label)
+        Write-Host ('PASS: '+$label)
+    }
+    $marker=Read-Marker
+    Need ($marker.ToString('D') -eq $script:testMarker) 'Marker self-test failed.'
+    $first=Sweep
+    $second=Sweep
+    Need ((ConvertTo-Json $first -Depth 10 -Compress) -ceq (ConvertTo-Json $second -Depth 10 -Compress)) 'Stable fixture self-test failed.'
+    $report=ConvertTo-Json -InputObject $first.report -Depth 8 -Compress
+    Need ($first.report.Count -eq 3 -and $report.Contains('2026-12-15') -and -not $report.Contains($customer) -and -not $report.Contains('Unrelated') -and -not $report.Contains('30000000-')) 'Diagnostic redaction self-test failed.'
+    Write-Host 'PASS: stable three-invoice diagnostic and redaction'
+    $script:testBusiness='Other business'
+    Expect-Block { Read-Marker } 'wrong marker business rejected'
+    Expect-Block { Sweep } 'wrong invoice business rejected'
+    $script:testBusiness=$businessName
+    $saved=$script:testRows[1].reference
+    $script:testRows[1].reference=$script:testRows[0].reference
+    Expect-Block { Sweep } 'duplicate reference rejected'
+    $script:testRows[1].reference=$saved
+    $saved=$script:testRows[0].balanceDue
+    $script:testRows[0].balanceDue=[pscustomobject]@{currency=$null;value=99}
+    Expect-Block { Sweep } 'unexpected balance rejected'
+    $script:testRows[0].balanceDue=$saved
+    $key=$script:testRows[0].key
+    $saved=$script:testDetails[$key].Customer
+    $script:testDetails[$key].Customer='20000000-0000-0000-0000-000000000002'
+    Expect-Block { Sweep } 'mixed customer identities rejected'
+    $script:testDetails[$key].Customer=$saved
+    $script:testDetails[$key].DueMode=99
+    $changed=Sweep
+    Need ((ConvertTo-Json $first -Depth 10 -Compress) -cne (ConvertTo-Json $changed -Depth 10 -Compress)) 'Changed due field not detected.'
+    Write-Host 'PASS: changed due field distinguished'
+    Expect-Block { Read-Json '/payments' } 'nonallowlisted route rejected'
+    Write-Host 'Due-date diagnostic offline tests passed. No actual Manager API access.'
+}
+if ($SelfTest) { Run-SelfTest; return }
 $http = $null; $handler = $null; $secret = $null; $bstr = [IntPtr]::Zero
 try {
     Need ((Read-Host 'Type CRC DUE DATE TEST to confirm the NEW synthetic business is open') -ceq $businessName) 'Synthetic scope not confirmed.'
