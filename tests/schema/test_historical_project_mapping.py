@@ -8,13 +8,13 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/migration"))
 import prepare_historical_project_plan as planner
 import convert_historical_project_rows as convert
-from test_crm_mapping import CrmMappingTests
+import test_crm_mapping
 import qualify_synthetic_crm as fixture
 
 
 class HistoricalProjectMappingTests(unittest.TestCase):
     def setUp(self):
-        crm = CrmMappingTests()
+        crm = test_crm_mapping.CrmMappingTests()
         crm.setUp()
         self.inv, self.ih, self.rules = crm.inv, crm.digest, crm.mapping
         self.mh = "c"*64
@@ -44,7 +44,7 @@ class HistoricalProjectMappingTests(unittest.TestCase):
         self.census = {"format":"CRC-Access-Historical-Project-Identity-Census-v1",
                        "sourceSha256":"b"*64,"planSha256":self.plan_hash,
                        "rows":[{"Id":2,"Parent":2,"Number":"old-1"},{"Id":1,"Parent":1,"Number":"OLD-1"}]}
-        self.transfer = fixture.expected_transfer(False)
+        self.transfer = fixture.expected_transfer(True)
         # This fixture represents integer IDs rather than zero-padded text IDs.
         self.transfer["clients"] = [dict(x, legacyId=str(i)) for i,x in enumerate(self.transfer["clients"],1)]
         self.expected = {"planSha256":self.plan_hash,"projectionSha256":self.raw_hash,
