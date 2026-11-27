@@ -1,8 +1,11 @@
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
+public sealed record ProjectLifecycleEvent(long Id,long ProjectId,string State,string Note,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public IReadOnlyList<ProjectLifecycleEvent> ReadProjectLifecycle(long project)=>throw new NotImplementedException("Operational lifecycle history not implemented.");
+ public ProjectLifecycleEvent RecordProjectLifecycle(long project,long? expectedEvent,bool close,string note,bool confirmed)=>throw new NotImplementedException("Operational lifecycle not implemented.");
  private long RequireReport(SqliteConnection c,SqliteTransaction t,string grant)
  {RequireProjectView(c,t);return Require(c,t,grant);}
  public ProjectCloseoutReview ReadProjectCloseoutReview(long project)

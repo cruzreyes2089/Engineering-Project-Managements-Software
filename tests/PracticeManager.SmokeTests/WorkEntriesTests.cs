@@ -96,6 +96,40 @@ internal static class WorkEntriesTests
   cost=admin.ReadFirmLaborCost(day,day);
   check(cost.CompleteCost==131.25m&&cost.MissingRateRecords==0&&cost.ApprovedMinutes==mix.ApprovedMinutes,"total firm cost includes owner and overhead");
   check(cost.Rows.Single(x=>x.Category=="Overhead: Marketing").CompleteCost==70m&&cost.Rows.Single(x=>x.Category=="Project billable").CompleteCost==17.50m,"overhead and billable cost segregated");
+  check(admin.ReadProjectLifecycle(project).Count==0,"existing active project has no invented closeout history");
+  Denied(()=>worker.RecordProjectLifecycle(project,null,true,"Synthetic unauthorized",true),"employee cannot close project");
+  Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending expense",true),"unreviewed project expense blocks closeout");
+  var pendingExpense=worker.ReadMySubmissions(day,day).Single(x=>x.ReviewState=="Submitted"&&x.Kind=="Expense");
+  check(admin.ReviewWork(pendingExpense.Id,true,"Synthetic verified expense")=="Approved","pending expense resolved before closure");
+  Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic incomplete setup",true),"incomplete setup blocks closeout");
+  foreach(var item in admin.ReadProjectSetup(project).Items.Where(x=>!x.Complete))admin.RecordProjectSetupItem(project,item.Item,true,"Synthetic setup reviewed",item.Complete,item.Note);
+  Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic not confirmed",false),"explicit closeout confirmation required");
+  var issue=admin.CreateQualityItem(project,"Synthetic final QA","Correction","Resolve before closeout");
+  Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic open QA",true),"open QA blocks closeout");
+  admin.CloseQualityItem(project,issue,"Synthetic resolved");
+  var scope=admin.ProposeScopeChange(project,"Synthetic scope","Synthetic pending decision");
+  Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending scope",true),"undecided scope blocks closeout");
+  admin.DecideScopeChange(project,scope,false,"Synthetic declined",false);
+  var closed=admin.RecordProjectLifecycle(project,null,true,"Synthetic operational completion",true);
+  check(closed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).ProjectState=="OperationalClosed"&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="OperationalClosed","closeout status projected across register and report");
+  check(worker.ReadMyWork(day,day).Single().ProjectState=="OperationalClosed"&&admin.ReadProjectHandoff(project).HasAuthorization,"closeout retains task history and start authorization");
+  Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic stale closure",true),"stale closeout command rejected");
+  Invalid(()=>admin.CreateProjectPhase(project,"After close",day,day),"closed project blocks phase creation");
+  Invalid(()=>admin.CreateProjectTask(project,new(phase,employee,"After close",day,day,60)),"closed project blocks task creation");
+  Invalid(()=>worker.SubmitWork(entry with{OperationKey=Guid.NewGuid(),Minutes=1}),"closed project blocks new work facts");
+  check(worker.SubmitWork(entry)==record,"exact retry of existing fact remains idempotent after closure");
+  check(admin.ClassifyWork(pendingExpense.Id,false,"Synthetic final expense classification")=="Nonbillable","financial classification can continue after operational closure");
+  var lateQa=admin.CreateQualityItem(project,"Post-close observation","Observation","Preserve evidence after close");
+  check(admin.ReadProjectCloseoutReview(project).OpenQualityItems==1,"post-close QA evidence remains recordable");
+  var review=admin.ReadConflictHistory(project).First();
+  var held=admin.RecordConflictReview(project,review.Id,new("Synthetic jurisdiction","No","No","No","Yes","Synthetic concern"),true);
+  Invalid(()=>admin.RecordProjectLifecycle(project,closed.Id,false,"Synthetic held reopen",true),"conflict hold blocks reopening");
+  admin.RecordConflictReview(project,held.Id,new("Synthetic jurisdiction","No","No","No","No","Synthetic resolved conflict"),true);
+  var reopened=admin.RecordProjectLifecycle(project,closed.Id,false,"Synthetic authorized reopen",true);
+  check(reopened.State=="Active"&&admin.ReadProjectLifecycle(project).Count==2&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="Active","explicit reopen restores active status with retained lifecycle history");
+  admin.CloseQualityItem(project,lateQa,"Synthetic resolved");
+  check(admin.CreateProjectTask(project,new(phase,employee,"After reopen",day,day,60))>0,"reopened project permits new task plan");
+
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE overhead_time SET minutes=1";try{q.ExecuteNonQuery();throw new Exception("FAIL: mutable overhead");}catch(SqliteException){check(true,"SQL prevents overhead history edits");}}
  }
 }

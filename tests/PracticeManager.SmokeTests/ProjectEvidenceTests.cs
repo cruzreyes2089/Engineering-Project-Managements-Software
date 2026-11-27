@@ -31,6 +31,7 @@ internal static class ProjectEvidenceTests
   check(s.ReadProjectDocuments(p.Id,false).All(x=>x.Id!=restricted),"restricted document omitted from list");
   Denied(()=>s.RetrieveProjectDocument(p.Id,restricted,rd.Hash),"restricted document direct retrieval denied");
   Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","secret.txt",bytes),"restricted write denied");
+  Invalid(()=>s.RecordProjectLifecycle(p.Id,null,true,"Synthetic pending closure",true),"pending project cannot close");
   var before=s.ReadProjectCloseoutReview(p.Id);check(before.ProjectState=="Pending"&&before.Phases==0&&before.OpenTasks==0&&before.OpenQualityItems==0&&before.PendingScopeDecisions==0,"closeout review describes empty pending project without authorizing closure");
   var q=s.CreateQualityItem(p.Id,"Synthetic QA","Correction","Review calculation");s.AddQualityNote(p.Id,q,"Synthetic review note");
   check(s.ReadQualityNotes(p.Id,q).Count==1&&s.ReadQualityItems(p.Id).Single().State=="Open","quality history retained");
