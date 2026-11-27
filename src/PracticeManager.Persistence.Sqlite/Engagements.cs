@@ -101,6 +101,14 @@ public sealed partial class LocalPractice
   t.Commit();return new("Accepted",project,number);
  }
  // Historical method name retained for compatibility; register now includes both Pending and Active projects.
+ public PendingProject ReadProjectOverview(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireProjectView(c,t);ProjectRow(c,t,project);
+  using var q=Command(c,t,@"SELECT p.id,p.project_no,s.id,s.title,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,s.site,(SELECT v.state FROM project_operational_state v WHERE v.project_id=p.id),p.setup_state,CASE WHEN EXISTS(SELECT 1 FROM project_conflict_cleared cr WHERE cr.project_id=p.id) THEN 'Clear' WHEN EXISTS(SELECT 1 FROM project_conflict_current cr WHERE cr.project_id=p.id) THEN 'Hold' ELSE 'NotReviewed' END FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id JOIN clients c ON c.id=s.client_id WHERE p.id=$p",("$p",project));
+  using var r=q.ExecuteReader();
+  if(!r.Read())throw new ArgumentException("Project unavailable.");
+  return new(r.GetInt64(0),r.GetString(1),r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8));
+ }
  public IReadOnlyList<PendingProject> SearchPendingProjects(string search="")
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Projects.View");Require(c,t,"Clients.View");

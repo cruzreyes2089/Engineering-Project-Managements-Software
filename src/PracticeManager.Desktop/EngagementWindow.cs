@@ -35,17 +35,11 @@ internal sealed class EngagementWindow:Window
   tabs.Items.Add(new TabItem{Header="Proposals",Content=pp});
   var projectPanel=new DockPanel();var openProject=new Button{Content="Open selected project",Margin=new Thickness(2),IsEnabled=false};
   
-  openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectHandoffWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
+  openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectWorkspaceWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
   var actions=new WrapPanel();actions.Children.Add(openProject);
-  var plan=new Button{Content="Plan phases and tasks",Margin=new Thickness(2)};plan.IsEnabled=service.Can("Projects.Plan")&&service.Can("Employees.View");
-  plan.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectPlanningWindow(service,p.Id){Owner=this}.ShowDialog();});
-  actions.Children.Add(plan);
-  var documents=new Button{Content="Documents",Margin=new Thickness(2),IsEnabled=service.Can("Documents.View")};
-  documents.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectDocumentsWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(documents);
-  var quality=new Button{Content="QA/QC and scope",Margin=new Thickness(2),IsEnabled=service.Can("QA.View")};
-  quality.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectQualityWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(quality);
-  void UpdateProjectActions(){bool selected=projects.SelectedItem is PendingProject;openProject.IsEnabled=selected&&service.Can("Projects.View");plan.IsEnabled=selected&&service.Can("Projects.Plan")&&service.Can("Employees.View");documents.IsEnabled=selected&&service.Can("Documents.View");quality.IsEnabled=selected&&service.Can("QA.View");}
+  void UpdateProjectActions(){openProject.IsEnabled=projects.SelectedItem is PendingProject&&service.Can("Projects.View")&&service.Can("Clients.View");}
   projects.SelectionChanged+=(_,_)=>UpdateProjectActions();
+  projects.MouseDoubleClick+=(_,e)=>{if(openProject.IsEnabled&&e.OriginalSource is DependencyObject source){while(source!=null&&source is not DataGridRow){source=source is System.Windows.Media.Visual||source is System.Windows.Media.Media3D.Visual3D?System.Windows.Media.VisualTreeHelper.GetParent(source):null;}if(source is DataGridRow row&&row.Item==projects.SelectedItem)openProject.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));}};
   proposals.SelectionChanged+=(_,_)=>{var selected=proposals.SelectedItem as ProposalSummary;compliance.IsEnabled=selected?.State=="Draft"&&service.Can("Compliance.View");reviewDoc.IsEnabled=selected!=null&&service.Can("Engagements.Export");history.IsEnabled=selected!=null&&service.Can("Engagements.Export");};
   UpdateProjectActions();compliance.IsEnabled=reviewDoc.IsEnabled=history.IsEnabled=false;
   DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
