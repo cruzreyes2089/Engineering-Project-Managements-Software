@@ -65,7 +65,7 @@ internal static class InvoiceDraftTests
   var marker=Guid.NewGuid();var externalCustomer=Guid.NewGuid();var externalInvoice=Guid.NewGuid();var business=new{name="CRC ACCOUNTING TEST"};var reference="SYNTHETIC-INVOICE-REVIEW";
   string Reply(string request){
    if(request.StartsWith("GET /api2/text-custom-fields?"))return JsonSerializer.Serialize(new{business,skip=0,pageSize=2,totalRecords=1,textCustomFields=new[]{new{key=marker,name=BusinessMarker.TestName}}});
-   if(request.StartsWith("GET /api2/customers?"))return JsonSerializer.Serialize(new{business,skip=0,pageSize=20,totalRecords=1,customers=new[]{new{key=externalCustomer,name="Synthetic Customer",status="Paid"}}});
+   if(request.StartsWith("GET /api2/customers?")||request.StartsWith("GET /api2/customers "))return JsonSerializer.Serialize(new{business,skip=0,pageSize=20,totalRecords=1,customers=new[]{new{key=externalCustomer,name="Synthetic Customer",status="Paid"}}});
    if(request.StartsWith("GET /api2/sales-invoices?"))return JsonSerializer.Serialize(new{business,skip=0,pageSize=20,totalRecords=1,salesInvoices=new[]{new{key=externalInvoice,reference,invoiceAmount=new{currency=(string?)null,value=295.34m},balanceDue=new{currency=(string?)null,value=195.34m}}}});
    if(request.StartsWith("GET /api2/sales-invoice-form/"))return JsonSerializer.Serialize(new{Key=externalInvoice,id=externalInvoice,Reference=reference,IssueDate=day.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture)+"T00:00:00",Customer=externalCustomer});
    throw new InvalidOperationException("Unexpected fixture request");
@@ -84,7 +84,7 @@ internal static class InvoiceDraftTests
    s.RemoveProvisionalLink(revision,client,externalCustomer);
    check((await s.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true)).Outcome=="CurrentProvisionalCustomerLinkRequired","removed link cannot support candidate match");
    try{await worker.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);throw new Exception("FAIL: employee candidate access");}catch(UnauthorizedAccessException){check(true,"employee cannot compare accounting invoice candidates");}
-  },13,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
+  },14,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
   check(onlyGets,"candidate service uses GET only");
  }
 }
