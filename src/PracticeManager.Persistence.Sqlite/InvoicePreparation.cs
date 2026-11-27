@@ -5,9 +5,12 @@ using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed record WorkAllocationEvidence(long DraftId,string DraftNumber,string PayloadHash,string State,decimal Amount);
 public sealed record WorkAllocationReview(long ProjectId,long SubmissionId,string EvidenceHash,IReadOnlyList<WorkAllocationEvidence> Allocations,bool Eligible);
-public sealed record ApprovedInvoiceHold(long DraftId,string PayloadHash,string Reason,long ActorId,string RecordedUtc);
+public sealed record ApprovedInvoiceHold(long DraftId,string PayloadHash,string Reason,long ActorId,string RecordedUtc,long EventId=0);
+public sealed record InvoiceHoldEvent(long EventId,long DraftId,string PayloadHash,string Kind,long? PriorEventId,string Reason,string? EvidenceReference,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public IReadOnlyList<InvoiceHoldEvent> ReadInvoiceHoldHistory(long project,long draft)=>throw new NotImplementedException("Invoice hold history not implemented.");
+ public InvoiceHoldEvent ReleaseApprovedInvoiceHold(long project,long draft,long expectedHoldId,string expectedHash,string evidenceReference,string reason,bool originalCorrect,bool noExternalIssuance)=>throw new NotImplementedException("Invoice hold release not implemented.");
  public ApprovedInvoiceHold? ReadApprovedInvoiceHold(long project,long draft)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireInvoices(c,t,"Billing.Invoices.View");ProjectRow(c,t,project);InvoiceDetail(c,t,project,draft);

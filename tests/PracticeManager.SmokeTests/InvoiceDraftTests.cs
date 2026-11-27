@@ -205,5 +205,31 @@ internal static class InvoiceDraftTests
   var afterHold=s.ReadProjectFinancialReport(project,day,day);
   check(afterHold.ApprovedInternalDraftValue==beforeHold.ApprovedInternalDraftValue&&afterHold.HeldApprovedDraftValue==295.34m&&afterHold.HeldApprovedDraftCount==1&&afterHold.TotalOperationalCost==beforeHold.TotalOperationalCost,"held amount separately identified as subset of approved internal drafts, no cost or revenue reversal");
   Invalid(()=>s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Over cap",1m)},Array.Empty<long>())),"held draft retains contractual cap allocation");
+  var holdHistory=s.ReadInvoiceHoldHistory(project,next);
+  check(hold.EventId>0&&holdHistory.Count==1&&holdHistory[0].EventId==hold.EventId&&holdHistory[0].Kind=="Hold","hold has exact immutable event identity");
+  Denied(()=>worker.ReadInvoiceHoldHistory(project,next),"employee cannot view hold history");
+  Denied(()=>worker.ReleaseApprovedInvoiceHold(project,next,hold.EventId,"wrong","","Unauthorized",false,false),"release authorization precedes input validation");
+  Denied(()=>s.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Synthetic evidence","Self release",true,true),"owner cannot release own hold despite approval exception");
+  var reviewRole=s.ReadStaffRoles().Single(x=>x.Name=="Financial / Accounting");
+  foreach(var grant in new[]{"Clients.View","Projects.View","Billing.Invoices.View","Billing.Invoices.Edit","Billing.Invoices.Approve"})
+  {var existing=s.ReadStaffGrants(reviewRole.Id).Single(x=>x.Code==grant);s.SetStaffGrant(reviewRole.Id,grant,true,existing.Allowed);}
+  var reviewActor=s.CreateStaffAccount("hold-reviewer",reviewRole.Id,"Synthetic-hold-review-temp-0001");
+  var reviewer=new LocalPractice(path);check(reviewer.ChangeRequiredPassword("hold-reviewer","Synthetic-hold-review-temp-0001","Synthetic-hold-review-password-0001")&&reviewer.Login("hold-reviewer","Synthetic-hold-review-password-0001"),"independent hold reviewer authenticated");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId+100,nextDetail.Summary.PayloadHash,"Evidence","Stale hold",true,true),"release requires exact current hold event");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,"wrong","Evidence","Wrong hash",true,true),"release requires exact approved payload");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"","Missing evidence",true,true),"release requires independent evidence reference");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Evidence","",true,true),"release requires reason");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Evidence","Erroneous draft",false,true),"erroneous original cannot be released");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Evidence","Possibly issued",true,false),"unknown or issued external invoice cannot be released");
+  var released=reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Synthetic accounting review report 001","Verified original draft correct and no external issuance after complete independent review",true,true);
+  check(released.Kind=="Release"&&released.PriorEventId==hold.EventId&&released.ActorId==reviewActor&&s.ReadInvoiceHoldHistory(project,next).Count==2,"independent release retains immutable hold lineage and evidence");
+  check(!s.ReadInvoiceDraft(project,next).Summary.ReconciliationHold&&s.ReadInvoiceDraft(project,next).Summary.State=="Approved","released draft returns to approved internal preparation only");
+  check(s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash).Contains("NOT AN ISSUED INVOICE")&&s.RetrieveInvoiceReviewDocument(project,next,doc.Id,doc.Sha256).Bytes.SequenceEqual(doc.Bytes),"verified release permits original internal exports");
+  check(s.ReadProjectFinancialReport(project,day,day).HeldApprovedDraftCount==0&&s.ReadProjectFinancialReport(project,day,day).ApprovedInternalDraftValue==295.34m&&!s.ReadWorkAllocationReview(project,time).Eligible,"release leaves allocations and approved value unchanged");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Evidence","Duplicate release",true,true),"repeat release denied");
+  var renewed=s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"New discrepancy requires investigation",true);
+  check(renewed.EventId>released.EventId&&s.ReadInvoiceHoldHistory(project,next).Count==3&&s.ReadInvoiceDraft(project,next).Summary.ReconciliationHold,"renewed hold immediately protects previously released draft");
+  Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Evidence","Old hold",true,true),"old event cannot release renewed hold");
+  Invalid(()=>s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash),"renewed hold blocks exports");
  }
 }
