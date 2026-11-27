@@ -61,7 +61,12 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.RecordMissingAttendance(missingKey,employee,missingIn,DateTimeOffset.UtcNow.AddDays(1),"Future",true),"future missing attendance denied");
   Invalid(()=>admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"",true),"missing attendance requires evidence");
   Invalid(()=>admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Unconfirmed",false),"missing attendance requires confirmation");
-  var missingSession=admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Verified completely missed clock events",true);
+  AttendanceSql("CREATE TRIGGER test_manual_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='RecordMissingAttendance' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Synthetic rollback",true);throw new Exception("FAIL: manual rollback");}catch(SqliteException){check(worker.ReadMyAttendance(missingDay,missingDay).Count==0,"failed audit rolls back manual attendance");}
+  AttendanceSql("DROP TRIGGER test_manual_audit_abort");
+  var missingIds=await Task.WhenAll(Task.Run(()=>admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Verified completely missed clock events",true)),Task.Run(()=>attendancePeer.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Verified completely missed clock events",true)));
+  check(missingIds.Distinct().Count()==1,"concurrent identical manual attendance records once");
+  var missingSession=missingIds[0];
   check(attendancePeer.RecordMissingAttendance(missingKey,employee,missingIn,missingOut,"Verified completely missed clock events",true)==missingSession,"identical missing attendance retry is idempotent");
   Invalid(()=>admin.RecordMissingAttendance(missingKey,employee,missingIn,missingOut.AddMinutes(1),"Changed intent",true),"missing attendance intent immutable");
   Invalid(()=>admin.RecordMissingAttendance(Guid.NewGuid(),employee,missingIn.AddMinutes(1),missingOut,"Overlapping",true),"overlapping missing attendance denied");
@@ -74,7 +79,14 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.VoidAttendance(missingSession,99,"Stale",true),"stale void rejected");
   Invalid(()=>admin.VoidAttendance(missingSession,null,"Unconfirmed",false),"void requires confirmation");
   Invalid(()=>admin.VoidAttendance(missingSession,null,"",true),"void requires reason");
-  var voided=admin.VoidAttendance(missingSession,null,"Verified erroneous duplicate record, no additional attendance",true);
+  AttendanceSql("CREATE TRIGGER test_void_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='VoidAttendance' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{admin.VoidAttendance(missingSession,null,"Synthetic rollback",true);throw new Exception("FAIL: void rollback");}catch(SqliteException){check(admin.ReadAttendanceVoid(missingSession)==null&&worker.ReadMyAttendance(missingDay,missingDay).Single().State=="Closed","failed audit preserves closed session");}
+  AttendanceSql("DROP TRIGGER test_void_audit_abort");
+  AttendanceVoid? TryVoid(LocalPractice service){try{return service.VoidAttendance(missingSession,null,"Verified erroneous duplicate record, no additional attendance",true);}catch(ArgumentException){return null;}}
+  var voids=await Task.WhenAll(Task.Run(()=>TryVoid(admin)),Task.Run(()=>TryVoid(attendancePeer)));
+  check(voids.Count(x=>x!=null)==1,"concurrent void records one decision");
+  var voided=voids.Single(x=>x!=null)!;
+  foreach(var sql in new[]{$"UPDATE employee_attendance SET entry_source='Clock' WHERE id={missingSession}",$"UPDATE attendance_voids SET reason='Changed' WHERE session_id={missingSession}",$"DELETE FROM attendance_voids WHERE session_id={missingSession}",$"INSERT INTO attendance_corrections(session_id,clock_in,clock_out,reason,actor_id,recorded_utc) SELECT id,clock_in,clock_out,'Revive',1,'synthetic' FROM employee_attendance WHERE id={missingSession}"}){try{AttendanceSql(sql);throw new Exception("FAIL: attendance void SQL guard");}catch(SqliteException){check(true,"database preserves origin and terminal void evidence");}}
   check(admin.ReadAttendanceVoid(missingSession)==voided&&worker.ReadMyAttendance(missingDay,missingDay).Single().State=="Voided","void retains original manual record and independent evidence");
   Invalid(()=>admin.VoidAttendance(missingSession,null,"Repeat",true),"attendance cannot be voided twice");
   Invalid(()=>admin.CorrectAttendance(missingSession,null,missingIn,missingOut,"Revive",true),"voided attendance cannot be silently reinstated");
@@ -82,6 +94,7 @@ internal static class WorkEntriesTests
   var newManual=admin.RecordMissingAttendance(Guid.NewGuid(),employee,missingIn,missingOut,"Verified corrected actual interval",true);
   check(newManual!=missingSession&&worker.ReadMyAttendance(missingDay,missingDay).Count==2&&worker.ReadMyAttendance(missingDay,missingDay).Count(x=>x.State=="Closed")==1,"voided history does not block separately verified corrected interval");
   check(worker.ReadMyOpenAttendance()==null,"manual attendance and void do not create open clock sessions");
+  check(worker.ClockIn()=="ClockedIn","clock continues after manual and void history");var currentOpen=worker.ReadMyOpenAttendance()!;Invalid(()=>admin.VoidAttendance(currentOpen.Id,null,"Open",true),"open session requires recovery rather than void");check(worker.ClockOut(currentOpen.Id)=="ClockedOut","ordinary clock unaffected by void workflow");
   var client=admin.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
   var proposal=admin.CreateProposal(new(client,"Synthetic","Site","Scope",100m));var hash=ConflictReviewTests.Issue(admin,proposal,1);var project=admin.RecordProposalDecision(proposal,hash,true,"Synthetic").ProjectId!.Value;
   var phase=admin.CreateProjectPhase(project,"Design",day.AddDays(-2),day.AddDays(2));var task=admin.CreateProjectTask(project,new(phase,employee,"Design",day.AddDays(-2),day.AddDays(2),120));
