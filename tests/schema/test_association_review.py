@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools/migration/prototypes'))
@@ -51,7 +52,7 @@ class ReviewTests(unittest.TestCase):
         review.reverse(self.db, ident, linked, True, 'Correction', 1, 'date2')
         reversed_hash = self.history()
         self.assertEqual(len({empty, linked, reversed_hash}), 3)
-        with sqlite3.connect(':memory:') as copy:
+        with closing(sqlite3.connect(':memory:')) as copy:
             self.db.backup(copy)
             self.assertEqual(self.history(copy), reversed_hash)
         self.assertEqual(self.db.execute('SELECT count(*) FROM prototype_association_audit').fetchone()[0], 2)
@@ -91,11 +92,11 @@ class ReviewTests(unittest.TestCase):
         token = self.read()
         with tempfile.TemporaryDirectory() as folder:
             path = str(Path(folder) / 'synthetic.db')
-            with sqlite3.connect(path) as copy:
+            with closing(sqlite3.connect(path)) as copy:
                 self.db.backup(copy)
             barrier = threading.Barrier(2)
             def worker():
-                with sqlite3.connect(path, timeout=5) as db:
+                with closing(sqlite3.connect(path, timeout=5)) as db:
                     db.execute('PRAGMA foreign_keys=ON')
                     barrier.wait(timeout=5)
                     try:
@@ -106,7 +107,7 @@ class ReviewTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 results = list(pool.map(lambda _: worker(), range(2)))
             self.assertCountEqual(results, ['committed', 'rejected'])
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db:
                 self.assertEqual(db.execute('SELECT count(*) FROM historical_associations').fetchone()[0], 1)
                 self.assertEqual(db.execute('SELECT count(*) FROM prototype_association_audit').fetchone()[0], 1)
 
