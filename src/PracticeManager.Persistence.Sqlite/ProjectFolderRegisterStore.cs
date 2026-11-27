@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 
-internal sealed record FolderRegisterEntry(long ProjectId,int Revision,string Operation,string? PreviousHash,string Hash,string State,string PathKey,string ConfigurationHash,string RelativePath,string DisplayPath,string Reason,long Actor,string Utc,long AuditId);
+public sealed record FolderRegisterEntry(long ProjectId,int Revision,string Operation,string? PreviousHash,string Hash,string State,string PathKey,string ConfigurationHash,string RelativePath,string DisplayPath,string Reason,long Actor,string Utc,long AuditId);
 // Inactive native store. A future application service must supply current permissions
 // and independently reviewed root configuration within the same transaction.
 internal sealed class ProjectFolderRegisterStore(SqliteConnection db,Func<SqliteTransaction,long,bool,long> authorize,

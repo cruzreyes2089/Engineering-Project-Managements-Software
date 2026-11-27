@@ -5,8 +5,8 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 
-internal sealed record StoredTransmittalEvent(int Sequence,string Operation,TransmittalEvent Event,long AuditId,string MetadataHash);
-internal sealed record StoredTransmittal(long Id,string Operation,TransmittalIntent Intent,IReadOnlyList<StoredTransmittalEvent> History);
+public sealed record StoredTransmittalEvent(int Sequence,string Operation,TransmittalEvent Event,long AuditId,string MetadataHash);
+public sealed record StoredTransmittal(long Id,string Operation,TransmittalIntent Intent,IReadOnlyList<StoredTransmittalEvent> History);
 // Internal inactive candidate. Callbacks must eventually implement real session,
 // project and issue eligibility checks within the caller-owned transaction.
 internal sealed class TransmittalRegisterStore(SqliteConnection db,Func<SqliteTransaction,long,string,long> authorize,Action<SqliteTransaction,long> issueGate)
@@ -75,6 +75,16 @@ internal sealed class TransmittalRegisterStore(SqliteConnection db,Func<SqliteTr
  public StoredTransmittal Read(long project,long id)
  {
   using var t=db.BeginTransaction(deferred:true);_=Actor(t,project,"Read");return ReadCore(t,project,id);
+ }
+ internal IReadOnlyList<StoredTransmittal> List(long project)
+ {
+  using var t=db.BeginTransaction(deferred:true);_=Actor(t,project,"Read");
+  var ids=new List<long>();
+  using(var q=Q(t,"SELECT id FROM project_transmittal_intents WHERE project_id=$p ORDER BY id DESC LIMIT 101",("$p",project)))
+  using(var r=q.ExecuteReader())while(r.Read()){if(ids.Count==100)throw new ArgumentException("Transmittal review limit exceeded.");ids.Add(r.GetInt64(0));}
+  var result=new List<StoredTransmittal>();long total=0;
+  foreach(var id in ids){var row=ReadCore(t,project,id);total+=row.Intent.Documents.Sum(x=>x.Bytes);if(total>256L*1024*1024)throw new ArgumentException("Transmittal review byte limit exceeded.");result.Add(row);}
+  return result.AsReadOnly();
  }
  StoredTransmittalEvent InsertEvent(SqliteTransaction t,long id,string intentOperation,TransmittalIntent intent,IReadOnlyList<StoredTransmittalEvent> rows,
   string key,string? expected,string state,string evidence,string note,long actor)

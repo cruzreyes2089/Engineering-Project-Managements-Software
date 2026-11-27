@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 
-internal sealed record FolderConfiguration(int Revision,string Operation,string? PreviousHash,string Hash,string RootPath,string TemplateJson,string Reason,long Actor,string Utc,long AuditId)
+public sealed record FolderConfiguration(int Revision,string Operation,string? PreviousHash,string Hash,string RootPath,string TemplateJson,string Reason,long Actor,string Utc,long AuditId)
 {
  public IReadOnlyList<ProjectFolderTemplateItem> Template=>Array.AsReadOnly(JsonSerializer.Deserialize<ProjectFolderTemplateItem[]>(TemplateJson)??throw new InvalidOperationException("Missing template."));
 }

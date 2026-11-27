@@ -1,0 +1,71 @@
+using System.Windows;
+using System.Windows.Controls;
+using PracticeManager.Core;
+using PracticeManager.Persistence;
+namespace PracticeManager.Desktop;
+internal sealed class DocumentFolderAcceptanceWindow:Window
+{
+ readonly LocalPractice service;readonly long project;
+ readonly TextBox rootPath=new(){MaxLength=512},template=new(){AcceptsReturn=true,MinHeight=160,MaxLength=4096},reason=new(){MaxLength=1000},relative=new(){MaxLength=240};
+ readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
+ readonly DataGrid configurations=WorkWindowFields.Grid(),folders=WorkWindowFields.Grid();
+ FolderConfiguration? current;FolderRegisterEntry? prior;bool closed;
+ public DocumentFolderAcceptanceWindow(LocalPractice service,long project)
+ {
+  this.service=service;this.project=project;Title="SYNTHETIC — Project folder configuration and register";Width=1000;Height=780;WindowStartupLocation=WindowStartupLocation.CenterOwner;
+  var body=new StackPanel{Margin=new Thickness(16)};
+  void Label(string x)=>body.Children.Add(new TextBlock{Text=x,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,4)});
+  Label("Synthetic local paths only. Existing folders are referenced, not created, opened, moved or deleted. Consultant MEP belongs in Reference Documents. QA-QC is standard.");
+  var actions=new WrapPanel();WorkWindowFields.Button(actions,"Reload current records",()=>Refresh());body.Children.Add(actions);
+  Label("Reviewed dedicated project root (existing local folder)");body.Children.Add(rootPath);
+  Label("Template: one folder per line; prefix optional/unselected labels with '- '");body.Children.Add(template);
+  Label("Reason for configuration or folder change");body.Children.Add(reason);
+  var configBar=new WrapPanel();WorkWindowFields.Button(configBar,"Record configuration revision",SaveConfig);body.Children.Add(configBar);
+  configurations.Height=125;WorkWindowFields.Columns(configurations,("Revision","Revision"),("Root","RootPath"),("Reason","Reason"),("Recorded UTC","Utc"));body.Children.Add(configurations);
+  Label("Relative path of existing project folder (within current root)");body.Children.Add(relative);
+  var folderBar=new WrapPanel();WorkWindowFields.Button(folderBar,"Register existing folder",Register);WorkWindowFields.Button(folderBar,"Retire current reference",Retire);body.Children.Add(folderBar);
+  folders.Height=150;WorkWindowFields.Columns(folders,("Revision","Revision"),("State","State"),("Folder","DisplayPath"),("Configuration","ConfigurationHash"),("Reason","Reason"));body.Children.Add(folders);body.Children.Add(status);
+  Content=new ScrollViewer{Content=body};Closed+=(_,_)=>{closed=true;Clear();};Refresh();
+ }
+ void Clear(){current=null;prior=null;configurations.ItemsSource=null;folders.ItemsSource=null;rootPath.Clear();template.Clear();reason.Clear();relative.Clear();status.Text="";}
+ bool Refresh()
+ {
+  Clear();if(closed)return false;
+  try
+  {
+   var configs=service.ReviewAcceptanceFolderConfigurations();var history=service.ReviewAcceptanceProjectFolders(project);
+   current=configs.LastOrDefault();prior=history.LastOrDefault();configurations.ItemsSource=configs;folders.ItemsSource=history;
+   rootPath.Text=current?.RootPath??"";template.Text=string.Join("\n",(current?.Template??ProjectFolderTemplate.Defaults).Select(x=>(x.IncludedByDefault?"":"- ")+x.Name));
+   if(prior?.State=="Registered")relative.Text=prior.RelativePath;
+   return true;
+  }
+  catch(UnauthorizedAccessException){Clear();status.Text="Access denied.";}
+  catch(Exception){Clear();status.Text="Folder register unavailable.";}
+  return false;
+ }
+ bool Confirm(string text)=>MessageBox.Show(this,text,"Confirm synthetic record",MessageBoxButton.YesNo,MessageBoxImage.Warning)==MessageBoxResult.Yes&&!closed;
+ void Act(Action a)
+ {
+  try{a();}
+  catch(UnauthorizedAccessException){Clear();status.Text="Access denied.";}
+  catch(ArgumentException e){status.Text=e.Message;}
+  catch(Exception){Clear();status.Text="Record not confirmed; reload and reconcile before retrying.";}
+ }
+ void SaveConfig()=>Act(()=>{
+  var path=rootPath.Text;var why=reason.Text;var expected=current?.Hash;
+  var items=template.Text.Split(new[]{"\r\n","\n"},StringSplitOptions.RemoveEmptyEntries).Select(x=>x.StartsWith("- ",StringComparison.Ordinal)?new ProjectFolderTemplateItem(x[2..],false):new ProjectFolderTemplateItem(x,true)).ToArray();
+  var preview=ProjectFolderTemplate.Preview(items);
+  if(!Confirm("Record this root and template revision?\n"+path+"\n"+string.Join("\n",preview)))return;
+  service.SaveAcceptanceFolderConfiguration(Guid.NewGuid(),expected,path,items,why,true);if(Refresh())status.Text="Configuration revision recorded.";
+ });
+ void Register()=>Act(()=>{
+  var config=current??throw new ArgumentException("Record a reviewed root first.");var path=relative.Text;var why=reason.Text;var expected=prior?.Hash;
+  if(!Confirm("Register existing folder reference only?\n"+config.RootPath+"\n"+path))return;
+  service.SaveAcceptanceProjectFolder(project,Guid.NewGuid(),expected,config.Hash,"Registered",path,why,true);if(Refresh())status.Text="Folder reference registered.";
+ });
+ void Retire()=>Act(()=>{
+  var record=prior is {State:"Registered"} p?p:throw new ArgumentException("No current reference.");var why=reason.Text;
+  if(!Confirm("Retire reference without deleting files?\n"+record.DisplayPath))return;
+  service.SaveAcceptanceProjectFolder(project,Guid.NewGuid(),record.Hash,record.ConfigurationHash,"Retired",record.PathKey,why,true);if(Refresh())status.Text="Reference retired; directory unchanged.";
+ });
+}
