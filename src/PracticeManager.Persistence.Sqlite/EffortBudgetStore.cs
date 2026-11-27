@@ -9,6 +9,7 @@ namespace PracticeManager.Persistence;
 public sealed record EffortBudgetEntry(BudgetRevision Model,string Operation,long Actor,string Utc,long AuditId);
 public sealed record EffortForecastEntry(BudgetForecastReview Model,int Sequence,string? Previous,string Hash,string Reason,string Operation,long Actor,string Utc,long AuditId);
 public sealed record EffortBudgetHistory(IReadOnlyList<EffortBudgetEntry> Budgets,IReadOnlyList<EffortForecastEntry> Forecasts);
+public sealed record EffortBudgetWorkspace(ProjectEffortReview Effort,string? ReviewedSnapshotHash,EffortBudgetHistory History,bool CanRecord);
 
 // Shared transactional persistence candidate. The owning service supplies an
 // authorization callback and current evidence from this same database transaction.
@@ -26,7 +27,7 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
  static void CheckMeta(string operation,long actor,string utc,long audit)
  {
   if(!IsKey(operation)||actor<=0||audit<=0||!DateTimeOffset.TryParseExact(utc,"O",CultureInfo.InvariantCulture,DateTimeStyles.None,out var time)||time.Offset!=TimeSpan.Zero)
-   throw new InvalidOperationException("Invalid synthetic history metadata.");
+   throw new InvalidOperationException("Invalid budget history metadata.");
  }
  static string BudgetMetadataHash(BudgetRevision model,string operation,long actor,string utc,long audit)
   =>Hash(new{Format="CRC-EffortBudgetMetadata-v1",model.Hash,Operation=operation,Actor=actor,Utc=utc,AuditId=audit});
@@ -65,7 +66,7 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
  void AuditCount(SqliteTransaction t,long project,string action,int expected)
  {
   if(Count(t,"SELECT count(*) FROM audit_events WHERE action=$a AND entity='Project' AND entity_id=$p",("$a",action),("$p",project))!=expected)
-   throw new InvalidOperationException("Unpaired synthetic history audit.");
+   throw new InvalidOperationException("Unpaired budget history audit.");
  }
  IReadOnlyList<EffortBudgetEntry> Budgets(SqliteTransaction t,long project)
  {
@@ -151,7 +152,7 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
   Exec(t,@"INSERT INTO effort_budget_revisions(project_id,revision,operation_key,previous_hash,record_hash,minutes,kind,reason,snapshot_hash,snapshot_bytes,actor_id,recorded_utc,audit_id,metadata_hash) VALUES($p,$r,$o,$prev,$h,$m,$k,$n,$s,$bytes,$a,$u,$audit,$meta)",
    ("$p",project),("$r",model.Revision),("$o",key),("$prev",expected),("$h",model.Hash),("$m",minutes),("$k",kind),("$n",reason),("$s",snapshotHash),("$bytes",SnapshotBytes(snapshot)),("$a",actor),("$u",utc),("$audit",audit),("$meta",BudgetMetadataHash(model,key,actor,utc,audit)));
   var read=Budgets(t,project)[^1];
-  if(read.Model!=model||read.Operation!=key||read.Actor!=actor||read.AuditId!=audit)throw new InvalidOperationException("Budget read-back failed.");
+  if(read.Model!=model||read.Operation!=key||read.Actor!=actor||read.Utc!=utc||read.AuditId!=audit)throw new InvalidOperationException("Budget read-back failed.");
   t.Commit();return(read,false);
  }
  public (EffortForecastEntry Entry,bool Replayed) AppendForecast(long project,Guid operation,string? expectedForecast,string expectedBudget,string snapshotHash,IReadOnlyList<TaskRemainingInput> remaining,string reason,bool confirmed)
@@ -182,11 +183,28 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
   if(read.Hash!=hash||read.Model.Hash!=model.Hash||read.Operation!=key||read.Actor!=actor||read.Sequence!=sequence||read.Previous!=expectedForecast||read.Reason!=reason||read.Utc!=utc||read.AuditId!=audit)throw new InvalidOperationException("Forecast read-back failed.");
   t.Commit();return(read,false);
  }
+ EffortBudgetHistory ReadCore(SqliteTransaction t,long project)
+ {
+  var b=Budgets(t,project);var f=Forecasts(t,project,b);
+  return new(b,f);
+ }
  public EffortBudgetHistory Read(long project)
  {
   using var t=db.BeginTransaction(deferred:true);
   if(authorize(t,project,false)<=0)throw new UnauthorizedAccessException();
-  var b=Budgets(t,project);var f=Forecasts(t,project,b);
-  return new(b,f);
+  return ReadCore(t,project);
+ }
+ public EffortBudgetWorkspace Review(long project)
+ {
+  using var t=db.BeginTransaction(deferred:true);
+  var actor=authorize(t,project,false);if(actor<=0)throw new UnauthorizedAccessException();
+  var history=ReadCore(t,project);var effort=current(t,project);
+  var digest=effort.Tasks.Count==0?null:ProjectBudgetReview.SnapshotHash(project,effort);
+  bool canRecord=false;
+  if(digest!=null)
+   try{canRecord=authorize(t,project,true)==actor;}
+   catch(UnauthorizedAccessException){}
+   catch(ArgumentException){} // Closed project or unavailable planning state.
+  return new(effort,digest,history,canRecord);
  }
 }

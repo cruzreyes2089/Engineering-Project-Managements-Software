@@ -20,6 +20,10 @@ public sealed partial class LocalPractice
   return actor;
  }
  EffortBudgetStore BudgetStore(SqliteConnection c)=>new(c,(t,p,w)=>RequireEffortBudget(c,t,p,w),(t,p)=>ReadProjectEffortCore(c,t,p));
+ public EffortBudgetWorkspace ReadProjectBudgetWorkspace(long project)
+ {
+  using var c=Open();return BudgetStore(c).Review(project);
+ }
  public EffortBudgetHistory ReadProjectBudgetHistory(long project)
  {
   using var c=Open();return BudgetStore(c).Read(project);

@@ -39,6 +39,10 @@ internal static class ProjectBudgetServiceTests
    db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO role_permissions SELECT id,'Projects.Budget.View',1 FROM roles WHERE name='Engineer';INSERT INTO role_permissions SELECT id,'Projects.Budget.Record',1 FROM roles WHERE name='Engineer'";q.ExecuteNonQuery();
   }
   check(worker.ReadProjectBudgetHistory(project).Budgets.Single().Model.Hash==first.Entry.Model.Hash,"budget history read requires assigned permission");
+  var view=worker.ReadProjectBudgetWorkspace(project);
+  check(!view.CanRecord&&view.History.Budgets.Single().Model.Hash==first.Entry.Model.Hash&&view.ReviewedSnapshotHash==snapshot,"budget workspace provides consistent read-only history and current evidence");
+  var management=admin.ReadProjectBudgetWorkspace(project);
+  check(management.CanRecord&&management.ReviewedSnapshotHash==snapshot&&management.History.Budgets.Count==1,"administrator budget workspace permits explicit review");
   Denied(()=>worker.RecordProjectBudgetRevision(project,Guid.NewGuid(),first.Entry.Model.Hash,snapshot,150,"ManagementReview","Synthetic denied",true),"non-administrator cannot record budget even with record grant");
   Denied(()=>worker.RecordProjectEffortForecast(project,Guid.NewGuid(),null,first.Entry.Model.Hash,snapshot,new[]{new TaskRemainingInput(task,120)},"Synthetic denied",true),"non-administrator cannot record forecast");
   admin.EditProjectTask(project,task,1,plan with{EstimateMinutes=150});
@@ -49,7 +53,10 @@ internal static class ProjectBudgetServiceTests
   var forecast=admin.RecordProjectEffortForecast(project,Guid.NewGuid(),null,second.Entry.Model.Hash,nextSnapshot,new[]{new TaskRemainingInput(task,160)},"Synthetic forecast",true);
   check(forecast.Entry.Model.TotalForecastMinutes==160&&forecast.Entry.Model.VarianceFromFirstMinutes==40&&forecast.Entry.Model.VarianceFromCurrentMinutes==10,"actual service forecasts from current task evidence");
   check(admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true).Replayed,"actual service exact historical retry");
+  var saved=admin.ReadProjectBudgetWorkspace(project);
+  check(saved.CanRecord&&saved.ReviewedSnapshotHash==nextSnapshot&&saved.History.Budgets.Count==2&&saved.History.Forecasts.Single().Hash==forecast.Entry.Hash,"budget workspace refresh reconciles revision and forecast");
   worker.Logout();Denied(()=>worker.ReadProjectBudgetHistory(project),"budget read rejects signed-out actor");
+  Denied(()=>worker.ReadProjectBudgetWorkspace(project),"budget workspace rejects signed-out actor");
   admin.Logout();Denied(()=>admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true),"budget replay requires current authorized actor");
  }
 }

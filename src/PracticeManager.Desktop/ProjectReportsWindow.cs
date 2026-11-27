@@ -15,6 +15,7 @@ internal sealed class ProjectReportsWindow:Window
   if(service.Can("Reports.Operations")){
    tabs.Items.Add(new TabItem{Header="Operations",Content=new ScrollViewer{Content=ops}});
    WorkWindowFields.Button(filters,"Project effort (all dates)",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectEffortWindow(service,p.Id){Owner=this}.ShowDialog();});
+   if(service.Can("Projects.Budget.View"))WorkWindowFields.Button(filters,"Budget history",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectBudgetWindow(service,p.Id){Owner=this}.ShowDialog();});
    var closeoutTab=new TabItem{Header="Closeout review (all dates)",Content=new ScrollViewer{Content=closeout}};tabs.Items.Add(closeoutTab);
    WorkWindowFields.Button(filters,"Review closeout (all dates)",()=>{tabs.SelectedItem=closeoutTab;RefreshCloseout();});
    if(service.Can("Projects.Closeout"))WorkWindowFields.Button(filters,"Close / reopen project",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectLifecycleWindow(service,p.Id){Owner=this}.ShowDialog();tabs.SelectedItem=closeoutTab;RefreshCloseout();});
