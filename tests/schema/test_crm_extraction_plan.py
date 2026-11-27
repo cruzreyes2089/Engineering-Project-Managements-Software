@@ -61,3 +61,17 @@ class ExtractionPlanTests(unittest.TestCase):
         self.raw["clients"][0]["legacyId"] = "1"
         with self.assertRaises(ValueError):
             self.bind()
+
+    def test_shared_contact_primary_and_foreign_key(self):
+        # A legitimate one-to-one relationship can use the same source key.
+        choice = self.rules["contacts"]["fields"]
+        choice["legacyClientId"]["column"] = "Id"
+        self.inv["localRelations"][0]["fields"][0]["foreignField"] = "Id"
+        plan = self.plan()
+        self.assertEqual(plan["contacts"]["identities"],
+                         {"legacyId": "Id", "legacyClientId": "Id"})
+        self.assertEqual({x["name"] for x in plan["contacts"]["columns"]},
+                         {"Id", "Name", "Primary"})
+        self.transfer["contacts"][0].update(legacyId="1", legacyClientId="1")
+        self.raw["contacts"][0].update(legacyId=1, legacyClientId=1)
+        self.assertEqual(self.bind()["contacts"], [{"legacyId": "1", "legacyClientId": "1"}])
