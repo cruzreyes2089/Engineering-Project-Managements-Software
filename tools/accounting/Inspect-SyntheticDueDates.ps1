@@ -1,5 +1,5 @@
 # Read-only diagnostic for a NEW, isolated, manually populated synthetic business.
-# Revision 2: safe stage-specific failure reporting. Windows PowerShell 5.1 or PowerShell 7.
+# Revision 3: bounded currency and amount diagnostics with exact synthetic values. Windows PowerShell 5.1 or PowerShell 7.
 [CmdletBinding()]
 param([switch]$SelfTest)
 $ErrorActionPreference = 'Stop'
@@ -83,6 +83,27 @@ function Read-Marker {
     Write-Host 'PASS: exact synthetic marker'
     return $markerKey
 }
+# No raw money objects or currency UUIDs are printed. Distinguish null currency,
+# explicit USD, and an unknown encoding. Unknown encodings remain unqualified.
+function Money-Value($obj,[string]$label) {
+    $currency = Get-Field $obj 'currency'
+    $value = Get-Field $obj 'value'
+    $currencyKind = 'Unsupported'
+    if ($null -eq $currency) { $currencyKind = 'Null' }
+    elseif ($currency -is [string] -and $currency -ceq 'USD') { $currencyKind = 'USD' }
+    elseif ($currency -is [string] -and $currency -eq '') { $currencyKind = 'Empty string' }
+    elseif ($currency -is [string]) {
+        $parsed = [guid]::Empty
+        if ([guid]::TryParse($currency,[ref]$parsed)) { $currencyKind = 'UUID' }
+        else { $currencyKind = 'Other string' }
+    }
+    elseif ($currency -is [pscustomobject]) { $currencyKind = 'Object' }
+    $number = $value -is [int] -or $value -is [long] -or $value -is [decimal] -or $value -is [double]
+    $matches = $number -and $value -eq 100
+    Write-Host ($label+' currency encoding: '+$currencyKind)
+    Write-Host ($label+' numeric USD 100 match: '+$matches)
+    return [pscustomobject]@{ CurrencyKind=$currencyKind; Matches=$matches }
+}
 function Due-Fields($obj) {
     $result = [ordered]@{}
     foreach ($p in @($obj.PSObject.Properties | Sort-Object Name)) {
@@ -119,7 +140,12 @@ function Sweep {
         Need ($seen.Add($key)) 'Duplicate invoice identifier.'
         $referenceKeys.Add($ref+':'+$key.ToString('D'))
         $amount = Get-Field $row 'invoiceAmount'; $balance = Get-Field $row 'balanceDue'
-        Need ($null -eq (Get-Field $amount 'currency') -and $null -eq (Get-Field $balance 'currency') -and (Get-Field $amount 'value') -eq 100 -and (Get-Field $balance 'value') -eq 100) 'Unexpected synthetic invoice amount, currency or balance.'
+        $amountCheck = Money-Value $amount 'Invoice amount'
+        $balanceCheck = Money-Value $balance 'Outstanding balance'
+        Need ($amountCheck.Matches) 'Invoice amount does not equal numeric 100.'
+        Need ($balanceCheck.Matches) 'Outstanding balance does not equal numeric 100.'
+        Need ($amountCheck.CurrencyKind -in @('Null','USD') -and $balanceCheck.CurrencyKind -in @('Null','USD')) 'Currency encoding is not qualified; review reported encoding categories.'
+        Need ($amountCheck.CurrencyKind -eq $balanceCheck.CurrencyKind) 'Invoice and outstanding currency encoding differs.'
         Stage ('Read invoice detail: '+$ref)
         $detail = Read-Json ('/sales-invoice-form/'+$key.ToString('D'))
         Stage ('Validate invoice detail: '+$ref)
@@ -129,7 +155,7 @@ function Sweep {
         if ($issue -is [datetime]) { $issue = $issue.ToString('yyyy-MM-ddTHH:mm:ss',[Globalization.CultureInfo]::InvariantCulture) }
         Need ($issue -ceq '2026-11-01T00:00:00') 'Synthetic issue date differs.'
         Write-Host ('PASS: invoice identity, date and amount — '+$ref)
-        $evidence.Add([ordered]@{ reference=$ref; expectedDueDate=$expected[$ref]; registerFields=(Due-Fields $row); formFields=(Due-Fields $detail) })
+        $evidence.Add([ordered]@{ reference=$ref; expectedDueDate=$expected[$ref]; currencyEncoding=$amountCheck.CurrencyKind; registerFields=(Due-Fields $row); formFields=(Due-Fields $detail) })
     }
     Stage 'Validate common synthetic customer'
     Need ($customers.Count -eq 1) 'Expected one synthetic customer.'
@@ -186,6 +212,14 @@ function Run-SelfTest {
     $script:testRows[1].reference=$script:testRows[0].reference
     Expect-Block { Sweep } 'duplicate reference rejected'
     $script:testRows[1].reference=$saved
+    $usd=Money-Value ([pscustomobject]@{currency='USD';value=100}) 'Self-test'
+    Need ($usd.CurrencyKind -eq 'USD' -and $usd.Matches) 'Explicit USD recognition failed.'
+    $unknown=Money-Value ([pscustomobject]@{currency=$customer;value=100}) 'Self-test'
+    Need ($unknown.CurrencyKind -eq 'UUID' -and $unknown.Matches) 'Currency UUID classification failed.'
+    $savedCurrency=$script:testRows[0].invoiceAmount
+    $script:testRows[0].invoiceAmount=[pscustomobject]@{currency=$customer;value=100}
+    Expect-Block { Sweep } 'unqualified currency encoding rejected'
+    $script:testRows[0].invoiceAmount=$savedCurrency
     $saved=$script:testRows[0].balanceDue
     $script:testRows[0].balanceDue=[pscustomobject]@{currency=$null;value=99}
     Expect-Block { Sweep } 'unexpected balance rejected'
@@ -205,7 +239,7 @@ function Run-SelfTest {
 if ($SelfTest) { Run-SelfTest; return }
 $http = $null; $handler = $null; $secret = $null; $bstr = [IntPtr]::Zero
 try {
-    Write-Host 'CRC DUE DATE DIAGNOSTIC — REVISION 2'
+    Write-Host 'CRC DUE DATE DIAGNOSTIC — REVISION 3'
     Stage 'Confirm synthetic scope'
     Need ((Read-Host 'Type CRC DUE DATE TEST to confirm the NEW synthetic business is open') -ceq $businessName) 'Synthetic scope not confirmed.'
     Need ((Read-Host 'Type USD to confirm this test business uses USD only') -ceq 'USD') 'Currency scope not confirmed.'
@@ -237,7 +271,7 @@ try {
     Write-Output 'Expected dates are operator setup targets, not yet verified API interpretations. Compare with Manager UI before approval.'
 } catch {
     # Never emit request bodies, raw responses, URLs, keys or tokens from exception details.
-    Write-Output 'DIAGNOSTIC STOPPED — REVISION 2'
+    Write-Output 'DIAGNOSTIC STOPPED — REVISION 3'
     Write-Output ('Stage: '+$script:stage)
     Write-Output ('Reason: '+$script:failure)
     if ($null -ne $script:httpStatus) { Write-Output ('HTTP status: '+$script:httpStatus) }
