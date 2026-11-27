@@ -49,13 +49,13 @@ internal sealed class HistoricalProjectImportWindow:Window
         note.TextChanged+=(_,_)=>UpdateCommit();
         commit.Click+=(_,_)=>Run(Commit);p.Children.Add(commit);
         Content=new ScrollViewer{Content=p,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-        Loaded+=(_,_)=>{guard.Start();CheckAccess();};guard.Tick+=(_,_)=>CheckAccess();
+        Loaded+=(_,_)=>{guard.Start();CheckArchiveAccess();};guard.Tick+=(_,_)=>CheckArchiveAccess();
         Closed+=(_,_)=>{guard.Stop();InvalidateReview();Array.Clear(paths);note.Clear();};
     }
-    private void CheckAccess()
+    private void CheckArchiveAccess()
     {
-        try{if(!service.CanImportHistoricalProjects()){InvalidateReview();Close();}}
-        catch(Exception){InvalidateReview();Close();}
+        try{if(!service.CanImportHistoricalProjects()){InvalidateReview();if(IsLoaded)Close();}}
+        catch(Exception){InvalidateReview();if(IsLoaded)Close();}
     }
     private void UpdateCommit()=>commit.IsEnabled=preview?.TargetStatus=="ReadyForExplicitReview"&&
         confirmed.IsChecked==true&&!string.IsNullOrWhiteSpace(note.Text);
@@ -68,7 +68,7 @@ internal sealed class HistoricalProjectImportWindow:Window
     private void Run(Action action)
     {
         try{if(!service.CanImportHistoricalProjects())throw new UnauthorizedAccessException();action();}
-        catch(UnauthorizedAccessException){InvalidateReview();Close();}
+        catch(UnauthorizedAccessException){InvalidateReview();if(IsLoaded)Close();}
         catch(Exception){InvalidateReview();status.Text="Review rejected or operation failed. No successful import assumed; refresh the register before retrying.";}
     }
     private void Choose(int index)
@@ -104,10 +104,17 @@ internal sealed class HistoricalProjectImportWindow:Window
     {
         if(preview?.TargetStatus!="ReadyForExplicitReview"||snapshots==null||reviewedHashes==null||
             confirmed.IsChecked!=true||string.IsNullOrWhiteSpace(note.Text))throw new ArgumentException("Preview and review required.");
+        var reviewedPreview=preview;var reviewedBytes=snapshots;var reviewedDigest=reviewedHashes;var reviewedNote=note.Text;
         if(MessageBox.Show(this,"Commit this exact synthetic archive? No operational project or authorization will be created.",
             "Confirm synthetic archive",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-        var b=snapshots;var h=reviewedHashes;
-        var outcome=service.ImportHistoricalProjects(b[0],b[1],b[2],h[0],h[1],h[2],h[3],true,note.Text);
+        // The modal confirmation pumps dispatcher events; the access timer may have
+        // invalidated the review or closed this window while confirmation was open.
+        if(!IsLoaded||!service.CanImportHistoricalProjects()||preview!=reviewedPreview||
+            !ReferenceEquals(snapshots,reviewedBytes)||!ReferenceEquals(reviewedHashes,reviewedDigest)||
+            confirmed.IsChecked!=true||note.Text!=reviewedNote)
+            throw new UnauthorizedAccessException("Review or access changed during confirmation.");
+        var outcome=service.ImportHistoricalProjects(reviewedBytes[0],reviewedBytes[1],reviewedBytes[2],
+            reviewedDigest[0],reviewedDigest[1],reviewedDigest[2],reviewedDigest[3],true,reviewedNote);
         InvalidateReview();note.Clear();status.Text=outcome+". Refresh the archive register to verify sealed records.";
     }
 }
