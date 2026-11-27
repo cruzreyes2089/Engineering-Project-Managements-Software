@@ -54,7 +54,6 @@ internal static class DatabasePreservationWitness
   using var full=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
   Text(full,"CRC-full-database-preservation-v1");
   int total=0,tables=0;
-  var buffer=new byte[65536];
   foreach(var e in schema)
   {
    if(boundaryTarget&&ArchiveTables.Contains(e.Table))continue;
@@ -70,7 +69,14 @@ internal static class DatabasePreservationWitness
    if(columns.Count==0)throw new ArgumentException("Missing table columns.");
    Number(full,columns.Count);foreach(var col in columns)Text(full,col);
    // SQLite TEXT is hashed as its stored bytes, not a potentially lossy decoded string.
-   q.CommandText="SELECT "+string.Join(",",columns.Select(col=>{var id=Quote(col);return "typeof("+id+"),CASE WHEN typeof("+id+")='text' THEN CAST("+id+" AS BLOB) ELSE "+id+" END";}))+" FROM "+Quote(e.Name);
+   // Avoid provider GetStream/GetBytes on computed columns (native crash in pinned prior-source CI).
+   // SQL bounds the returned byte value before CLR materialization; no silent truncation.
+   q.CommandText="SELECT "+string.Join(",",columns.Select(col=>
+   {
+    var id=Quote(col);var type="typeof("+id+")";var length="length(CAST("+id+" AS BLOB))";
+    return type+",CASE WHEN "+type+" IN ('text','blob') THEN "+length+" ELSE NULL END,"+
+     "CASE WHEN "+type+" IN ('text','blob') THEN CASE WHEN "+length+"<=67108864 THEN CAST("+id+" AS BLOB) ELSE NULL END ELSE "+id+" END";
+   }))+" FROM "+Quote(e.Name);
    if(boundaryTarget&&e.Name=="permissions")q.CommandText+=" WHERE code NOT IN "+Codes;
    if(boundaryTarget&&e.Name=="role_permissions")q.CommandText+=" WHERE permission_code NOT IN "+Codes;
    var rows=new List<string>();
@@ -80,23 +86,18 @@ internal static class DatabasePreservationWitness
     using var row=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
     for(int i=0;i<columns.Count;i++)
     {
-     var type=r.GetString(2*i);int value=2*i+1;Text(row,type);
+     var type=r.GetString(3*i);int value=3*i+2;Text(row,type);
      switch(type)
      {
       case "null":break;
       case "integer":Number(row,r.GetInt64(value));break;
       case "real":Number(row,BitConverter.DoubleToInt64Bits(r.GetDouble(value)));break;
       case "text":case "blob":
-       var bytes=r.GetBytes(value,0,null,0,0);
-       if(bytes<0||bytes>MaxValueBytes)throw new ArgumentException("Database witness value limit exceeded.");
-       Number(row,bytes);
-       for(long offset=0;offset<bytes;)
-       {
-        int count=(int)Math.Min(buffer.Length,bytes-offset);
-        int read=(int)r.GetBytes(value,offset,buffer,0,count);
-        if(read!=count)throw new InvalidOperationException("Database witness value changed.");
-        row.AppendData(buffer,0,read);offset+=read;
-       }
+       var length=r.GetInt64(value-1);
+       if(length<0||length>MaxValueBytes)throw new ArgumentException("Database witness value limit exceeded.");
+       if(r.GetValue(value) is not byte[] bytes||bytes.LongLength!=length)throw new InvalidOperationException("Database witness value changed.");
+       try{Number(row,length);row.AppendData(bytes);}
+       finally{CryptographicOperations.ZeroMemory(bytes);}
        break;
       default:throw new ArgumentException("Unsupported SQLite storage type.");
      }
@@ -106,7 +107,6 @@ internal static class DatabasePreservationWitness
    rows.Sort(StringComparer.Ordinal);
    Number(full,rows.Count);foreach(var row in rows)Text(full,row);
   }
-  CryptographicOperations.ZeroMemory(buffer);
   return Convert.ToHexString(full.GetHashAndReset());
  }
 }
