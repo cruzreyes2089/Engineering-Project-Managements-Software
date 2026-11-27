@@ -24,6 +24,6 @@ public static class InvoiceCandidateComparison
   if(row.CustomerKey!=customer)return new("CustomerMismatch");
   if(row.Issued!=draft.InvoiceDate)return new("IssueDateMismatch");
   if(row.Amount!=draft.Total)return new("InvoiceTotalMismatch");
-  return new("CandidateForManualReview",row.Amount,row.Outstanding,observation.ObservedUtc);
+  return new("CandidateForManualReview",row.Amount,row.Outstanding,observation.ObservedUtc,row.Key);
  }
 }

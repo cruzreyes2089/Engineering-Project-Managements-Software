@@ -86,10 +86,14 @@ internal static class InvoiceDraftTests
    check(s.ReadInvoiceCandidateObservations(project,next).Count==0,"ordinary read-only comparison does not silently persist evidence");
    Denied(()=>worker.ReadInvoiceCandidateObservations(project,next),"ordinary employee cannot view accounting observation history");
    check((await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,false)).Outcome=="OperatorCaptureConfirmationRequired","capture requires explicit consent");
+   CorrectionSql("CREATE TRIGGER test_observation_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='CaptureInvoiceCandidateObservation' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+   try{await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,true);throw new Exception("FAIL: observation rollback");}catch(SqliteException){check(s.ReadInvoiceCandidateObservations(project,next).Count==0,"failed audit rolls back synthetic observation");}
+   CorrectionSql("DROP TRIGGER test_observation_audit_abort");
    var captured=await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,true);
    var observation=s.ReadInvoiceCandidateObservations(project,next).Single();
    check(captured.Outcome=="CandidateForManualReview"&&captured.ObservationId==observation.Id&&captured.InvoiceKey==externalInvoice&&!captured.MayMarkIssued&&!captured.MayPost&&!captured.MaySendReminder,"explicit synthetic candidate capture is evidence only");
    check(observation.DraftId==next&&observation.PayloadHash==nextDetail.Summary.PayloadHash&&observation.BusinessName=="CRC ACCOUNTING TEST"&&observation.MarkerKey==marker&&observation.ProfileRevision==revision&&observation.CustomerKey==externalCustomer&&observation.InvoiceKey==externalInvoice&&observation.Reference==reference&&observation.IssueDate==day&&observation.ObservedTotal==295.34m&&observation.ObservedOutstanding==195.34m&&observation.ObservedUtc==captured.ObservedUtc,"capture binds exact approved draft and freshly observed fixture identity");
+   foreach(var sql in new[]{$"UPDATE invoice_candidate_observations SET outstanding_cents=0 WHERE id={observation.Id}",$"DELETE FROM invoice_candidate_observations WHERE id={observation.Id}",$"INSERT INTO invoice_candidate_observations(draft_id,payload_hash,business_name,marker_key,profile_revision,customer_key,invoice_key,reference,issue_date,total_cents,outstanding_cents,observed_utc,actor_id) SELECT {draft},payload_hash,business_name,marker_key,profile_revision,customer_key,invoice_key,reference,issue_date,total_cents,outstanding_cents,observed_utc,actor_id FROM invoice_candidate_observations WHERE id={observation.Id}"}){try{CorrectionSql(sql);throw new Exception("FAIL: observation SQL guard");}catch(SqliteException){check(true,"database preserves observation evidence and rejects mismatched draft");}}
    var absent=await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,"UNOBSERVED-SYNTHETIC",true,true);
    check(absent.Outcome=="ReferenceNotObserved"&&absent.ObservationId==null&&s.ReadInvoiceCandidateObservations(project,next).Count==1,"missing reference does not create durable match or infer nonissuance");
    var afterComparison=s.ReadInvoiceDraft(project,next);
@@ -98,7 +102,7 @@ internal static class InvoiceDraftTests
    check((await s.CaptureSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true,true)).Outcome=="CurrentProvisionalCustomerLinkRequired"&&s.ReadInvoiceCandidateObservations(project,next).Single().Id==observation.Id,"removed link blocks new capture while historical evidence remains readable");
    check((await s.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true)).Outcome=="CurrentProvisionalCustomerLinkRequired","removed link cannot support candidate match");
    try{await worker.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);throw new Exception("FAIL: employee candidate access");}catch(UnauthorizedAccessException){check(true,"employee cannot compare accounting invoice candidates");}
-  },32,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
+  },40,observe:req=>onlyGets&=req.StartsWith("GET /api2/"),responseFor:Reply);
   check(onlyGets,"candidate service uses GET only");
   Invalid(()=>s.InvalidateApprovedWork(time,"Previously allocated",true),"approved invoice source cannot be invalidated");
   var erroneousInput=new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",30,null,null,"Synthetic duplicate time");
