@@ -10,6 +10,13 @@ public sealed record ProjectFolderPreview(long ProjectId,string ProjectNumber,st
 }
 public sealed partial class LocalPractice
 {
+ public ProjectStorageDraft ReviewProjectStorageDraft(long project,string productionRoot,string restrictedRoot,bool includeCorrespondence=false)
+ {
+  using var c=Open();using var t=c.BeginTransaction();
+  RequireAdministration(c,t);RequireDocuments(c,t,false);Require(c,t,"Documents.Restricted");
+  var row=ProjectRow(c,t,project);
+  return ProjectStorageDrafting.Build(productionRoot,restrictedRoot,project,row.Number,includeCorrespondence);
+ }
  public ProjectFolderPreview ReadProjectFolderPreview(long project,bool includeCorrespondence=false)
  {
   using var c=Open();using var t=c.BeginTransaction();

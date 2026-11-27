@@ -18,7 +18,10 @@ internal sealed class ProjectFolderPreviewWindow:Window
   head.Children.Add(new TextBlock{Text="Project folders",FontSize=24,FontWeight=FontWeights.SemiBold});
   head.Children.Add(new TextBlock{Text="Preview the standard relative folder layout. No folders or files are created, moved, inspected or deleted. Store MEP reference files directly in Reference Documents when needed. This is not a document access grant or a storage registration.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,4,0,10)});
   head.Children.Add(correspondence);
-  var bar=new WrapPanel();WorkWindowFields.Button(bar,"Refresh preview",Refresh);WorkWindowFields.Button(bar,"Close",Close);
+  var bar=new WrapPanel();WorkWindowFields.Button(bar,"Refresh preview",Refresh);
+  if(service.Can("Administration.Manage")&&service.Can("Documents.Restricted"))
+   WorkWindowFields.Button(bar,"Review storage locations",()=>new ProjectStorageDraftWindow(service,project,correspondence.IsChecked==true){Owner=this}.ShowDialog());
+  WorkWindowFields.Button(bar,"Close",Close);
   head.Children.Add(bar);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   root.Children.Add(tree);Content=root;correspondence.Checked+=(_,_)=>Refresh();correspondence.Unchecked+=(_,_)=>Refresh();
   Closed+=(_,_)=>{tree.Items.Clear();status.Text="";};Refresh();

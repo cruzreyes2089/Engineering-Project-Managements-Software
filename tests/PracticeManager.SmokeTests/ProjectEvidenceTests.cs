@@ -16,6 +16,22 @@ internal static class ProjectEvidenceTests
   check(folders.ProjectId==p.Id&&folders.TemplateRevision=="CRC-Production-2"&&!folders.Provisioned&&!folders.FilesystemInspected,"folder preview bound to project without disk activity");
   check(folders.Production.Select(x=>x.Name).SequenceEqual(new[]{"Architectural","Calculations","Construction Administration","Plancheck Comment Responses","QA-QC","Reference Documents","Send Outs","Site Pictures","Structural DWGs"}),"approved default production folder names");
   check(folders.Production.All(x=>x.Children.Count==0)&&s.ReadProjectFolderPreview(p.Id,true).Production.All(x=>x.Children.Count==0),"no default or optional MEP subdirectories");
+  var draft=s.ReviewProjectStorageDraft(p.Id,@"c:\Synthetic Production",@"D:\Synthetic Restricted");
+  check(draft.ProductionRoot==@"C:\Synthetic Production"&&draft.RestrictedRoot==@"D:\Synthetic Restricted"&&
+   draft.ProductionDirectories==10&&draft.RestrictedDirectories==5&&!draft.Registered&&!draft.FilesystemVerified&&!draft.ProvisioningAuthorized,
+   "storage draft validates lexical paths without registering or accessing storage");
+  check(draft.Fingerprint==s.ReviewProjectStorageDraft(p.Id,@"C:\Synthetic Production",@"D:\Synthetic Restricted").Fingerprint&&
+   draft.Fingerprint!=s.ReviewProjectStorageDraft(p.Id,@"C:\Synthetic Production",@"D:\Synthetic Restricted",true).Fingerprint,
+   "storage draft fingerprint binds proposed paths and selected template");
+  foreach(var invalid in new[]{@"\\server\share",@"C:\",@"C:relative",@"C:\a\..\b",@"C:\a\.",@"C:\a\\b",@"C:\a:stream",@"C:\NUL.txt",@"C:\COM¹",@"C:\SHORT~1",@"C:\a ",@"C:\a."})
+   Invalid(()=>s.ReviewProjectStorageDraft(p.Id,invalid,@"D:\Synthetic Restricted"),"ambiguous or unsafe storage root syntax denied");
+  Invalid(()=>s.ReviewProjectStorageDraft(p.Id,@"C:\Project",@"c:\project"),"identical storage roots denied");
+  Invalid(()=>s.ReviewProjectStorageDraft(p.Id,@"C:\Project",@"C:\Project\Restricted"),"nested restricted root denied");
+  Invalid(()=>s.ReviewProjectStorageDraft(p.Id,@"C:\Project\Production",@"C:\Project"),"nested production root denied");
+  check(s.ReviewProjectStorageDraft(p.Id,@"C:\Project",@"C:\Projects").ProductionDirectories==10,"sibling prefix is not a nested root");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Administration.Manage'");
+  Denied(()=>s.ReviewProjectStorageDraft(p.Id,@"C:\Production",@"C:\Restricted"),"storage draft requires administration");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Administration.Manage'");
   var plan=folders.Plan;
   check(plan.ProjectId==p.Id&&plan.ProjectNumber==folders.ProjectNumber&&plan.TemplateRevision==folders.TemplateRevision&&!plan.Provisioned&&!plan.StorageApproved,"logical folder plan preserves identity and no storage authorization");
   check(plan.Entries.Count==15&&plan.Entries.Count(x=>x.Boundary=="Production")==10&&plan.Entries.Count(x=>x.Boundary=="Restricted")==5,"logical folder plan uses separate roots");
@@ -56,6 +72,7 @@ internal static class ProjectEvidenceTests
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'");
   check(s.ReadProjectDocuments(p.Id,false).All(x=>x.Id!=restricted),"restricted document omitted from list");
   check(s.ReadProjectFolderPreview(p.Id).Restricted.Count==0&&s.ReadProjectFolderPreview(p.Id).Production.Count==9,"restricted folder projection omitted when grant revoked");
+  Denied(()=>s.ReviewProjectStorageDraft(p.Id,@"C:\Production",@"C:\Restricted"),"storage draft requires restricted grant");
   var publicPlan=s.ReadProjectFolderPreview(p.Id).Plan;
   check(publicPlan.Entries.Count==10&&publicPlan.Entries.All(x=>x.Boundary=="Production")&&publicPlan.Fingerprint!=plan.Fingerprint,"restricted logical paths and fingerprint omitted from ordinary projection");
   Denied(()=>s.RetrieveProjectDocument(p.Id,restricted,rd.Hash),"restricted document direct retrieval denied");
