@@ -88,13 +88,13 @@ internal static class SyntheticCrmNativeTests
         var preview=s.PreviewLegacyCrm(bytes);
         check(preview.Sha256==hash&&preview.Clients==2&&preview.Contacts==parsed.Contacts.Count&&
               preview.TargetStatus=="ReadyForExplicitReview","DAO fixture exact preview identity");
-        long auditBefore=Count("SELECT count(*) FROM audit_log");
+        long auditBefore=Count("SELECT count(*) FROM audit_events");
         void EmptyTarget()
         {
             check(Count("SELECT (SELECT count(*) FROM clients)+(SELECT count(*) FROM contacts)+(SELECT count(*) FROM legacy_crm_batches)+(SELECT count(*) FROM legacy_client_map)+(SELECT count(*) FROM legacy_contact_map)")==0,
                 "DAO fixture no partial records or mappings");
             check(Count("SELECT next_value FROM sequences WHERE name='Client'")==1,"DAO fixture sequence unchanged");
-            check(Count("SELECT count(*) FROM audit_log")==auditBefore,"DAO fixture audit rolled back");
+            check(Count("SELECT count(*) FROM audit_events")==auditBefore,"DAO fixture audit rolled back");
         }
         Invalid(()=>s.ImportLegacyCrm(bytes,hash,false,"Synthetic"),"DAO fixture explicit confirmation required");
         Invalid(()=>s.ImportLegacyCrm(bytes,new string('0',64),true,"Synthetic"),"DAO fixture exact hash required");
@@ -122,26 +122,26 @@ internal static class SyntheticCrmNativeTests
             var ordinal=parsed.Clients.ToList().FindIndex(x=>x.LegacyId==source.LegacyId)+1;
             check(actual.Number==$"CL-{ordinal:D6}"&&actual.Number==map.NativeClientNumber&&map.LegacyNumber=="",
                 "DAO fixture original identity and native numbering");
-            check(actual with {Id=0,Number=""}==expected,"DAO fixture all client values");
+            check((actual with {Id=0,Number=""})==expected,"DAO fixture all client values");
             foreach(var contact in parsed.Contacts.Where(x=>x.LegacyClientId==source.LegacyId))
             {
                 var cm=h.Mappings.Single(x=>x.Kind=="Contact"&&x.LegacyId==contact.LegacyId);
                 var value=s.Contacts(actual.Id).Single(x=>x.Id==cm.NativeId);
                 check(cm.LegacyParentId==source.LegacyId&&cm.NativeClientNumber==actual.Number&&value.ClientId==actual.Id,
                     "DAO fixture original and native parent identity");
-                check(value with {Id=0,ClientId=0}==ExpectedContact(contact.LegacyId),"DAO fixture all contact values");
+                check((value with {Id=0,ClientId=0})==ExpectedContact(contact.LegacyId),"DAO fixture all contact values");
             }
         }
         check(Count("SELECT count(*) FROM contacts")==parsed.Contacts.Count,"DAO fixture stored contact count");
         check(Count("SELECT count(*) FROM legacy_client_map")==2&&Count("SELECT count(*) FROM legacy_contact_map")==parsed.Contacts.Count,
             "DAO fixture stored mapping counts");
         check(Count("SELECT next_value FROM sequences WHERE name='Client'")==3,"DAO fixture sequence reconciles");
-        var postAudit=Count("SELECT count(*) FROM audit_log");
+        var postAudit=Count("SELECT count(*) FROM audit_events");
         check(s.ImportLegacyCrm(bytes,hash,true,"Synthetic repeat").Outcome=="AlreadyImported","DAO fixture repeat prevented");
         var changed=bytes.Concat(new byte[]{32}).ToArray();
         Invalid(()=>s.ImportLegacyCrm(changed,Hash(changed),true,"Synthetic changed bytes"),"DAO fixture different bytes cannot merge");
         check(Count("SELECT count(*) FROM clients")==2&&Count("SELECT count(*) FROM contacts")==parsed.Contacts.Count&&
-            Count("SELECT next_value FROM sequences WHERE name='Client'")==3&&Count("SELECT count(*) FROM audit_log")==postAudit,
+            Count("SELECT next_value FROM sequences WHERE name='Client'")==3&&Count("SELECT count(*) FROM audit_events")==postAudit,
             "DAO fixture repeat and changed package preserve target");
     }
 }
