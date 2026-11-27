@@ -7,7 +7,7 @@ internal static class HistoricalProjectTransferTests
 {
     private static string Digest(byte[] bytes)=>Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     private static byte[] Bytes(JsonNode node)=>JsonSerializer.SerializeToUtf8Bytes(node);
-    public static void Run(Action<bool,string> check)
+    public static void Run(string archivePath,Action<bool,string> check)
     {
         var crm=SyntheticCrmNativeTests.Fixture(false);
         var source=new string('a',64);
@@ -81,5 +81,6 @@ internal static class HistoricalProjectTransferTests
         var items=reverse["projects"]!.AsArray();
         var first=items[0]!.DeepClone();items.RemoveAt(0);items.Add(first);
         check(Parse(raw,Bytes(reverse)).Rows.Count==2,"Historical census order independent");
+        HistoricalArchiveServiceTests.Run(archivePath,crm,raw,census,accepted,check);
     }
 }
