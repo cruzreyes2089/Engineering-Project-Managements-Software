@@ -1,4 +1,4 @@
-"""Opt-in Windows DAO qualification; creates its own synthetic databases, never imports SQLite."""
+"""Opt-in Windows DAO qualification with optional isolated native synthetic import."""
 import argparse
 import copy
 import hashlib
@@ -66,7 +66,7 @@ def compare_values(actual, expected):
                 sorted(expected[entity], key=lambda r: r["legacyId"]),
                 "Full normalized fixture field comparison: " + entity)
 
-def qualify(folder, powershell, empty):
+def qualify(folder, powershell, empty, native_smoke=False):
     checks = []
     def check(condition, label):
         require(condition, label)
@@ -156,6 +156,19 @@ def qualify(folder, powershell, empty):
         checks.append("Substituted identity rejected")
     else:
         raise ValueError("Substituted identity accepted")
+    if native_smoke:
+        mode = "empty" if empty else "populated"
+        run = subprocess.run(["dotnet", "run", "--project",
+                              str(ROOT / "tests/PracticeManager.SmokeTests/PracticeManager.SmokeTests.csproj"),
+                              "-c", "Release", "--no-build", "--no-restore", "--",
+                              "--synthetic-crm-transfer", mode, str(tp), th],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+        # Require both successful exit and digest-bound native completion marker.
+        marker = ("; transfer SHA-256: " + th).encode("ascii")
+        check(run.returncode == 0 and any(line.startswith(b"Synthetic CRM native checks passed: ") and
+              line.endswith(marker) for line in run.stdout.splitlines()),
+              "Native fixed-fixture import and rollback checks")
+        check(digest(tp) == th, "Native run preserved exact transfer bytes")
     check(digest(source) == before, "Final source hash unchanged")
     return checks
 
@@ -163,6 +176,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--confirm-synthetic", action="store_true")
     p.add_argument("--dao-bitness", choices=("32", "64"), required=True)
+    p.add_argument("--native-smoke", action="store_true", help="Run separately reviewed, already built native smoke harness")
     args = p.parse_args()
     if os.name != "nt" or not args.confirm_synthetic:
         print("Blocked: Windows and explicit synthetic qualification confirmation required.", file=sys.stderr)
@@ -183,9 +197,9 @@ def main():
             for label, empty in (("populated", False), ("emptyContacts", True)):
                 folder = base / label
                 folder.mkdir()
-                runs[label] = qualify(folder, powershell, empty)
+                runs[label] = qualify(folder, powershell, empty, args.native_smoke)
         print(json.dumps({"checks": runs, "daoFixtureChecksPassed": True,
-                          "nativeImportExecuted": False, "releaseAuthorized": False}, sort_keys=True))
+                          "nativeImportExecuted": args.native_smoke, "releaseAuthorized": False}, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
         print("Synthetic DAO qualification did not complete successfully; inspect local prerequisites.", file=sys.stderr)
