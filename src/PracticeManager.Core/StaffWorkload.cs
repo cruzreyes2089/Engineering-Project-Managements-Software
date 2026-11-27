@@ -9,16 +9,21 @@ public sealed record StaffWorkloadRow(long EmployeeId,string EmployeeNumber,stri
  public decimal HeldHours=>HeldMinutes/60m;
  public decimal WeekendOnlyEstimateHours=>WeekendOnlyEstimateMinutes/60m;
  public decimal? ScenarioCapacityHours=>ScenarioCapacityMinutes/60m;
+ public string CapacitySource{get;init;}="Not specified";
+ public long? UnavailableAllocationMinutes{get;init;}
+ public long? OverCapacityMinutes{get;init;}
+ public decimal? UnavailableAllocationHours=>UnavailableAllocationMinutes/60m;
+ public decimal? OverCapacityHours=>OverCapacityMinutes/60m;
 }
 public sealed record StaffWorkloadReview(DateOnly Start,DateOnly End,int Weekdays,int? ScenarioMinutesPerWeekday,
  IReadOnlyList<StaffWorkloadRow> Rows);
 
-// A planning scenario, not remaining effort, actual time, payroll, authorization or a work calendar.
+// A planning scenario, not remaining effort, actual time, payroll, authorization or an approved work calendar.
 public static class StaffWorkload
 {
  static bool Weekday(int day)=>DateOnly.FromDayNumber(day).DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday);
  public static StaffWorkloadReview Build(DateOnly start,DateOnly end,int? minutesPerWeekday,
-  IReadOnlyList<WorkloadEmployee> employees,IReadOnlyList<ProjectTask> tasks)
+  IReadOnlyList<WorkloadEmployee> employees,IReadOnlyList<ProjectTask> tasks,StaffCapacityCalendar? calendar=null)
  {
   if(start==DateOnly.MinValue||end<start||end.DayNumber-start.DayNumber>=366||
      minutesPerWeekday is <1 or >1440||employees.Count>500||tasks.Count>500)
@@ -26,6 +31,32 @@ public static class StaffWorkload
   if(employees.Select(x=>x.Id).Distinct().Count()!=employees.Count||tasks.Select(x=>x.Id).Distinct().Count()!=tasks.Count)
    throw new ArgumentException("Duplicate planning identity.");
   var byId=employees.ToDictionary(x=>x.Id);
+  var weeks=new Dictionary<string,EmployeeCapacityWeek>(StringComparer.Ordinal);
+  var closures=new HashSet<DateOnly>();
+  var exceptions=new Dictionary<(string,DateOnly),int>();
+  if(calendar!=null)
+  {
+   if(calendar.Weeks.Count>500||calendar.Closures.Count>366||calendar.Exceptions.Count>2000)
+    throw new ArgumentException("Calendar scenario row limit exceeded.");
+   if(employees.Select(x=>x.Number).Distinct(StringComparer.Ordinal).Count()!=employees.Count)
+    throw new ArgumentException("Duplicate employee number.");
+   var active=employees.Where(x=>x.Active).Select(x=>x.Number).ToHashSet(StringComparer.Ordinal);
+   foreach(var week in calendar.Weeks)
+   {
+    if(!active.Contains(week.EmployeeNumber)||!weeks.TryAdd(week.EmployeeNumber,week)||
+       Enum.GetValues<DayOfWeek>().Any(d=>week.Minutes(d) is <0 or >1440))
+     throw new ArgumentException("Invalid or duplicate active employee capacity schedule.");
+   }
+   foreach(var date in calendar.Closures)
+    if(date<start||date>end||!closures.Add(date))throw new ArgumentException("Duplicate or out-of-range firm closure.");
+   foreach(var item in calendar.Exceptions)
+   {
+    if(!active.Contains(item.EmployeeNumber)||(!weeks.ContainsKey(item.EmployeeNumber)&&!minutesPerWeekday.HasValue)||
+       item.Date<start||item.Date>end||closures.Contains(item.Date)||item.Minutes is <0 or >1440||
+       !exceptions.TryAdd((item.EmployeeNumber,item.Date),item.Minutes))
+     throw new ArgumentException("Invalid or duplicate calendar exception; firm closures cannot be overridden and a base capacity is required.");
+   }
+  }
   var open=new Dictionary<long,List<ProjectTask>>();
   foreach(var task in tasks)
   {
@@ -66,9 +97,26 @@ public static class StaffWorkload
      if(ready){eligible+=allocated;daily[day-first]+=allocated;}else held+=allocated;
     }
    }
-   long? capacity=employee.Active&&minutesPerWeekday.HasValue?(long)weekdays*minutesPerWeekday.Value:null;
-   int? overloaded=capacity.HasValue?daily.Count(m=>m>minutesPerWeekday!.Value):null;
-   rows.Add(new(employee.Id,employee.Number,employee.Name,employee.Active,eligibleCount,heldCount,eligible,held,weekendOnly,capacity,overloaded));
+   var individual=weeks.GetValueOrDefault(employee.Number);
+   long? capacity=null,unavailable=null,excess=null;int? overloaded=null;
+   string source="Not specified";
+   if(employee.Active&&(individual!=null||minutesPerWeekday.HasValue))
+   {
+    capacity=0;unavailable=0;excess=0;overloaded=0;
+    source=individual!=null?"Individual week":"Common weekdays";
+    for(int day=first;day<=last;day++)
+    {
+     var date=DateOnly.FromDayNumber(day);
+     int available=individual!=null?individual.Minutes(date.DayOfWeek):Weekday(day)?minutesPerWeekday!.Value:0;
+     if(closures.Contains(date))available=0;
+     else if(exceptions.TryGetValue((employee.Number,date),out var change))available=change;
+     var demand=daily[day-first];capacity+=available;
+     if(available==0)unavailable+=demand;
+     if(demand>available){overloaded++;excess+=demand-available;}
+    }
+   }
+   rows.Add(new StaffWorkloadRow(employee.Id,employee.Number,employee.Name,employee.Active,eligibleCount,heldCount,eligible,held,weekendOnly,capacity,overloaded)
+   {CapacitySource=source,UnavailableAllocationMinutes=unavailable,OverCapacityMinutes=excess});
   }
   return new(start,end,weekdays,minutesPerWeekday,rows.AsReadOnly());
  }

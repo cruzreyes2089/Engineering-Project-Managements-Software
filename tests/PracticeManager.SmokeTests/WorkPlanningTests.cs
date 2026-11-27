@@ -38,6 +38,12 @@ internal static class WorkPlanningTests
   var plannedWorkload=s.ReadStaffWorkload(day,day.AddDays(3),60);
   check(plannedWorkload.Rows.Single(x=>x.EmployeeId==e).EligibleMinutes==180&&plannedWorkload.Rows.Single(x=>x.EmployeeId==e).OverCapacityWeekdays==2,"authorized workload allocated to weekdays with scenario overload");
   check(plannedWorkload.Rows.Single(x=>x.EmployeeId==other).ScenarioCapacityMinutes==120,"scenario capacity counts weekdays inclusively");
+  var number=s.ReadEmployees().Single(x=>x.Id==e).Number;
+  var calendar=StaffCapacityCalendar.Parse(number+",60,60,60,60,60,0,0","2026-11-26","");
+  var calendarRow=s.ReadStaffWorkload(day,day.AddDays(3),null,calendar).Rows.Single(x=>x.EmployeeId==e);
+  check(calendarRow.EligibleMinutes==180&&calendarRow.ScenarioCapacityMinutes==60&&calendarRow.UnavailableAllocationMinutes==90&&calendarRow.OverCapacityMinutes==120,"service calendar scenario preserves original demand and flags closure");
+  Denied(()=>worker.ReadStaffWorkload(day,day.AddDays(3),null,calendar),"own work grant cannot query individual calendar workload");
+
   Invalid(()=>worker.AdvanceMyTask(otherTask,1,"InProgress"),"cannot start another employee task");
   Invalid(()=>worker.AdvanceMyTask(task,2,"Completed"),"cannot skip task start");
   worker.AdvanceMyTask(task,2,"InProgress");check(worker.ReadMyWork(day,day.AddDays(10)).Single().State=="InProgress","own task started");

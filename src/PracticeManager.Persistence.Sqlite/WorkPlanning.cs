@@ -107,7 +107,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();RequirePlan(c,t);DateRange(start,end,366);
   using var q=Command(c,t,TaskProjection+" WHERE t.start_on<=$e AND t.end_on>=$s AND ($i IS NULL OR e.id=$i) ORDER BY t.start_on,t.id LIMIT 501",("$s",PlanDate(start)),("$e",PlanDate(end)),("$i",employee));return TaskRows(q);
  }
- public StaffWorkloadReview ReadStaffWorkload(DateOnly start,DateOnly end,int? scenarioMinutesPerWeekday=null)
+ public StaffWorkloadReview ReadStaffWorkload(DateOnly start,DateOnly end,int? scenarioMinutesPerWeekday=null,StaffCapacityCalendar? calendar=null)
  {
   using var c=Open();using var t=c.BeginTransaction();RequirePlan(c,t);DateRange(start,end,366);
   var employees=new List<WorkloadEmployee>();
@@ -119,7 +119,7 @@ public sealed partial class LocalPractice
   }
   using var tasks=Command(c,t,TaskProjection+" WHERE t.start_on<=$e AND t.end_on>=$s ORDER BY t.start_on,t.id LIMIT 501",
    ("$s",PlanDate(start)),("$e",PlanDate(end)));
-  return StaffWorkload.Build(start,end,scenarioMinutesPerWeekday,employees,TaskRows(tasks));
+  return StaffWorkload.Build(start,end,scenarioMinutesPerWeekday,employees,TaskRows(tasks),calendar);
  }
  private long OwnEmployee(SqliteConnection c,SqliteTransaction t)
  {
