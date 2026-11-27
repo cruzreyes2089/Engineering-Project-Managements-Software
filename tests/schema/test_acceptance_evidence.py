@@ -83,3 +83,54 @@ class AcceptanceEvidenceTests(unittest.TestCase):
                 bad["results"][0][key] = value
                 with self.assertRaises(ValueError):
                     m.validate(bad, self.ids, self.commit, self.digest)
+
+    def test_original_ids_cannot_be_silently_replaced(self):
+        import tempfile
+        source = (ROOT / "docs/legacy-acceptance-register.csv").read_text(encoding="utf-8-sig")
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "register.csv"
+            path.write_text(source.replace("SEC-05,SEC-02,", "SEC-99,SEC-02,", 1), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                m.scenario_ids(path)
+
+    def test_all_pass_never_authorizes_release(self):
+        for row in self.manifest["results"]:
+            row.update(status="Pass", reviewer="Reviewer-01", date="2026-11-26",
+                       environment="Synthetic harness", session="e"*32, fixture="Synthetic-01",
+                       observed="Synthetic test", evidenceRef="Private-01")
+        result = m.validate(self.manifest, self.ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Pass"], 49)
+        self.assertFalse(result["evidenceAuthenticityVerified"])
+        self.assertFalse(result["releaseAuthorized"])
+
+    def test_initialize_private_manifest_without_overwrite(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "acceptance.json"
+            m.initialize(path, self.ids, self.commit, self.digest)
+            before = path.read_bytes()
+            self.assertEqual(m.load(path), self.manifest)
+            with self.assertRaises(FileExistsError):
+                m.initialize(path, self.ids, "c"*40, self.digest)
+            self.assertEqual(path.read_bytes(), before)
+            other = Path(folder) / "invalid.json"
+            with self.assertRaises(ValueError):
+                m.initialize(other, self.ids, "bad", self.digest)
+            self.assertFalse(other.exists())
+
+    def test_invalid_date_session_and_duplicate_json(self):
+        import tempfile
+        row = self.manifest["results"][0]
+        row.update(status="Pass", reviewer="Reviewer-01", date="2026-11-26",
+                   environment="Windows-VM", session="e"*32, fixture="Synthetic-01",
+                   observed="Synthetic test", evidenceRef="Private-01")
+        for key, value in (("date", "2026-02-30"), ("date", "20261126"), ("session", "x"*32)):
+            bad = copy.deepcopy(self.manifest)
+            bad["results"][0][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                m.validate(bad, self.ids, self.commit, self.digest)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "duplicate.json"
+            path.write_text('{"format":"one","format":"two"}', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                m.load(path)
