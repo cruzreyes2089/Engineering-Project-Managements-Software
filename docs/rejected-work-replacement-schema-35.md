@@ -8,3 +8,5 @@ Dependent on candidate schema 34 (6d19647); must not promote until that baseline
 - Add migration/restore tests, duplicate/retry, race, rollback, cross-employee and direct SQL guard regressions. Observe red and full green Windows regression before promotion.
 
 Test-first API stubs intentionally nonfunctional. Candidate is not a verified release.
+
+Candidate implementation uses an immutable nullable self-reference on the replacement fact itself, rather than a separately attached link. Unique predecessor index, insert validation and monotonic ID guard protect lineage; existing immutable work triggers protect original and replacement. Shared submission transaction validates normalized replay, identity, dates and daily caps; audit failure rolls back the new fact and its link. Own and reviewer projections show IDs, UI explicitly confirms corrections. Windows qualification and desktop interaction acceptance pending.

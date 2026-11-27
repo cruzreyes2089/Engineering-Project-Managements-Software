@@ -54,7 +54,13 @@ internal static class WorkEntriesTests
   Invalid(()=>worker.ReplaceRejectedWork(expenseId,expense with{OperationKey=Guid.NewGuid(),TaskId=long.MaxValue}),"replacement must retain original assignment");
   Invalid(()=>worker.ReplaceRejectedWork(expenseId,expense with{OperationKey=expense.OperationKey}),"replacement cannot reuse original operation key");
   var corrected=expense with{OperationKey=Guid.NewGuid(),Description="Replacement evidence"};
-  var correctedId=worker.ReplaceRejectedWork(expenseId,corrected);
+  void ReplacementSql(string sql){using var db=new SqliteConnection($"Data Source={path};Pooling=False");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
+  ReplacementSql("CREATE TRIGGER test_replacement_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='ReplaceRejectedWork' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{worker.ReplaceRejectedWork(expenseId,corrected);throw new Exception("FAIL: replacement rollback");}catch(SqliteException){check(worker.ReadMyWorkReplacement(expenseId)==null&&worker.ReadMySubmissions(day,day).Count==2,"replacement and lineage roll back together");}
+  ReplacementSql("DROP TRIGGER test_replacement_audit_abort");
+  var replacementIds=await Task.WhenAll(Task.Run(()=>worker.ReplaceRejectedWork(expenseId,corrected)),Task.Run(()=>peer.ReplaceRejectedWork(expenseId,corrected)));
+  check(replacementIds.Distinct().Count()==1,"concurrent identical replacement creates one fact");
+  var correctedId=replacementIds[0];
   check(correctedId!=expenseId&&worker.ReadMyWorkReplacement(expenseId)?.ReplacementId==correctedId,"rejected expense replacement linked to new immutable fact");
   check(peer.ReplaceRejectedWork(expenseId,corrected)==correctedId,"identical replacement retry idempotent across sessions");
   Invalid(()=>worker.ReplaceRejectedWork(expenseId,corrected with{Description="Changed intent"}),"replacement operation cannot change content");
@@ -62,6 +68,8 @@ internal static class WorkEntriesTests
   Invalid(()=>worker.SubmitWork(corrected),"linked replacement operation cannot be replayed as ordinary submission");
   check(worker.ReadMySubmissions(day,day).Single(x=>x.Id==expenseId).ReviewState=="Rejected"&&worker.ReadMySubmissions(day,day).Single(x=>x.Id==correctedId).ReviewState=="Submitted","original rejection retained and replacement independently reviewable");
   check(admin.ReadProjectCloseoutReview(project).PendingExpenseSubmissions==1,"replacement counts once in closeout pending queue");
+  check(worker.ReadMySubmissions(day,day).Single(x=>x.Id==correctedId).ReplacesId==expenseId&&admin.ReadWorkReview(day,day).Single(x=>x.Id==correctedId).ReplacesId==expenseId,"lineage projected in employee and reviewer queues");
+  foreach(var sql in new[]{$"UPDATE work_submissions SET replaces_submission_id=NULL WHERE id={correctedId}",$"DELETE FROM work_submissions WHERE id={correctedId}",$"INSERT INTO work_submissions(operation_key,employee_id,task_id,kind,work_date,minutes,amount_cents,category,description,submitted_by,submitted_utc,replaces_submission_id) SELECT '{Guid.NewGuid():D}',employee_id,task_id,kind,work_date,minutes,amount_cents,category,description,submitted_by,submitted_utc,id FROM work_submissions WHERE id={record}"}){try{ReplacementSql(sql);throw new Exception("FAIL: replacement SQL guard");}catch(SqliteException){check(true,"database blocks invalid replacement or history mutation");}}
   var overhead=new OverheadTimeInput(Guid.NewGuid(),day,120,"Marketing","Synthetic marketing");
   var o=worker.SubmitOverheadTime(overhead);check(peer.SubmitOverheadTime(overhead)==o,"overhead submission idempotent across sessions");
   Invalid(()=>worker.SubmitOverheadTime(overhead with{Minutes=121}),"changed overhead operation rejected");
@@ -81,6 +89,8 @@ internal static class WorkEntriesTests
   var replacement=worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Minutes=60,Category="Administration"});
   check(replacement!=rejected,"rejected overhead no longer consumes daily cap");
   var own=admin.CreateEmployee(new("Synthetic","Owner","","",true),1);
+  Invalid(()=>admin.ReadMyWorkReplacement(expenseId),"cross-employee replacement history denied");
+  Invalid(()=>admin.ReplaceRejectedWork(expenseId,corrected with{OperationKey=Guid.NewGuid()}),"cross-employee replacement creation denied");
   var ownerEntry=admin.SubmitOverheadTime(new(Guid.NewGuid(),day,15,"Management","Synthetic owner administration"));
   Denied(()=>admin.ReviewOverheadTime(ownerEntry,true,"Self",true),"owner overhead self review blocked by default");
   admin.SetStaffGrant(role.Id,"Work.Review",false,true);admin.SetStaffGrant(role.Id,"Billing.Classify",false,true);
