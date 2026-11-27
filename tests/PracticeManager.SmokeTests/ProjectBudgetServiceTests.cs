@@ -21,16 +21,30 @@ internal static class ProjectBudgetServiceTests
   var effort=admin.ReadProjectEffort(project);var snapshot=ProjectBudgetReview.SnapshotHash(project,effort);
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   Denied(()=>admin.ReadProjectBudgetHistory(project),"ordinary schema 47 cannot access candidate budget service");
-  // Explicit test-only activation on a unique synthetic fixture. No constructor,
-  // actual application migration, existing database, recovery copy or real data.
+  // Qualify the exact internal candidate migration, on this unique synthetic fixture only.
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false}.ToString()))
   {
-   db.Open();using var q=db.CreateCommand();
-   using(var stream=typeof(ProjectBudgetServiceTests).Assembly.GetManifestResourceStream("SyntheticBudgetHistory.sql")!)
-   using(var reader=new StreamReader(stream))q.CommandText=reader.ReadToEnd();
-   q.ExecuteNonQuery();
-   q.CommandText="INSERT INTO permissions(code) VALUES('Projects.Budget.View'),('Projects.Budget.Record');INSERT INTO role_permissions SELECT id,'Projects.Budget.View',1 FROM roles WHERE name='Administrator';INSERT INTO role_permissions SELECT id,'Projects.Budget.Record',1 FROM roles WHERE name='Administrator';PRAGMA user_version=48";q.ExecuteNonQuery();
+   db.Open();
+   using(var copy=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False"))
+   {
+    copy.Open();db.BackupDatabase(copy);
+    using(var q=copy.CreateCommand()){q.CommandText="CREATE TRIGGER synthetic_budget_migration_fault AFTER INSERT ON permissions WHEN NEW.code='Projects.Budget.Record' BEGIN UPDATE users SET failed_attempts=failed_attempts+1; END";q.ExecuteNonQuery();}
+    try
+    {
+     using var bad=copy.BeginTransaction(deferred:false);
+     _=EffortBudgetMigrationCandidate.Apply(copy,bad);bad.Commit();
+     throw new Exception("FAIL: candidate migration mutation");
+    }
+    catch(InvalidOperationException){check(true,"candidate migration refuses pre-existing user row mutation");}
+    using var verify=copy.CreateCommand();verify.CommandText="SELECT (SELECT user_version FROM pragma_user_version)=47 AND NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='effort_budget_revisions') AND NOT EXISTS(SELECT 1 FROM permissions WHERE code='Projects.Budget.Record')";
+    check(Convert.ToInt64(verify.ExecuteScalar())==1,"candidate migration failure rolls back schema version tables and grants");
+   }
+   using var t=db.BeginTransaction(deferred:false);
+   var witness=EffortBudgetMigrationCandidate.Apply(db,t);
+   check(witness.Length==64,"candidate additive migration reconciles full schema and rows");
+   t.Commit();
   }
+  check(ProjectBudgetReview.SnapshotHash(project,admin.ReadProjectEffort(project))==snapshot,"candidate migration preserves current project effort evidence");
   Denied(()=>worker.ReadProjectBudgetHistory(project),"candidate budget read needs explicit budget grant");
   var op=Guid.NewGuid();var first=admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true);
   check(!first.Replayed&&first.Entry.Model.Minutes==120&&admin.ReadProjectBudgetHistory(project).Budgets.Count==1,"actual service records first budget in transaction");

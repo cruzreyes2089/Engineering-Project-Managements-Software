@@ -26,6 +26,11 @@ internal static class DatabasePreservationWitness
  internal static string Capture(SqliteConnection db,int version,bool boundaryTarget)
  {
   using var t=db.BeginTransaction(deferred:true);
+  return Capture(db,t,version,boundaryTarget);
+ }
+ internal static string Capture(SqliteConnection db,SqliteTransaction t,int version,bool boundaryTarget,
+  IReadOnlySet<string>? excludedObjects=null,string? excludedPermissionCodes=null)
+ {
   using var q=db.CreateCommand();q.Transaction=t;
   var schema=new List<(string Type,string Name,string Table,string Sql)>();
   q.CommandText="SELECT type,name,tbl_name,coalesce(sql,'') FROM sqlite_schema ORDER BY type COLLATE BINARY,name COLLATE BINARY";
@@ -56,7 +61,7 @@ internal static class DatabasePreservationWitness
   int total=0,tables=0;
   foreach(var e in schema)
   {
-   if(boundaryTarget&&ArchiveTables.Contains(e.Table))continue;
+   if((boundaryTarget&&ArchiveTables.Contains(e.Table))||excludedObjects?.Contains(e.Type+":"+e.Name)==true)continue;
    Text(full,e.Type);Text(full,e.Name);Text(full,e.Table);Text(full,e.Sql);
    if(e.Type!="table")continue;
    if(++tables>MaxTables||e.Sql.StartsWith("CREATE VIRTUAL TABLE",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Unsupported table witness layout.");
@@ -77,8 +82,9 @@ internal static class DatabasePreservationWitness
     return type+",CASE WHEN "+type+" IN ('text','blob') THEN "+length+" ELSE NULL END,"+
      "CASE WHEN "+type+" IN ('text','blob') THEN CASE WHEN "+length+"<=67108864 THEN CAST("+id+" AS BLOB) ELSE NULL END ELSE "+id+" END";
    }))+" FROM "+Quote(e.Name);
-   if(boundaryTarget&&e.Name=="permissions")q.CommandText+=" WHERE code NOT IN "+Codes;
-   if(boundaryTarget&&e.Name=="role_permissions")q.CommandText+=" WHERE permission_code NOT IN "+Codes;
+   var omitted=boundaryTarget?Codes:excludedPermissionCodes;
+   if(omitted!=null&&e.Name=="permissions")q.CommandText+=" WHERE code NOT IN "+omitted;
+   if(omitted!=null&&e.Name=="role_permissions")q.CommandText+=" WHERE permission_code NOT IN "+omitted;
    var rows=new List<string>();
    using(var r=q.ExecuteReader())while(r.Read())
    {
