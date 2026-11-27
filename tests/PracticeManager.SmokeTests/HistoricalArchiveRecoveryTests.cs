@@ -24,6 +24,10 @@ internal static class HistoricalArchiveRecoveryTests
         var original=service.ReadHistoricalProjects();
         var backup=service.CreateRecoveryCopy(copy);
         check(backup.Sha256==Hash(copy),"Archive recovery exact file hash");
+        var rehearsal=UpgradeRehearsal.Run(copy,backup.Sha256,true);
+        check(rehearsal.SourceSchema==47&&rehearsal.TargetSchema==47&&rehearsal.HistoricalProjects==package.Rows.Count&&
+            rehearsal.HistoricalArchivePreserved&&rehearsal.SourceUnchanged&&Hash(copy)==backup.Sha256,
+            "Archive populated current-schema rehearsal preserves fingerprint and source");
         var restored=service.RestoreRecoveryCopyToNewFile(copy,backup.Sha256,target);
         check(restored.HistoricalProjects==package.Rows.Count&&restored.Projects==0&&restored.Sha256==backup.Sha256,
             "Archive isolated restore separates historical and operational counts");
@@ -41,6 +45,7 @@ internal static class HistoricalArchiveRecoveryTests
         Reject(()=>service.RestoreRecoveryCopyToNewFile(damaged,Hash(damaged),refused),
             "Archive incomplete seal rejected even with matching file digest");
         check(!File.Exists(refused),"Archive incomplete recovery never published");
+        Reject(()=>UpgradeRehearsal.Run(damaged,Hash(damaged),true),"Archive incomplete upgrade source rejected");
         var broken=new LocalPractice(damaged);
         check(broken.Login("admin",password),"Archive disposable damage test login");
         Reject(()=>broken.ReadHistoricalProjects(),"Archive incomplete state fails closed on read");
@@ -48,5 +53,6 @@ internal static class HistoricalArchiveRecoveryTests
         check(!File.Exists(refused),"Archive invalid backup never published");
         check(Hash(copy)==backup.Sha256&&service.ReadHistoricalProjects().ToHashSet().SetEquals(original),
             "Archive failure tests preserve valid source and recovery");
+        HistoricalAssociationTests.Run(reopened,target,check);
     }
 }
