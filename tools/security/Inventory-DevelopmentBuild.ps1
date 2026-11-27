@@ -34,6 +34,17 @@ Write-Host "Build file count: $($files.Count)"
 Write-Host "Build total bytes: $total"
 Write-Host "Application Authenticode status: $($signature.Status)"
 Write-Host "Complete manifest SHA-256 (UTF-8 compact JSON, no newline): $digest"
+# Only the inventory JSON is passed to the independent static validator.
+# Exclusive temporary file; no executable copy or distribution.
+$temp = Join-Path ([IO.Path]::GetTempPath()) ('crc-layout-' + [guid]::NewGuid().ToString('N') + '.json')
+$stream = [IO.File]::Open($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try {
+  try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+  & python tools/release/validate_install_payload.py $temp --expected-sha256 $digest
+  if ($LASTEXITCODE -ne 0) { throw 'Static installer layout validation failed.' }
+} finally {
+  Remove-Item -LiteralPath $temp -Force
+}
 Write-Host "BEGIN CRC DEVELOPMENT BUILD INVENTORY"
 Write-Host $json
 Write-Host "END CRC DEVELOPMENT BUILD INVENTORY"
