@@ -78,9 +78,12 @@ internal static class InvoiceDraftTests
    var directory=await s.SyncCustomerDirectoryAsync();check(directory.Outcome=="Synchronized","candidate directory synchronized");
    var revision=directory.Report!.Revision;
    check((await s.SaveProvisionalLinkAsync(revision,"CRC ACCOUNTING TEST",0,client,externalCustomer)).Outcome=="Saved","candidate provisional link saved");
+   var beforeComparison=s.ReadInvoiceDraft(project,next);
+   check(beforeComparison.Summary.State=="Approved"&&beforeComparison.Summary.PayloadHash==nextDetail.Summary.PayloadHash,"comparison baseline is approved immutable draft");
    var observed=await s.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);
    check(observed.Outcome=="CandidateForManualReview"&&observed.Outstanding==195.34m&&!observed.MayMarkIssued,"saved approved invoice compared against read-only fixture");
-   check(s.ReadInvoiceDraft(project,next).Summary==nextDetail.Summary,"comparison leaves approved draft unchanged");
+   var afterComparison=s.ReadInvoiceDraft(project,next);
+   check(afterComparison.Summary==beforeComparison.Summary&&afterComparison.Lines.SequenceEqual(beforeComparison.Lines),"comparison leaves approved draft and lines unchanged");
    s.RemoveProvisionalLink(revision,client,externalCustomer);
    check((await s.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true)).Outcome=="CurrentProvisionalCustomerLinkRequired","removed link cannot support candidate match");
    try{await worker.CompareSavedInvoiceCandidateAsync(project,next,nextDetail.Summary.PayloadHash,reference,true);throw new Exception("FAIL: employee candidate access");}catch(UnauthorizedAccessException){check(true,"employee cannot compare accounting invoice candidates");}
