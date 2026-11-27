@@ -50,6 +50,26 @@ internal static class WorkPlanningTests
   var p2=s.CreateProposal(new(c,"Other project","Site","Scope",100m));var h2=ConflictReviewTests.Issue(s,p2,1);var project2=s.RecordProposalDecision(p2,h2,true,"Synthetic").ProjectId!.Value;
   var phase2=s.CreateProjectPhase(project2,"Design",day,day.AddDays(10));
   Invalid(()=>s.CreateProjectTask(project2,plan with{PhaseId=phase2,ScopeChangeId=change}),"cross-project scope rejected");
+  check(s.ReadTaskCancellation(project,rejectedTask)==null,"planned task has no invented cancellation");
+  Denied(()=>worker.CancelPlannedTask(project,rejectedTask,1,"Unauthorized",true),"employee cannot cancel planned task");
+  Invalid(()=>s.CancelPlannedTask(project2,rejectedTask,1,"Wrong project",true),"cross-project cancellation blocked");
+  Invalid(()=>s.CancelPlannedTask(project,rejectedTask,2,"Stale revision",true),"stale task cancellation blocked");
+  Invalid(()=>s.CancelPlannedTask(project,rejectedTask,1,"Not confirmed",false),"explicit task cancellation required");
+  Invalid(()=>s.CancelPlannedTask(project,extra,2,"Started task",true),"started task cannot be cancelled in planned-task workflow");
+  Invalid(()=>s.CancelPlannedTask(project,task,4,"Completed task",true),"completed task cannot be cancelled");
+  var cancelled=s.CancelPlannedTask(project,rejectedTask,1,"Client declined additional scope",true);
+  check(cancelled.TaskId==rejectedTask&&cancelled.PlanRevision==1&&cancelled.Reason=="Client declined additional scope"&&s.ReadTaskCancellation(project,rejectedTask)==cancelled,"cancellation retains reviewed plan revision and evidence");
+  check(s.ReadProjectTasks(project).Single(x=>x.Id==rejectedTask).State=="Cancelled"&&worker.ReadMyWork(day,day.AddDays(10)).Single(x=>x.Id==rejectedTask).State=="Cancelled","cancelled task retained in project and own work history");
+  check(s.ReadStaffSchedule(day,day.AddDays(10)).Single(x=>x.Id==rejectedTask).State=="Cancelled","schedule exposes cancellation rather than deleting assignment");
+  check(s.ReadProjectCloseoutReview(project).OpenTasks==2,"cancelled rejected-scope task no longer blocks closeout");
+  var operations=s.ReadProjectOperations(project,day,day.AddDays(10));
+  check(operations.CancelledTasks==1&&operations.PlannedTasks==1&&operations.StartedTasks==1&&operations.CompletedTasks==1&&operations.EstimatedMinutes==420,"operations segregates cancelled task and excludes cancelled estimate");
+  Invalid(()=>s.CancelPlannedTask(project,rejectedTask,1,"Repeat",true),"repeat cancellation rejected");
+  Invalid(()=>s.EditProjectTask(project,rejectedTask,1,plan with{ScopeChangeId=rejected}),"cancelled task cannot be edited");
+  var baseCancel=s.CreateProjectTask(project,plan with{Title="Unneeded base work"});
+  s.CancelPlannedTask(project,baseCancel,1,"No longer required",true);
+  Invalid(()=>worker.AdvanceMyTask(baseCancel,1,"InProgress"),"cancelled base task cannot start");
+  Denied(()=>worker.ReadTaskCancellation(project,rejectedTask),"ordinary employee cannot read management cancellation evidence");
   var employee=s.ReadEmployees().Single(x=>x.Id==e);s.EditEmployee(e,employee.Revision,new(employee.First,employee.Last,employee.Email,employee.Title,false));Denied(()=>worker.ReadMyWork(day,day.AddDays(10)),"inactive linked employee denied work access");
  }
 }

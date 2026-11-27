@@ -2,8 +2,11 @@ using System.Globalization;
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
+public sealed record TaskCancellation(long TaskId,int PlanRevision,string Reason,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public TaskCancellation? ReadTaskCancellation(long project,long task)=>throw new NotImplementedException("Task cancellation history not implemented.");
+ public TaskCancellation CancelPlannedTask(long project,long task,int expectedRevision,string reason,bool confirmed)=>throw new NotImplementedException("Task cancellation not implemented.");
  private static string PlanDate(DateOnly d)=>d.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
  private static DateOnly ReadPlanDate(string d)=>DateOnly.ParseExact(d,"yyyy-MM-dd",CultureInfo.InvariantCulture);
  private static void DateRange(DateOnly start,DateOnly end,int maxDays)

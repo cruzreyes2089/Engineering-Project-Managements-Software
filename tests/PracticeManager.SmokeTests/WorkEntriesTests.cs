@@ -140,7 +140,11 @@ internal static class WorkEntriesTests
   var reopened=admin.RecordProjectLifecycle(project,closed.Id,false,"Synthetic authorized reopen",true);
   check(reopened.State=="Active"&&admin.ReadProjectLifecycle(project).Count==2&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="Active","explicit reopen restores active status with retained lifecycle history");
   admin.CloseQualityItem(project,lateQa,"Synthetic resolved");
-  check(admin.CreateProjectTask(project,new(phase,employee,"After reopen",day,day,60))>0,"reopened project permits new task plan");
+  var replacementTask=admin.CreateProjectTask(project,new(phase,employee,"After reopen",day,day,60));
+  check(replacementTask>0,"reopened project permits new task plan");
+  admin.CancelPlannedTask(project,replacementTask,1,"Synthetic no longer required",true);
+  var reclosed=admin.RecordProjectLifecycle(project,reopened.Id,true,"Synthetic closure after cancellation",true);
+  check(reclosed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).OpenTasks==0,"cancelled unstarted task does not block operational reclosure");
 
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE overhead_time SET minutes=1";try{q.ExecuteNonQuery();throw new Exception("FAIL: mutable overhead");}catch(SqliteException){check(true,"SQL prevents overhead history edits");}}
  }
