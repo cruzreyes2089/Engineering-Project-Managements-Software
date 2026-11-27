@@ -6,7 +6,7 @@ public sealed record CollectionInvoice(Guid Key,string Reference,DateOnly Issued
 {
  public override string ToString()=>"[Synthetic collection invoice]";
 }
-public sealed record CollectionPreview(string Outcome,IReadOnlyList<CollectionInvoice>? Invoices=null,DateTimeOffset? ObservedUtc=null,IReadOnlyList<ObservedInvoiceDueDate>? DueDates=null)
+public sealed record CollectionPreview(string Outcome,IReadOnlyList<CollectionInvoice>? Invoices=null,DateTimeOffset? ObservedUtc=null,IReadOnlyList<ObservedInvoiceDueDate>? DueDates=null,Guid? DueFixtureMarker=null)
 {
  public decimal? TotalOutstanding=>Invoices?.Sum(x=>x.Outstanding);
  public override string ToString()=>"Collection preview: "+Outcome;
@@ -87,7 +87,7 @@ public sealed partial class ManagerDesktopProbe
    var utc=DateTimeOffset.UtcNow;
    if(dueFixture&&!a.Dates.SequenceEqual(b.Dates))return Stop("CollectionRegisterChanged");
    var dueDates=dueFixture?Array.AsReadOnly(b.Rows.Select((x,i)=>new ObservedInvoiceDueDate(x.Key,x.Reference,x.CustomerKey,x.Issued,b.Dates[i],utc)).ToArray()):null;
-   return new("ObservedForReview",Array.AsReadOnly(b.Rows),utc,dueDates);
+   return new("ObservedForReview",Array.AsReadOnly(b.Rows),utc,dueDates,dueFixture?marker:null);
   }catch(AcquisitionStop e){return Stop(e.Outcome);}catch(OperationCanceledException){return Stop("Cancelled");}
  }
 }

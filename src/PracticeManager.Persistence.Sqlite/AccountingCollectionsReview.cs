@@ -20,6 +20,13 @@ public sealed partial class LocalPractice
   if(ct.IsCancellationRequested)return new("Cancelled");
   return result;
  }
+ public async Task<ReminderReview> PrepareDueFixtureReminderAsync(string endpoint,string secret,bool confirmed,CollectionPreview previous,Guid invoiceKey,CancellationToken ct=default)
+ {
+  var fresh=await ReadDueDateFixtureAsync(endpoint,secret,confirmed,ct);
+  if(ct.IsCancellationRequested)return new("Cancelled");
+  if(fresh.Outcome!="ObservedForReview")return new(fresh.Outcome);
+  return CollectionReminderReview.Prepare(previous,fresh,invoiceKey,DateOnly.FromDateTime(DateTime.Today),DateTimeOffset.UtcNow);
+ }
  public async Task<CollectionPreview> ReadSavedCollectionsAsync(bool singleUsdConfirmed,CancellationToken ct=default)
  {
   long actor;StoredProfile? profile;Guid? marker;var generation=sessionGeneration;
