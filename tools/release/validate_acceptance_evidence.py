@@ -10,6 +10,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 SUPPLEMENTAL = frozenset(("CRC-LC-01", "CRC-LC-02", "CRC-LC-03", "CRC-BILL-01",
                           "CRC-BILL-02", "CRC-ACCT-01", "CRC-REC-01"))
+ORIGINAL_COUNTS = {"SEC": 5, "CRM": 1, "ENG": 6, "PRJ": 3, "DOC": 2,
+                   "WORK": 2, "QA": 1, "FIN": 10, "REP": 1, "MIG": 3,
+                   "REL": 3, "NET": 2, "HR": 1, "UX": 1, "COM": 1}
+ORIGINAL = frozenset(f"{prefix}-{number:02d}"
+                     for prefix, count in ORIGINAL_COUNTS.items()
+                     for number in range(1, count + 1))
 STATUSES = ("Pass", "Fail", "Blocked", "Not run")
 FIELDS = frozenset(("reviewer", "date", "environment", "session", "fixture",
                     "observed", "evidenceRef"))
@@ -32,14 +38,14 @@ def scenario_ids(path):
                                      "Expected invariant", "Status"], "Invalid scenario register header")
         rows = list(reader)
     ids = [row["Test ID"] for row in rows]
-    require(len(ids) == 42 and len(set(ids)) == 42 and
-            all(isinstance(i, str) and re.fullmatch(r"[A-Z]+-[0-9]{2}", i) for i in ids),
+    require(len(ids) == len(ORIGINAL) and set(ids) == ORIGINAL,
             "Original scenario register is incomplete or malformed")
     require(all(None not in row and all(nonempty(value) for value in row.values()) for row in rows),
             "Malformed scenario register row")
     return frozenset(ids) | SUPPLEMENTAL
 
 def validate(manifest, expected_ids, expected_commit, expected_digest):
+    require(set(expected_ids) == ORIGINAL | SUPPLEMENTAL, "Invalid expected scenario scope")
     require(hex_id(expected_commit, 40) and hex_id(expected_digest, 64),
             "Expected candidate identifiers must be full lowercase hex")
     require(isinstance(manifest, dict) and set(manifest) ==
@@ -84,6 +90,17 @@ def validate(manifest, expected_ids, expected_commit, expected_digest):
             "structureValid": True, "evidenceAuthenticityVerified": False,
             "releaseAuthorized": False}
 
+def initialize(path, expected_ids, expected_commit, expected_digest):
+    manifest = {"format": "CRC-Acceptance-Evidence-v1", "commit": expected_commit,
+                "artifactSha256": expected_digest, "syntheticOnly": True,
+                "results": [{"testId": ident, "status": "Not run"} for ident in sorted(expected_ids)]}
+    validate(manifest, expected_ids, expected_commit, expected_digest)
+    # Exclusive creation preserves all previous acceptance evidence.
+    with Path(path).open("x", encoding="utf-8", newline="\n") as stream:
+        json.dump(manifest, stream, indent=2)
+        stream.write("\n")
+    return manifest
+
 def unique_keys(pairs):
     result = {}
     for key, value in pairs:
@@ -102,10 +119,15 @@ def main():
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--artifact-sha256", required=True)
+    parser.add_argument("--initialize", action="store_true", help="Create an empty private manifest; never overwrite")
     args = parser.parse_args()
     try:
-        result = validate(load(args.manifest), scenario_ids(ROOT / "docs/legacy-acceptance-register.csv"),
-                          args.commit, args.artifact_sha256)
+        private_path = args.manifest.resolve()
+        require(not private_path.is_relative_to(ROOT.resolve()), "Evidence must remain outside the checkout")
+        ids = scenario_ids(ROOT / "docs/legacy-acceptance-register.csv")
+        if args.initialize:
+            initialize(private_path, ids, args.commit, args.artifact_sha256)
+        result = validate(load(private_path), ids, args.commit, args.artifact_sha256)
     except (ValueError, OSError, UnicodeError, RecursionError, csv.Error):
         print("Acceptance evidence rejected; inspect private input locally.", file=sys.stderr)
         return 2
