@@ -13,6 +13,7 @@ public sealed record EffortBudgetWorkspace(ProjectEffortReview Effort,string? Re
 
 // Shared transactional persistence candidate. The owning service supplies an
 // authorization callback and current evidence from this same database transaction.
+internal sealed record EffortBudgetVerification(int Projects,int Revisions,int Forecasts,string Digest);
 internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransaction,long,bool,long> authorize,
  Func<SqliteTransaction,long,ProjectEffortReview> current)
 {
@@ -207,4 +208,41 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
    catch(ArgumentException){} // Closed project or unavailable planning state.
   return new(effort,digest,history,canRecord);
  }
+
+ // Internal recovery qualification only. Caller owns the read transaction.
+ internal static EffortBudgetVerification VerifyDatabase(SqliteConnection db,SqliteTransaction t)
+ {
+  var store=new EffortBudgetStore(db,(_,_,_)=>throw new UnauthorizedAccessException(),(_,_)=>throw new InvalidOperationException());
+  if(store.Count(t,"PRAGMA user_version")!=48)throw new ArgumentException("Budget verification requires candidate schema 48.");
+  const string actions="('RecordEffortBudgetRevision','RecordEffortForecast')";
+  if(store.Count(t,"SELECT count(*) FROM audit_events a WHERE a.action IN "+actions+" AND (a.entity!='Project' OR a.entity_id IS NULL OR NOT EXISTS(SELECT 1 FROM projects p WHERE p.id=a.entity_id))")!=0)
+   throw new InvalidOperationException("Invalid budget audit project.");
+  if(store.Count(t,"SELECT EXISTS(SELECT operation_key FROM (SELECT operation_key FROM effort_budget_revisions UNION ALL SELECT operation_key FROM effort_forecast_records) GROUP BY operation_key HAVING count(*)>1)")!=0||
+     store.Count(t,"SELECT EXISTS(SELECT audit_id FROM (SELECT audit_id FROM effort_budget_revisions UNION ALL SELECT audit_id FROM effort_forecast_records) GROUP BY audit_id HAVING count(*)>1)")!=0)
+   throw new InvalidOperationException("Duplicate global budget identity.");
+  var revisions=store.Count(t,"SELECT count(*) FROM effort_budget_revisions");
+  var forecasts=store.Count(t,"SELECT count(*) FROM effort_forecast_records");
+  if(revisions+forecasts>10000)throw new ArgumentException("Budget verification exceeds supported row limit.");
+  var projects=new List<long>();
+  using(var q=store.Q(t,"SELECT project_id FROM effort_budget_revisions UNION SELECT project_id FROM effort_forecast_records UNION SELECT entity_id FROM audit_events WHERE action IN "+actions+" ORDER BY 1"))
+  using(var r=q.ExecuteReader())while(r.Read())
+  {
+   if(projects.Count==500||r.IsDBNull(0))throw new ArgumentException("Budget verification exceeds supported project limit.");
+   projects.Add(r.GetInt64(0));
+  }
+  var evidence=new List<object>();int checkedRevisions=0,checkedForecasts=0;
+  foreach(var project in projects)
+  {
+   if(project<=0||store.Count(t,"SELECT count(*) FROM projects WHERE id=$p",("$p",project))!=1)
+    throw new InvalidOperationException("Budget history project missing.");
+   var history=store.ReadCore(t,project);
+   checkedRevisions+=history.Budgets.Count;checkedForecasts+=history.Forecasts.Count;
+   evidence.Add(new{ProjectId=project,Budgets=history.Budgets.Select(x=>BudgetMetadataHash(x.Model,x.Operation,x.Actor,x.Utc,x.AuditId)).ToArray(),
+    Forecasts=history.Forecasts.Select(x=>x.Hash).ToArray()});
+  }
+  if(checkedRevisions!=revisions||checkedForecasts!=forecasts||store.Count(t,"SELECT count(*) FROM audit_events WHERE action IN "+actions)!=revisions+forecasts)
+   throw new InvalidOperationException("Budget history and audit census mismatch.");
+  return new(projects.Count,checkedRevisions,checkedForecasts,Hash(new{Format="CRC-EffortBudgetDatabaseWitness-v1",Projects=evidence}));
+ }
+
 }

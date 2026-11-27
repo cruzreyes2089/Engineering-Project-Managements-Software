@@ -55,8 +55,39 @@ internal static class ProjectBudgetServiceTests
   check(admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true).Replayed,"actual service exact historical retry");
   var saved=admin.ReadProjectBudgetWorkspace(project);
   check(saved.CanRecord&&saved.ReviewedSnapshotHash==nextSnapshot&&saved.History.Budgets.Count==2&&saved.History.Forecasts.Single().Hash==forecast.Entry.Hash,"budget workspace refresh reconciles revision and forecast");
+  VerifyRecoveryCandidate(path,check);
   worker.Logout();Denied(()=>worker.ReadProjectBudgetHistory(project),"budget read rejects signed-out actor");
   Denied(()=>worker.ReadProjectBudgetWorkspace(project),"budget workspace rejects signed-out actor");
   admin.Logout();Denied(()=>admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true),"budget replay requires current authorized actor");
  }
+ static void VerifyRecoveryCandidate(string path,Action<bool,string> check)
+ {
+  using var source=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Mode=SqliteOpenMode.ReadOnly,ForeignKeys=true,Pooling=false}.ToString());source.Open();
+  EffortBudgetVerification Verify(SqliteConnection db)
+  {
+   using var t=db.BeginTransaction(deferred:true);return EffortBudgetStore.VerifyDatabase(db,t);
+  }
+  var original=Verify(source);
+  check(original.Projects==1&&original.Revisions==2&&original.Forecasts==1&&original.Digest.Length==64,"candidate budget verifier reconciles complete project and audit census");
+  using(var copy=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False"))
+  {
+   copy.Open();source.BackupDatabase(copy);
+   check(Verify(copy)==original,"candidate SQLite backup preserves budget history witness");
+  }
+  foreach(var (label,sql) in new[]{
+   ("budget metadata","DROP TRIGGER effort_budget_no_update;UPDATE effort_budget_revisions SET recorded_utc='2000-01-01T00:00:00.0000000+00:00' WHERE revision=1"),
+   ("forecast snapshot","DROP TRIGGER effort_forecast_no_update;UPDATE effort_forecast_records SET snapshot_bytes=X'7B7D'"),
+   ("orphan audit","INSERT INTO audit_events(actor_id,action,entity,entity_id) SELECT actor_id,'RecordEffortForecast','Project',project_id FROM effort_budget_revisions LIMIT 1"),
+   ("wrong audit entity","INSERT INTO audit_events(actor_id,action,entity,entity_id) SELECT actor_id,'RecordEffortForecast','Firm',project_id FROM effort_budget_revisions LIMIT 1"),
+   ("missing history","DROP TRIGGER effort_forecast_no_delete;DELETE FROM effort_forecast_records")})
+  {
+   using var copy=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False");copy.Open();source.BackupDatabase(copy);
+   using(var q=copy.CreateCommand()){q.CommandText=sql;q.ExecuteNonQuery();}
+   try{_=Verify(copy);throw new Exception("FAIL: budget witness "+label);}
+   catch(InvalidOperationException){check(true,"candidate budget verifier rejects "+label);}
+   catch(ArgumentException){check(true,"candidate budget verifier rejects "+label);}
+  }
+  check(Verify(source)==original,"candidate budget verification failures leave source unchanged");
+ }
+
 }
