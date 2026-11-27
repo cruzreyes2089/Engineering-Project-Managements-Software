@@ -312,7 +312,13 @@ internal static class WorkEntriesTests
   admin.RecordConflictReview(project,closureConflict.Id,new("Synthetic jurisdiction","No","No","No","Yes","Synthetic concern after closure"),true);
   check(admin.ReadProjectCloseoutReview(project).ConflictStatus=="Hold","closed project conflict hold retained");
   var beforeHistorical=admin.ReadProjectFinancialReport(project,day.AddDays(-1),day);
-  var historicalId=worker.SubmitHistoricalWork(historicalInput,reclosed.Id,"Verified actual historical work omitted before closure",true);
+  ReplacementSql("CREATE TRIGGER test_historical_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='SubmitHistoricalTime' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{worker.SubmitHistoricalWork(historicalInput,reclosed.Id,"Synthetic rollback",true);throw new Exception("FAIL: historical rollback");}catch(SqliteException){check(admin.ReadProjectCloseoutReview(project).PendingTimeSubmissions==0,"failed audit rolls back historical fact");}
+  ReplacementSql("DROP TRIGGER test_historical_audit_abort");
+  var historicalIds=await Task.WhenAll(Task.Run(()=>worker.SubmitHistoricalWork(historicalInput,reclosed.Id,"Verified actual historical work omitted before closure",true)),Task.Run(()=>peer.SubmitHistoricalWork(historicalInput,reclosed.Id,"Verified actual historical work omitted before closure",true)));
+  check(historicalIds.Distinct().Count()==1,"concurrent historical replay creates one fact");
+  var historicalId=historicalIds[0];
+  foreach(var sql in new[]{$"UPDATE project_closure_dates SET closed_on='2000-01-01' WHERE event_id={reclosed.Id}",$"DELETE FROM project_closure_dates WHERE event_id={reclosed.Id}",$"UPDATE work_submissions SET historical_reason='Changed' WHERE id={historicalId}",$"INSERT INTO work_submissions(operation_key,employee_id,task_id,kind,work_date,minutes,description,submitted_by,submitted_utc,historical_closure_id,historical_reason) SELECT '{Guid.NewGuid():D}',employee_id,task_id,kind,work_date,minutes,description,submitted_by,submitted_utc,{closed.Id},'Stale' FROM work_submissions WHERE id={historicalId}"}){try{ReplacementSql(sql);throw new Exception("FAIL: historical SQL guard");}catch(SqliteException){check(true,"database preserves closure evidence and rejects stale historical facts");}}
   check(peer.SubmitHistoricalWork(historicalInput,reclosed.Id,"Verified actual historical work omitted before closure",true)==historicalId,"historical exact retry idempotent");
   Invalid(()=>worker.SubmitHistoricalWork(historicalInput,reclosed.Id,"Changed reason",true),"historical intent immutable");
   Invalid(()=>worker.SubmitWork(historicalInput),"historical operation cannot replay as ordinary fact");
