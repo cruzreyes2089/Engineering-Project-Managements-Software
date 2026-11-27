@@ -9,13 +9,27 @@ public sealed record ApprovedInvoiceHold(long DraftId,string PayloadHash,string 
 public sealed record InvoiceHoldEvent(long EventId,long DraftId,string PayloadHash,string Kind,long? PriorEventId,string Reason,string? EvidenceReference,long ActorId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
- public IReadOnlyList<InvoiceHoldEvent> ReadInvoiceHoldHistory(long project,long draft)=>throw new NotImplementedException("Invoice hold history not implemented.");
- public InvoiceHoldEvent ReleaseApprovedInvoiceHold(long project,long draft,long expectedHoldId,string expectedHash,string evidenceReference,string reason,bool originalCorrect,bool noExternalIssuance)=>throw new NotImplementedException("Invoice hold release not implemented.");
+ public IReadOnlyList<InvoiceHoldEvent> ReadInvoiceHoldHistory(long project,long draft)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireInvoices(c,t,"Billing.Invoices.View");ProjectRow(c,t,project);InvoiceDetail(c,t,project,draft);
+  using var q=Command(c,t,"SELECT event_id,draft_id,payload_hash,kind,prior_event_id,reason,evidence_reference,actor_id,recorded_utc FROM invoice_hold_events WHERE draft_id=$i ORDER BY event_id LIMIT 501",("$i",draft));using var r=q.ExecuteReader();var rows=new List<InvoiceHoldEvent>();
+  while(r.Read()){if(rows.Count==500)throw new ArgumentException("Hold history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),r.GetString(3),ReadOptionalId(r,4),r.GetString(5),ReadCategory(r,6),r.GetInt64(7),r.GetString(8)));}return rows.AsReadOnly();
+ }
+ public InvoiceHoldEvent ReleaseApprovedInvoiceHold(long project,long draft,long expectedHoldId,string expectedHash,string evidenceReference,string reason,bool originalCorrect,bool noExternalIssuance)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Edit");Require(c,t,"Billing.Invoices.Approve");ProjectRow(c,t,project);
+  var summary=InvoiceDetail(c,t,project,draft).Summary;
+  if(summary.State!="Approved"||summary.PayloadHash!=expectedHash||!summary.ReconciliationHold||expectedHoldId<=0||!Equals(Scalar(c,t,"SELECT event_id FROM current_approved_invoice_holds WHERE draft_id=$i",("$i",draft)),expectedHoldId))throw new ArgumentException("Exact current approved hold and payload required.");
+  if(Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM invoice_drafts d JOIN invoice_draft_decisions x ON x.draft_id=d.id JOIN current_approved_invoice_holds h ON h.draft_id=d.id WHERE d.id=$i AND (d.created_by=$a OR x.actor_id=$a OR h.actor_id=$a)",("$i",draft),("$a",actor)))!=0)throw new UnauthorizedAccessException("Independent reviewer distinct from draft creator, approver and hold author required.");
+  if(!originalCorrect||!noExternalIssuance)throw new ArgumentException("Both independent verification attestations required; unknown, issued or erroneous drafts must remain held.");
+  var evidence=Validation.Text(evidenceReference,500,"Independent accounting evidence reference",true);var note=Validation.Text(reason,1000,"Review reason",true);var utc=UtcNow();
+  Exec(c,t,"INSERT INTO invoice_hold_events(draft_id,payload_hash,kind,prior_event_id,reason,evidence_reference,actor_id,recorded_utc) VALUES($i,$h,'Release',$p,$n,$e,$a,$u)",("$i",draft),("$h",expectedHash),("$p",expectedHoldId),("$n",note),("$e",evidence),("$a",actor),("$u",utc));var id=Last(c,t);Audit(c,t,actor,"ReleaseApprovedInvoiceHold","InvoiceDraft",draft);t.Commit();return new(id,draft,expectedHash,"Release",expectedHoldId,note,evidence,actor,utc);
+ }
  public ApprovedInvoiceHold? ReadApprovedInvoiceHold(long project,long draft)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireInvoices(c,t,"Billing.Invoices.View");ProjectRow(c,t,project);InvoiceDetail(c,t,project,draft);
-  using var q=Command(c,t,"SELECT draft_id,payload_hash,reason,actor_id,recorded_utc FROM approved_invoice_holds WHERE draft_id=$i",("$i",draft));using var r=q.ExecuteReader();
-  return r.Read()?new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetInt64(3),r.GetString(4)):null;
+  using var q=Command(c,t,"SELECT draft_id,payload_hash,reason,actor_id,recorded_utc,event_id FROM current_approved_invoice_holds WHERE draft_id=$i",("$i",draft));using var r=q.ExecuteReader();
+  return r.Read()?new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetInt64(3),r.GetString(4),r.GetInt64(5)):null;
  }
  public ApprovedInvoiceHold HoldApprovedInvoice(long project,long draft,string expectedHash,string reason,bool confirmed)
  {
@@ -24,7 +38,7 @@ public sealed partial class LocalPractice
   var note=Validation.Text(reason,1000,"Discrepancy and reconciliation evidence",true);
   var summary=InvoiceDetail(c,t,project,draft).Summary;
   if(summary.State!="Approved"||summary.PayloadHash!=expectedHash||summary.ReconciliationHold)throw new ArgumentException("Exact approved draft not already held required.");
-  var utc=UtcNow();Exec(c,t,"INSERT INTO approved_invoice_holds(draft_id,payload_hash,reason,actor_id,recorded_utc) VALUES($i,$h,$n,$a,$u)",("$i",draft),("$h",expectedHash),("$n",note),("$a",actor),("$u",utc));Audit(c,t,actor,"HoldApprovedInvoice","InvoiceDraft",draft);t.Commit();return new(draft,expectedHash,note,actor,utc);
+  var prior=Scalar(c,t,"SELECT max(event_id) FROM invoice_hold_events WHERE draft_id=$i",("$i",draft)) as long?;var utc=UtcNow();Exec(c,t,"INSERT INTO invoice_hold_events(draft_id,payload_hash,kind,prior_event_id,reason,actor_id,recorded_utc) VALUES($i,$h,'Hold',$p,$n,$a,$u)",("$i",draft),("$h",expectedHash),("$p",prior),("$n",note),("$a",actor),("$u",utc));var id=Last(c,t);Audit(c,t,actor,"HoldApprovedInvoice","InvoiceDraft",draft);t.Commit();return new(draft,expectedHash,note,actor,utc,id);
  }
  public WorkAllocationReview ReadWorkAllocationReview(long project,long submission)
  {
@@ -101,7 +115,7 @@ public sealed partial class LocalPractice
  }
  private static string DraftPayloadHash(long project,string number,DateOnly date,DateOnly due,IReadOnlyList<InvoiceDraftLine> lines)
  =>HashProposal(JsonSerializer.Serialize(new{Format="CRC-INV-DRAFT-1",Project=project,Number=number,Date=date,Due=due,Currency="USD",Lines=lines.Select(l=>new{l.Kind,l.SourceId,l.Description,l.Minutes,RateCents=l.BillingRate.HasValue?(long?)BillingCents(l.BillingRate.Value):null,AmountCents=BillingCents(l.Amount,true)}).ToArray()}));
- private const string InvoiceProjection="SELECT d.id,d.project_id,d.draft_no,d.invoice_date,d.due_date,d.total_cents,coalesce(x.decision,'Draft'),d.payload_hash,EXISTS(SELECT 1 FROM approved_invoice_holds h WHERE h.draft_id=d.id) FROM invoice_drafts d LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id";
+ private const string InvoiceProjection="SELECT d.id,d.project_id,d.draft_no,d.invoice_date,d.due_date,d.total_cents,coalesce(x.decision,'Draft'),d.payload_hash,EXISTS(SELECT 1 FROM current_approved_invoice_holds h WHERE h.draft_id=d.id) FROM invoice_drafts d LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id";
  private static InvoiceDraftSummary InvoiceRow(SqliteDataReader r)=>new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),ReadPlanDate(r.GetString(3)),ReadPlanDate(r.GetString(4)),r.GetInt64(5)/100m,r.GetString(6),r.GetString(7),r.GetBoolean(8));
  private static InvoiceDraftDetail InvoiceDetail(SqliteConnection c,SqliteTransaction t,long project,long id)
  {

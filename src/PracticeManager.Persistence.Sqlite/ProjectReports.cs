@@ -80,7 +80,7 @@ public sealed partial class LocalPractice
   decimal draft=0,ready=0,cancelled=0;
   using(var q=Command(c,t,"SELECT coalesce(x.decision,'Draft'),coalesce(sum(d.total_cents),0) FROM invoice_drafts d LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id WHERE d.project_id=$p AND d.invoice_date BETWEEN $s AND $e GROUP BY coalesce(x.decision,'Draft')",range))using(var r=q.ExecuteReader()){while(r.Read()){var n=r.GetInt64(1)/100m;switch(r.GetString(0)){case "Draft":draft=n;break;case "Approved":ready=n;break;case "Cancelled":cancelled=n;break;}}}
   decimal held=0;int heldCount=0;
-  using(var q=Command(c,t,"SELECT coalesce(sum(d.total_cents),0),count(*) FROM invoice_drafts d JOIN approved_invoice_holds h ON h.draft_id=d.id WHERE d.project_id=$p AND d.invoice_date BETWEEN $s AND $e",range))using(var r=q.ExecuteReader()){if(r.Read()){held=r.GetInt64(0)/100m;heldCount=r.GetInt32(1);}}
+  using(var q=Command(c,t,"SELECT coalesce(sum(d.total_cents),0),count(*) FROM invoice_drafts d JOIN current_approved_invoice_holds h ON h.draft_id=d.id WHERE d.project_id=$p AND d.invoice_date BETWEEN $s AND $e",range))using(var r=q.ExecuteReader()){if(r.Read()){held=r.GetInt64(0)/100m;heldCount=r.GetInt32(1);}}
   return new(p.Number,start,end,minutes,billable,nonbillable,unclassified,missing==0?cost:null,missing,expense,draft,ready,cancelled,held,heldCount);
  }
  public string ExportInvoiceDraftCsv(long project,long id,string expectedHash)
