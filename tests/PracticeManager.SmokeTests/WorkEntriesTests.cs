@@ -340,7 +340,14 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.InvalidateClosedProjectWork(rejectedHistoricalId,reclosed.Id,"Pending",true),"pending historical fact cannot be invalidated as approved");
   check(admin.ReviewWork(rejectedHistoricalId,false,"Insufficient evidence")=="Rejected","historical rejection retained");
   Invalid(()=>admin.InvalidateClosedProjectWork(rejectedHistoricalId,reclosed.Id,"Rejected",true),"rejected fact cannot be invalidated as approved");
-  var closedInvalidation=admin.InvalidateClosedProjectWork(historicalId,reclosed.Id,"Verified erroneous minutes",true);
+  ReplacementSql("CREATE TRIGGER test_closed_correction_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='InvalidateClosedProjectWork' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{admin.InvalidateClosedProjectWork(historicalId,reclosed.Id,"Synthetic rollback",true);throw new Exception("FAIL: closed invalidation rollback");}catch(SqliteException){check(admin.ReadWorkInvalidation(historicalId)==null&&admin.ReadProjectFinancialReport(project,day.AddDays(-1),day)==afterHistorical,"failed closed invalidation audit preserves approved cost");}
+  ReplacementSql("DROP TRIGGER test_closed_correction_audit_abort");
+  WorkInvalidation? TryClosedCorrection(LocalPractice service){try{return service.InvalidateClosedProjectWork(historicalId,reclosed.Id,"Verified erroneous minutes",true);}catch(ArgumentException){return null;}}
+  var closedInvalidations=await Task.WhenAll(Task.Run(()=>TryClosedCorrection(admin)),Task.Run(()=>TryClosedCorrection(closePeer)));
+  check(closedInvalidations.Count(x=>x!=null)==1,"concurrent closed invalidation records one decision");
+  var closedInvalidation=closedInvalidations.Single(x=>x!=null)!;
+  foreach(var sql in new[]{$"UPDATE work_invalidations SET closure_id={closed.Id} WHERE submission_id={historicalId}",$"INSERT INTO work_invalidations(submission_id,reason,actor_id,recorded_utc,closure_id) VALUES({historicalExpenseId},'Stale',1,'synthetic',{closed.Id})",$"INSERT INTO work_invalidations(submission_id,reason,actor_id,recorded_utc) VALUES({historicalExpenseId},'Ordinary',1,'synthetic')"}){try{ReplacementSql(sql);throw new Exception("FAIL: closed invalidation SQL guard");}catch(SqliteException){check(true,"database rejects stale or ordinary closed invalidation and protects evidence");}}
   check(closedInvalidation.ClosureId==reclosed.Id&&admin.ReadWorkInvalidation(historicalId)==closedInvalidation,"closed invalidation records exact closure evidence");
   check(admin.ReadProjectFinancialReport(project,day.AddDays(-1),day).ApprovedMinutes==afterHistorical.ApprovedMinutes-5,"closed invalidation removes erroneous approved time only");
   Invalid(()=>admin.InvalidateClosedProjectWork(historicalId,reclosed.Id,"Repeat",true),"closed invalidation cannot repeat");
@@ -350,7 +357,12 @@ internal static class WorkEntriesTests
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,false,"Wrong decision",true),"rejected replacement path cannot replace invalidated source");
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection with{Date=day.AddDays(-1)},reclosed.Id,true,"Changed work date",true),"closed linked replacement retains original work date");
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Unconfirmed",false),"closed replacement requires confirmation");
-  var replacementClosedId=worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Verified actual corrected historical time",true);
+  ReplacementSql("CREATE TRIGGER test_closed_replacement_abort BEFORE INSERT ON audit_events WHEN NEW.action='ReplaceClosedProjectWork' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Synthetic rollback",true);throw new Exception("FAIL: closed replacement rollback");}catch(SqliteException){check(worker.ReadMyWorkReplacement(historicalId)==null,"failed closed replacement audit preserves original lineage");}
+  ReplacementSql("DROP TRIGGER test_closed_replacement_abort");
+  var closedReplacementIds=await Task.WhenAll(Task.Run(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Verified actual corrected historical time",true)),Task.Run(()=>peer.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Verified actual corrected historical time",true)));
+  check(closedReplacementIds.Distinct().Count()==1,"concurrent exact closed replacement creates one fact");
+  var replacementClosedId=closedReplacementIds[0];
   check(peer.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Verified actual corrected historical time",true)==replacementClosedId&&worker.ReadMyWorkReplacement(historicalId)?.ReplacementId==replacementClosedId,"closed replacement links original and exact retry");
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,false,"Verified actual corrected historical time",true),"wrong correction path cannot replay");
   Invalid(()=>worker.SubmitHistoricalWork(closedCorrection,reclosed.Id,"Verified actual corrected historical time",true),"linked replacement cannot replay as standalone historical fact");
