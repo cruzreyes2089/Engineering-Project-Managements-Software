@@ -12,3 +12,5 @@ Base: schema 31, `53c16a8`. Scope: reporting only; no schema migration or change
 ## Verification
 
 Regression assertions are in `ProjectHandoffTests.cs`. The initial test-only commit is expected to fail at the missing declaration case on the old implementation. Do not describe the correction as complete until the red case and green suite are observed. All evidence is synthetic; no live financial or public-employer data.
+
+Red regression: run 45921025821 failed as expected on `recorded project screening reports effective hold for missing declaration` after successful compilation with zero warnings/errors. The correction evaluates the existing effective gate once in the write transaction and uses its result for both audit and returned disposition. Historical rows are not rewritten. Green Windows regression remains required.

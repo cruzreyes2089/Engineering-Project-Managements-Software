@@ -31,6 +31,6 @@ public sealed partial class LocalPractice
   if(new[]{input.RestrictedJurisdiction,input.PublicDutyOverlap,input.PublicResources,input.OtherConflict}.Any(x=>x is not ("No" or "Yes" or "Unknown")))throw new ArgumentException("Answer every screening question.");
   var jurisdiction=JurisdictionName(input.Jurisdiction);var evidence=Validation.Text(input.Evidence,4000,"Review evidence",true);
   Exec(c,t,"INSERT INTO project_conflict_reviews(project_id,proposal_hash,jurisdiction,restricted_jurisdiction,public_duty_overlap,public_resources,other_conflict,evidence,reviewed_by,reviewed_utc,jurisdiction_event_id,party_revision) VALUES($p,$h,$j,$r,$d,$s,$o,$e,$a,$u,$jv,$pv)",("$p",project),("$h",p.ProposalHash),("$j",jurisdiction),("$r",input.RestrictedJurisdiction),("$d",input.PublicDutyOverlap),("$s",input.PublicResources),("$o",input.OtherConflict),("$e",evidence),("$a",actor),("$u",UtcNow()),("$jv",JurisdictionEvent(c,t,jurisdiction)),("$pv",partyRevision));
-  var next=CurrentConflict(c,t,project)!;Audit(c,t,actor,"Conflict"+(ConflictCleared(c,t,project)?"Clear":"Hold"),"Project",project);t.Commit();return next;
+  var next=CurrentConflict(c,t,project)!;var disposition=ConflictCleared(c,t,project)?"Clear":"Hold";Audit(c,t,actor,"Conflict"+disposition,"Project",project);t.Commit();return next with{Disposition=disposition};
  }
 }
