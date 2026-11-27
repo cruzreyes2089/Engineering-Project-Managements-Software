@@ -144,6 +144,7 @@ try{
  CredentialSessionTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"credential-session.db"),pw,Check);
  WorkPlanningTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-planning.db"),pw,Check);
  StaffWorkloadTests.Run(Check);
+ ProjectEffortTests.Run(Check);
  await WorkEntriesTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"work-entries.db"),pw,Check);
  ProjectEvidenceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-evidence.db"),pw,Check);
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);

@@ -217,6 +217,12 @@ internal static class WorkEntriesTests
   mix=admin.ReadFirmTimeMix(day,day);check(mix.ApprovedBillableMinutes==30&&mix.ApprovedMinutes==225&&mix.ApprovedBillableShare==30m/225m,"firm share includes approved overhead in denominator");
   var empty=admin.ReadFirmTimeMix(day.AddDays(-1),day.AddDays(-1));check(empty.Rows.Count==0&&empty.ApprovedBillableShare==null,"empty range does not fabricate utilization");
   check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
+  var effort=admin.ReadProjectEffort(project);
+  check(effort.Tasks.Single().TaskId==task&&effort.CurrentPlanMinutes==120&&effort.CurrentApprovedMinutes==90&&effort.CurrentPendingMinutes==0,"whole-project effort matches approved time without overhead or expenses");
+  check(ProjectEffort.Forecast(effort,Array.Empty<TaskRemainingInput>()).CurrentForecastMinutes==null,"open task effort requires explicit forecast");
+  check(ProjectEffort.Forecast(effort,new[]{new TaskRemainingInput(task,60)}).CurrentForecastMinutes==150,"explicit remaining effort can exceed original estimate");
+  Denied(()=>worker.ReadProjectEffort(project),"own work grant cannot read project effort report");
+
   worker.AdvanceMyTask(task,2,"Completed");
   var completedCloseout=admin.ReadProjectCloseoutReview(project);check(completedCloseout.OpenTasks==0&&completedCloseout.PendingTimeSubmissions==0&&completedCloseout.PendingExpenseSubmissions==1,"closeout retains pending replacement expense after task completion and excludes overhead");
   var cost=admin.ReadFirmLaborCost(day,day);check(cost.ApprovedMinutes==225&&cost.MissingRateMinutes==225&&cost.CompleteCost==null,"missing labor rates do not imply zero cost");
