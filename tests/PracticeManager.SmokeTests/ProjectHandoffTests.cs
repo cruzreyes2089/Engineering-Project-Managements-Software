@@ -52,6 +52,7 @@ internal static class ProjectHandoffTests
   var screen=new ConflictReviewInput("Synthetic jurisdiction","No","No","No","No","Synthetic reviewed facts");
   Invalid(()=>s.RecordConflictReview(project,null,screen,true),"party review requires exact current revision");
   var first=s.RecordConflictReview(project,null,screen,true,s.ReadPartyEvidenceRevision(project));
+  check(first.Disposition=="Hold","recorded project screening reports effective hold for missing declaration");
   check(s.ReadProjectConflictStatus(project)=="Hold"&&s.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic")=="ConflictReviewRequired","missing required designer declaration holds project");
   var document=s.RegisterProjectDocument(project,Guid.NewGuid(),null,"Restricted","Contracts","declaration.pdf",bytes);
   var d=s.ReadProjectDocuments(project).Single(x=>x.Id==document);
@@ -61,6 +62,7 @@ internal static class ProjectHandoffTests
   var declared=s.RecordPartyDeclaration(project,currentParty,null,document,d.Hash,"ReviewedNoConflict","Synthetic declaration review",true);
   check(s.ReadProjectConflictStatus(project)=="Hold","declaration cannot silently clear stale project screening");
   var cleared=s.RecordConflictReview(project,first.Id,screen,true,s.ReadPartyEvidenceRevision(project));
+  check(cleared.Disposition=="Clear","recorded project screening reports effective clearance after fresh evidence");
   check(s.ReadProjectConflictStatus(project)=="Clear","current declaration and fresh screening clear project");
   var revised=s.RegisterProjectDocument(project,Guid.NewGuid(),document,"Restricted","Contracts","declaration-r2.pdf","%PDF-1.7\nRevised synthetic declaration\n%%EOF"u8.ToArray());
   check(s.ReadPartyDeclarations(project,currentParty).Single().CurrentStatus=="Superseded"&&s.ReadProjectConflictStatus(project)=="Hold","superseded declaration PDF blocks new work");
@@ -68,6 +70,7 @@ internal static class ProjectHandoffTests
   Invalid(()=>s.RecordPartyDeclaration(project,currentParty,null,revised,d2.Hash,"ReviewedNoConflict","Stale",true),"stale declaration review blocked");
   s.RecordPartyDeclaration(project,currentParty,declared,revised,d2.Hash,"Concern","Synthetic concern",true);
   var concern=s.RecordConflictReview(project,cleared.Id,screen,true,s.ReadPartyEvidenceRevision(project));
+  check(concern.Disposition=="Hold","recorded project screening reports effective hold for participant concern");
   check(s.ReadProjectConflictStatus(project)=="Hold","declared concern cannot be cleared by no answers");
   s.RecordPartyDeclaration(project,currentParty,s.ReadPartyDeclarations(project,currentParty).First().Id,revised,d2.Hash,"ReviewedNoConflict","Synthetic resolution",true);
   s.RecordConflictReview(project,concern.Id,screen,true,s.ReadPartyEvidenceRevision(project));
