@@ -5,5 +5,5 @@ public sealed record InvoiceCandidate(long SourceId,string Employee,string Kind,
 public sealed record FixedFeeInput(string Description,decimal Amount);
 public sealed record InvoiceDraftInput(Guid OperationKey,long ProjectId,DateOnly InvoiceDate,DateOnly DueDate,IReadOnlyList<FixedFeeInput> FixedFees,IReadOnlyList<long> Sources);
 public sealed record InvoiceDraftLine(string Kind,long? SourceId,string Description,int? Minutes,decimal? BillingRate,decimal Amount);
-public sealed record InvoiceDraftSummary(long Id,long ProjectId,string Number,DateOnly InvoiceDate,DateOnly DueDate,decimal Total,string State,string PayloadHash);
+public sealed record InvoiceDraftSummary(long Id,long ProjectId,string Number,DateOnly InvoiceDate,DateOnly DueDate,decimal Total,string State,string PayloadHash,bool ReconciliationHold=false);
 public sealed record InvoiceDraftDetail(InvoiceDraftSummary Summary,IReadOnlyList<InvoiceDraftLine> Lines);

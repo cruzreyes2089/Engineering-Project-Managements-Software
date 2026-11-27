@@ -175,5 +175,28 @@ internal static class InvoiceDraftTests
   check(s.ReadInvoiceCandidates(project,day).Count==0,"replacement remains unbillable before review");
   s.ReviewWork(reconciledId,true,"Independent fact review");s.ClassifyWork(reconciledId,true,"Independent classification");
   check(s.ReadInvoiceCandidates(project,day).Single().SourceId==reconciledId,"only corrected approved fact becomes billing candidate");
+  check(s.ReadApprovedInvoiceHold(project,next)==null,"approved draft has no invented hold");
+  Denied(()=>worker.ReadApprovedInvoiceHold(project,next),"employee cannot read invoice hold");
+  Denied(()=>worker.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Unauthorized",true),"employee cannot place invoice hold");
+  Invalid(()=>s.HoldApprovedInvoice(project,next,"wrong","Wrong hash",true),"hold requires exact approved payload");
+  Invalid(()=>s.HoldApprovedInvoice(project,draft,detail.Summary.PayloadHash,"Cancelled",true),"cancelled draft cannot enter approved hold");
+  Invalid(()=>s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"",true),"hold requires discrepancy evidence");
+  Invalid(()=>s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Unconfirmed",false),"hold requires explicit confirmation");
+  var beforeHold=s.ReadProjectFinancialReport(project,day,day);
+  var hold=s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Potential duplicate charge; external accounting review required",true);
+  check(s.ReadApprovedInvoiceHold(project,next)==hold&&hold.PayloadHash==nextDetail.Summary.PayloadHash,"exact immutable invoice hold evidence recorded");
+  var held=s.ReadInvoiceDraft(project,next);
+  check(held.Summary.State=="Approved"&&held.Summary.ReconciliationHold&&held.Summary.PayloadHash==nextDetail.Summary.PayloadHash&&held.Lines.SequenceEqual(nextDetail.Lines),"hold preserves original approval and immutable lines");
+  check(s.ReadInvoiceDrafts(project).Single(x=>x.Id==next).ReconciliationHold,"draft register exposes reconciliation hold");
+  Invalid(()=>s.HoldApprovedInvoice(project,next,nextDetail.Summary.PayloadHash,"Repeat",true),"duplicate hold denied");
+  Invalid(()=>s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash),"held draft cannot be re-exported");
+  Invalid(()=>s.PrepareInvoiceReviewDocx(project,next,nextDetail.Summary.PayloadHash),"held draft cannot generate or reissue review document");
+  Invalid(()=>s.RetrieveInvoiceReviewDocument(project,next,doc.Id,doc.Sha256),"held draft cannot retrieve potentially reusable export bytes");
+  check(s.ReadInvoiceReviewDocuments(project,next).Single().Id==doc.Id,"historical document metadata remains available for reconciliation");
+  check(s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,false,"Cancel")== "AlreadyApproved","hold is not cancellation");
+  check(!s.ReadWorkAllocationReview(project,time).Eligible&&!s.ReadInvoiceCandidates(project,day).Any(x=>x.SourceId==time),"hold never releases approved source allocation");
+  var afterHold=s.ReadProjectFinancialReport(project,day,day);
+  check(afterHold.ApprovedInternalDraftValue==beforeHold.ApprovedInternalDraftValue&&afterHold.HeldApprovedDraftValue==295.34m&&afterHold.HeldApprovedDraftCount==1&&afterHold.TotalOperationalCost==beforeHold.TotalOperationalCost,"held amount separately identified as subset of approved internal drafts, no cost or revenue reversal");
+  Invalid(()=>s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Over cap",1m)},Array.Empty<long>())),"held draft retains contractual cap allocation");
  }
 }
