@@ -1,8 +1,11 @@
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
+public sealed record OverheadReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public OverheadReplacement? ReadMyOverheadReplacement(long original)=>throw new NotImplementedException("Overhead replacement history not implemented.");
+ public long ReplaceRejectedOverheadTime(long original,OverheadTimeInput input)=>throw new NotImplementedException("Rejected overhead replacement not implemented.");
  public static IReadOnlyList<string> OverheadCategories{get;}=Array.AsReadOnly(new[]{"Administration","Marketing","BusinessDevelopment","Proposals","Management","Training","Other"});
  public long SubmitOverheadTime(OverheadTimeInput input)
  {
