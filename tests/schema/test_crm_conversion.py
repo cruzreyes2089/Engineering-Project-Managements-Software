@@ -99,3 +99,11 @@ class ConversionTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 m.write_new(path, self.convert())
             self.assertEqual(path.read_bytes(), before)
+
+    def test_rejection_identifies_row_without_private_values(self):
+        bad = copy.deepcopy(self.raw["clients"][0])
+        bad.update(Id=3, Kind="PRIVATE-UNMAPPED-VALUE")
+        self.raw["clients"].append(bad)
+        with self.assertRaises(m.RowRejected) as caught:
+            self.convert()
+        self.assertEqual(str(caught.exception), "clients row 2: conversion rejected")
