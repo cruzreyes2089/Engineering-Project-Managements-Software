@@ -355,7 +355,7 @@ internal static class WorkEntriesTests
   Invalid(()=>worker.ReplaceInvalidatedWork(historicalId,closedCorrection),"ordinary replacement blocked for closed project");
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,closed.Id,true,"Stale",true),"closed replacement requires latest closure");
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,false,"Wrong decision",true),"rejected replacement path cannot replace invalidated source");
-  Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection with{Date=day.AddDays(-1)},reclosed.Id,true,"Changed work date",true),"closed linked replacement retains original work date");
+  Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection with{Date=historicalInput.Date.AddDays(1)},reclosed.Id,true,"Changed work date",true),"closed linked replacement retains original work date");
   Invalid(()=>worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Unconfirmed",false),"closed replacement requires confirmation");
   ReplacementSql("CREATE TRIGGER test_closed_replacement_abort BEFORE INSERT ON audit_events WHEN NEW.action='ReplaceClosedProjectWork' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
   try{worker.ReplaceClosedProjectWork(historicalId,closedCorrection,reclosed.Id,true,"Synthetic rollback",true);throw new Exception("FAIL: closed replacement rollback");}catch(SqliteException){check(worker.ReadMyWorkReplacement(historicalId)==null,"failed closed replacement audit preserves original lineage");}
