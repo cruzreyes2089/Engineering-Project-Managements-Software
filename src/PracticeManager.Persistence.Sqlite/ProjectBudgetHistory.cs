@@ -10,7 +10,7 @@ public sealed partial class LocalPractice
  long RequireEffortBudget(SqliteConnection c,SqliteTransaction t,long project,bool write)
  {
   var actor=RequireReport(c,t,"Reports.Operations");Require(c,t,"Projects.Budget.View");
-  if(Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"))!=48)throw new UnauthorizedAccessException("Budget history is not enabled.");
+  if(Convert.ToInt64(Scalar(c,t,"PRAGMA user_version")) is not (48 or 49))throw new UnauthorizedAccessException("Budget history is not enabled.");
   ProjectRow(c,t,project);
   if(write)
   {

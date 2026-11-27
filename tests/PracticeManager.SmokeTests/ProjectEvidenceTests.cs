@@ -33,12 +33,12 @@ internal static class ProjectEvidenceTests
   Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","secret.txt",bytes),"restricted write denied");
   Invalid(()=>s.RecordProjectLifecycle(p.Id,null,true,"Synthetic pending closure",true),"pending project cannot close");
   var before=s.ReadProjectCloseoutReview(p.Id);check(before.ProjectState=="Pending"&&before.Phases==0&&before.OpenTasks==0&&before.OpenQualityItems==0&&before.PendingScopeDecisions==0,"closeout review describes empty pending project without authorizing closure");
-  var q=s.CreateQualityItem(p.Id,"Synthetic QA","Correction","Review calculation");s.AddQualityNote(p.Id,q,"Synthetic review note");
-  check(s.ReadQualityNotes(p.Id,q).Count==1&&s.ReadQualityItems(p.Id).Single().State=="Open","quality history retained");
+  var qualityId=s.CreateQualityItem(p.Id,"Synthetic QA","Correction","Review calculation");s.AddQualityNote(p.Id,qualityId,"Synthetic review note");
+  check(s.ReadQualityNotes(p.Id,qualityId).Count==1&&s.ReadQualityItems(p.Id).Single().State=="Open","quality history retained");
   check(s.ReadProjectCloseoutReview(p.Id).OpenQualityItems==1&&s.ReadProjectCloseoutReview(other.Id).OpenQualityItems==0,"closeout QA count is project scoped");
-  Invalid(()=>s.AddQualityNote(other.Id,q,"wrong project"),"quality scope enforced");
-  check(s.CloseQualityItem(p.Id,q,"Resolved")=="Closed"&&s.CloseQualityItem(p.Id,q,"Changed")=="AlreadyClosed","quality closure immutable");
-  Invalid(()=>s.AddQualityNote(p.Id,q,"After closure"),"closed quality history read-only");
+  Invalid(()=>s.AddQualityNote(other.Id,qualityId,"wrong project"),"quality scope enforced");
+  check(s.CloseQualityItem(p.Id,qualityId,"Resolved")=="Closed"&&s.CloseQualityItem(p.Id,qualityId,"Changed")=="AlreadyClosed","quality closure immutable");
+  Invalid(()=>s.AddQualityNote(p.Id,qualityId,"After closure"),"closed quality history read-only");
   var change=s.ProposeScopeChange(p.Id,"Extra work","Synthetic additional scope");
   check(s.ReadProjectCloseoutReview(p.Id).OpenQualityItems==0&&s.ReadProjectCloseoutReview(p.Id).PendingScopeDecisions==1,"closeout counts unresolved scope but excludes closed QA");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Reports.Operations'");
