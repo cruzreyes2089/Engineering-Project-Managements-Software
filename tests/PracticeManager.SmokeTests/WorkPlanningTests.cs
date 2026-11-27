@@ -5,6 +5,11 @@ internal static class WorkPlanningTests
 {
  public static void Run(string path,string pw,Action<bool,string> check)
  {
+  check(TaskEstimate.Parse("2.5")==150&&TaskEstimate.Parse("40:01")==2401&&TaskEstimate.Parse("10000:00")==600000,"task estimates support multiple days and exact minutes");
+  check(TaskEstimate.Format(61)=="1:01"&&TaskEstimate.Parse(TaskEstimate.Format(599999))==599999,"estimate edit round trips without rounding");
+  foreach(var bad in new[]{"0","0:00","2:60","1:5","-1","10000:01","0.01"," 1","1,000"})
+  {try{TaskEstimate.Parse(bad);throw new Exception("FAIL: invalid estimate");}catch(ArgumentException){check(true,"invalid estimate rejected");}}
+
   var s=new LocalPractice(path);s.Bootstrap("Synthetic Work Firm","admin",pw,"CL");check(s.Login("admin",pw),"work planner admin login");
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
