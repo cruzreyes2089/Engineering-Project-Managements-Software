@@ -21,6 +21,10 @@ TARGETS = {
 INTEGER_BOUNDS = {2: (0, 255), 3: (-32768, 32767), 4: (-2147483648, 2147483647),
                   16: (-9223372036854775808, 9223372036854775807)}
 
+class RowRejected(ValueError):
+    def __init__(self, entity, ordinal):
+        super().__init__(f"{entity} row {ordinal}: conversion rejected")
+
 def typed(value, dao):
     if dao in INTEGER_BOUNDS:
         low, high = INTEGER_BOUNDS[dao]
@@ -89,7 +93,7 @@ def convert(inventory, rules, rows, enums, hashes):
                     result[target] = value
                 converted.append(result)
             except (ValueError, TypeError, KeyError):
-                raise ValueError(f"{entity} row {ordinal}: conversion rejected") from None
+                raise RowRejected(entity, ordinal) from None
         output[entity] = converted
     clients = output["clients"]
     contacts = output["contacts"]
@@ -124,6 +128,9 @@ def main():
                   "mappingSha256": rules_hash, "rowsSha256": rows_hash}
         transfer = convert(inv, rules, rows, enums, hashes)
         write_new(paths[4], transfer)
+    except RowRejected as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     except (OSError, ValueError, TypeError, KeyError, RecursionError):
         print("CRM conversion rejected; review private inputs locally.", file=sys.stderr)
         return 2
