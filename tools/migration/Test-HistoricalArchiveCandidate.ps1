@@ -30,8 +30,13 @@ try {
     Push-Location $source
     try {
         Write-Host "Qualifying exact revision $revision in isolated source copy; not publishing."
-        & dotnet run --project $projectFile -c Release -- $sql
+        $fixture = Join-Path $root 'synthetic-v46.db'
+        & dotnet run --project $projectFile -c Release -- $sql $fixture 46
         if ($LASTEXITCODE -ne 0) { throw 'Native historical archive candidate qualification failed.' }
+        # Apply the staged migration only to the owned temporary source copy.
+        & (Join-Path $source 'tools/migration/prototypes/Stage-HistoricalArchiveV47.ps1') -SourceRoot $source -ExpectedTemporaryRoot $root
+        & dotnet run --project $projectFile -c Release -- $sql $fixture 47
+        if ($LASTEXITCODE -ne 0) { throw 'Staged schema 47 archive/recovery qualification failed.' }
     } finally { Pop-Location }
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force

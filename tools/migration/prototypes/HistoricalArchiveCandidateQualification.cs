@@ -4,7 +4,8 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using PracticeManager.Persistence;
 
-if(args.Length!=1)throw new ArgumentException("Expected prototype SQL path.");
+if(args.Length!=3 || args[2] is not ("46" or "47"))throw new ArgumentException("Expected prototype SQL, synthetic upgrade fixture and staged schema.");
+var staged=args[2]=="47";
 var root=Path.Combine(Path.GetTempPath(),"crc-archive-native-"+Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 try
@@ -81,16 +82,39 @@ try
     HistoricalArchivePreview Preview()=>p.PreviewHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census));
     HistoricalArchiveImportResult Import(bool confirm=true,string note="Synthetic reviewed mapping")=>p.ImportHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census),confirm,note);
     long ArchiveCount()=>Count("SELECT (SELECT count(*) FROM historical_project_batches)+(SELECT count(*) FROM historical_project_rows)+(SELECT count(*) FROM historical_project_seals)+(SELECT count(*) FROM audit_events WHERE action='CommitHistoricalProjectArchive')");
-    // Test-only provisioning on this newly created synthetic database. Not a migration.
-    Sql(File.ReadAllText(args[0]));
-    Sql("INSERT INTO permissions(code) VALUES('HistoricalProjects.View'),('Administration.HistoricalProjectImport'); INSERT INTO role_permissions VALUES(1,'HistoricalProjects.View',1),(1,'Administration.HistoricalProjectImport',1)");
-    Check(Count("PRAGMA user_version")==46,"production schema version not changed");
+    if(!staged)
+    {
+        // Export only a synthetic schema-46 fixture BEFORE adding test-only tables/grants.
+        var old=new LocalPractice(args[1]);
+        old.Bootstrap("Synthetic upgrade fixture","admin",pw,"CL");
+        Check(old.Login("admin",pw),"schema 46 fixture authenticated");
+        Check(old.ImportLegacyCrm(crm,ch.ToUpperInvariant(),true,"Synthetic upgrade prerequisite").Outcome=="Imported","schema 46 fixture CRM imported");
+        old.Logout();
+        // Test-only provisioning, never a production migration.
+        Sql(File.ReadAllText(args[0]));
+        Sql("INSERT INTO permissions(code) VALUES('HistoricalProjects.View'),('Administration.HistoricalProjectImport'); INSERT INTO role_permissions VALUES(1,'HistoricalProjects.View',1),(1,'Administration.HistoricalProjectImport',1)");
+    }
+    else
+    {
+        var fixture=File.ReadAllBytes(args[1]);var hash=Digest(fixture);
+        var upgraded=UpgradeRehearsal.Run(args[1],hash,true);
+        Check(upgraded.SourceSchema==46&&upgraded.TargetSchema==47&&upgraded.Clients==2&&upgraded.SourceUnchanged&&Digest(File.ReadAllBytes(args[1]))==hash,"isolated schema 46 to 47 rehearsal preserves source identity");
+        var copied=Path.Combine(root,"upgrade.db");File.Copy(args[1],copied);
+        var old=new LocalPractice(copied);
+        Check(old.Login("admin",pw)&&old.Can("HistoricalProjects.View")&&old.Can("Administration.HistoricalProjectImport"),"upgrade seeds new administrator grants");
+        Check(old.ReadHistoricalProjects().Count==0&&old.SearchClients("").Count==2,"upgrade preserves CRM and starts empty archive");
+        Check(old.ImportHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census),true,"Synthetic upgraded review").Outcome=="Imported","upgraded database supports reviewed archive");
+        old.Logout();
+        Check(Count("SELECT count(*) FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport') AND role_id=1 AND allowed=1")==2,"fresh bootstrap seeds same administrator grants");
+        Check(Count("SELECT count(*) FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport') AND role_id<>1 AND allowed=1")==0,"other roles receive no automatic grants");
+    }
+    Check(Count("PRAGMA user_version")== (staged?47:46),"expected isolated schema version");
     Reject<UnauthorizedAccessException>(()=>Preview(),"logged-out preview denied");
     Reject<UnauthorizedAccessException>(()=>Import(),"logged-out import denied");
     Reject<UnauthorizedAccessException>(()=>p.ReadHistoricalProjects(),"logged-out register denied");
     Check(p.Login("admin",pw),"synthetic administrator authenticated");
     Reject<ArgumentException>(()=>Preview(),"CRM history required");
-    Check(p.ImportLegacyCrm(crm,ch,true,"Synthetic CRM review").Outcome=="Imported","native CRM import prerequisite");
+    Check(p.ImportLegacyCrm(crm,ch.ToUpperInvariant(),true,"Synthetic CRM review").Outcome=="Imported","native CRM import prerequisite");
     var before=Snapshot();
     var preview=Preview();
     Check(preview.TargetStatus=="ReadyForExplicitReview"&&preview.Projects==2&&preview.InactiveSourceClientProjects==1&&preview.DuplicateNumberGroups==1&&!preview.WorkAuthorized&&!preview.SourceAuthenticityVerified,"preview counts and no authority");
@@ -133,10 +157,30 @@ try
     Check(p.PreviewHistoricalProjects(crm,changed.Projects,changed.Census,source,ch,Digest(changed.Projects),Digest(changed.Census)).TargetStatus=="DifferentPackageAlreadyImported","changed package detected");
     Reject<ArgumentException>(()=>p.ImportHistoricalProjects(crm,changed.Projects,changed.Census,source,ch,Digest(changed.Projects),Digest(changed.Census),true,"Synthetic"),"changed package cannot merge");
     Check(Snapshot()==before&&ArchiveCount()==5,"all operational records and sequences unchanged");
+    if(staged)
+    {
+        var recovery=Path.Combine(root,"recovery.db");
+        var restored=Path.Combine(root,"restored.db");
+        var backup=p.CreateRecoveryCopy(recovery);
+        var copy=p.RestoreRecoveryCopyToNewFile(recovery,backup.Sha256,restored);
+        Check(copy.Sha256==backup.Sha256,"archive recovery hash reconciled");
+        var restoredPractice=new LocalPractice(restored);
+        Check(restoredPractice.Login("admin",pw),"restored synthetic archive authenticated");
+        Check(restoredPractice.ReadHistoricalProjects().SequenceEqual(rows),"recovery preserves all register values");
+        Check(restoredPractice.PreviewHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census)).TargetStatus=="AlreadyImported","recovery retains exact package replay evidence");
+        restoredPractice.Logout();
+        Reject<ArgumentException>(()=>p.RestoreRecoveryCopyToNewFile(recovery,backup.Sha256,restored),"restore refuses overwrite");
+    }
     // Simulate missing audit evidence only on the disposable fixture.
     Sql("DELETE FROM audit_events WHERE action='CommitHistoricalProjectArchive'");
     Reject<InvalidOperationException>(()=>p.ReadHistoricalProjects(),"missing audit marker fails closed");
     Reject<InvalidOperationException>(()=>Import(),"incomplete archive cannot replay");
+    if(staged)
+    {
+        Reject<InvalidOperationException>(()=>p.CreateRecoveryCopy(Path.Combine(root,"invalid.db")),"incomplete archive cannot be backed up");
+        Check(!File.Exists(Path.Combine(root,"invalid.db")),"invalid recovery output not published");
+    }
+    // Recovery may legitimately add audit events; operational tables must not change.
     Check(Snapshot()==before,"failed replay leaves operational data unchanged");
     p.Logout();
     Console.WriteLine("Historical archive native candidate: "+checks+" checks passed. Synthetic only.");
