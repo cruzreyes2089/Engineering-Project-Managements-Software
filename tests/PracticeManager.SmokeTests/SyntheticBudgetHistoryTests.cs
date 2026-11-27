@@ -54,7 +54,7 @@ internal static class SyntheticBudgetHistoryTests
   var changedHash=ProjectBudgetReview.SnapshotHash(1,changed);
   Sql("CREATE TRIGGER synthetic_forecast_failure BEFORE INSERT ON effort_forecast_records BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
   try{service.AppendForecast(1,Guid.NewGuid(),1,forecast.Entry.Hash,second.Entry.Model.Hash,changedHash,new[]{new TaskRemainingInput(1,75)},"Synthetic rollback",true);throw new Exception("FAIL: forecast rollback");}
-  catch(SqliteException e) when(e.Message.Contains("synthetic failure",StringComparison.Ordinal)){check(service.Verify(1)==(2,1),"native forecast insertion failure rolls back linked audit");}
+  catch(SqliteException injected) when(injected.Message.Contains("synthetic failure",StringComparison.Ordinal)){check(service.Verify(1)==(2,1),"native forecast insertion failure rolls back linked audit");}
   Sql("DROP TRIGGER synthetic_forecast_failure");
   var next=service.AppendForecast(1,Guid.NewGuid(),1,forecast.Entry.Hash,second.Entry.Model.Hash,changedHash,new[]{new TaskRemainingInput(1,75)},"Synthetic updated forecast",true);
   check(next.Entry.Model.TotalForecastMinutes==160&&next.Entry.Previous==forecast.Entry.Hash&&next.Entry.Hash!=forecast.Entry.Hash&&service.Verify(1)==(2,2),"native forecast chain retains updated snapshot and budget");
