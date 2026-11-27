@@ -79,7 +79,7 @@ internal sealed class WorkReviewWindow:Window
   foreach(var g in new[]{reviews,billing})WorkWindowFields.Columns(g,("Employee","Employee"),("Project","ProjectNumber"),("Task","Task"),("Kind","Kind"),("Date","Date"),("Minutes","Minutes"),("Expense USD","Amount"),("Category","Category"),("Description","Description"));
   WorkWindowFields.Columns(reviews,("Record ID","Id"),("Replaces","ReplacesId"),("Replacement","ReplacementId"),("Current closure","CurrentClosureId"),("Entry closure","ClosureId"),("Historical evidence","HistoricalReason"),("Review","ReviewState"));WorkWindowFields.Columns(billing,("Classification","Classification"));
   WorkWindowFields.Columns(overheadReviews,("Record ID","Id"),("Replaces","ReplacesId"),("Replacement","ReplacementId"),("Employee","Employee"),("Date","Date"),("Minutes","Minutes"),("Category","Category"),("Description","Description"),("Review","ReviewState"));
-  if(service.Can("Work.Review")){var actions=new List<(string Label,Action Action)>{("Approve",()=>Review(true)),("Reject",()=>Review(false))};if(service.Can("Work.Correct")){actions.Add(("Invalidate erroneous approved fact",InvalidateApproved));actions.Add(("Invalidation evidence",ViewInvalidation));}tabs.Items.Add(new TabItem{Header="Fact review",Content=Page(reviews,actions.ToArray())});var overheadActions=new List<(string Label,Action Action)>{("Approve",()=>ReviewOverhead(true)),("Reject",()=>ReviewOverhead(false))};if(service.Can("Work.Correct")){overheadActions.Add(("Invalidate erroneous approved overhead",InvalidateOverhead));overheadActions.Add(("Invalidation evidence",ViewOverheadInvalidation));}tabs.Items.Add(new TabItem{Header="Overhead review",Content=Page(overheadReviews,overheadActions.ToArray())});}
+  if(service.Can("Work.Review")){var actions=new List<(string Label,Action Action)>{("Approve",()=>Review(true)),("Reject",()=>Review(false))};if(service.Can("Work.Correct")){actions.Add(("Invalidate erroneous approved fact",InvalidateApproved));actions.Add(("Invalidation evidence",ViewInvalidation));if(service.Can("Billing.Invoices.View")&&service.Can("Billing.Invoices.Edit"))actions.Add(("Reconcile cancelled allocations",ReconcileAllocations));}tabs.Items.Add(new TabItem{Header="Fact review",Content=Page(reviews,actions.ToArray())});var overheadActions=new List<(string Label,Action Action)>{("Approve",()=>ReviewOverhead(true)),("Reject",()=>ReviewOverhead(false))};if(service.Can("Work.Correct")){overheadActions.Add(("Invalidate erroneous approved overhead",InvalidateOverhead));overheadActions.Add(("Invalidation evidence",ViewOverheadInvalidation));}tabs.Items.Add(new TabItem{Header="Overhead review",Content=Page(overheadReviews,overheadActions.ToArray())});}
   if(service.Can("Billing.Classify"))tabs.Items.Add(new TabItem{Header="Billing classification",Content=Page(billing,("Billable",()=>Classify(true)),("Nonbillable",()=>Classify(false)))});
   root.Children.Add(tabs);Content=root;Run(Refresh);
  }
@@ -94,11 +94,21 @@ internal sealed class WorkReviewWindow:Window
   var reason=WorkWindowFields.Note(this,"Document factual error");if(reason==null)return;
   if(r.CurrentClosureId.HasValue)service.InvalidateClosedProjectWork(r.Id,r.CurrentClosureId.Value,reason,true);else service.InvalidateApprovedWork(r.Id,reason,true);Refresh();status.Text="Invalidation recorded. No payroll or accounting transaction created.";
  }
+ void ReconcileAllocations()
+ {
+  if(reviews.SelectedItem is not WorkReviewRow r||r.ReviewState!="Approved")throw new ArgumentException("Select approved erroneous work.");
+  var review=service.ReadWorkAllocationReview(r.ProjectId,r.Id);
+  var details=string.Join("\n",review.Allocations.Select(x=>$"{x.DraftNumber} | {x.State} | USD {x.Amount:0.00}\nSHA256: {x.PayloadHash}"));
+  if(!review.Eligible){MessageBox.Show(this,"Not eligible for cancelled-only correction. Approved, live, exported or otherwise unresolved allocations remain protected.\n"+details,"Allocation review");return;}
+  if(MessageBox.Show(this,$"Source #{r.Id}; exact allocation evidence:\n{details}\n\nConfirm only if the work fact is demonstrably erroneous AND independent review confirms no external invoice was issued, including manual issuance outside this software. This does not reverse wages, payments or invoices. Continue?","Cancelled allocation reconciliation",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
+  var note=WorkWindowFields.Note(this,"Document factual error and evidence of no external issuance");if(note==null)return;
+  service.ReconcileCancelledWorkAllocations(r.ProjectId,r.Id,review.EvidenceHash,r.CurrentClosureId,note,true);Refresh();status.Text="Cancelled allocation reconciliation recorded; no accounting transaction created.";
+ }
  void ViewInvalidation()
  {
   if(reviews.SelectedItem is not WorkReviewRow r)throw new ArgumentException("Select a submission.");
   var e=service.ReadWorkInvalidation(r.Id)??throw new ArgumentException("No invalidation recorded.");
-  MessageBox.Show(this,$"Record #{e.SubmissionId}\nActor ID: {e.ActorId}\nUTC: {e.RecordedUtc}\nReason: {e.Reason}\nClosure ID: {e.ClosureId?.ToString()??"Active project"}","Invalidation evidence");
+  MessageBox.Show(this,$"Record #{e.SubmissionId}\nActor ID: {e.ActorId}\nUTC: {e.RecordedUtc}\nReason: {e.Reason}\nClosure ID: {e.ClosureId?.ToString()??"Active project"}\nAllocation review SHA256: {e.AllocationReviewHash??"Not applicable"}","Invalidation evidence");
  }
  void InvalidateOverhead()
  {

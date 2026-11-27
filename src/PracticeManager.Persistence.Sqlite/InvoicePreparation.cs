@@ -7,8 +7,22 @@ public sealed record WorkAllocationEvidence(long DraftId,string DraftNumber,stri
 public sealed record WorkAllocationReview(long ProjectId,long SubmissionId,string EvidenceHash,IReadOnlyList<WorkAllocationEvidence> Allocations,bool Eligible);
 public sealed partial class LocalPractice
 {
- public WorkAllocationReview ReadWorkAllocationReview(long project,long submission)=>throw new NotImplementedException("Cancelled allocation review not implemented.");
- public WorkInvalidation ReconcileCancelledWorkAllocations(long project,long submission,string expectedHash,long? closureId,string reason,bool confirmed)=>throw new NotImplementedException("Cancelled allocation reconciliation not implemented.");
+ public WorkAllocationReview ReadWorkAllocationReview(long project,long submission)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireWorkCorrection(c,t);RequireInvoices(c,t,"Billing.Invoices.View");return AllocationReview(c,t,project,submission);
+ }
+ private static WorkAllocationReview AllocationReview(SqliteConnection c,SqliteTransaction t,long project,long submission)
+ {
+  ProjectRow(c,t,project);
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM work_submissions s JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id WHERE h.project_id=$p AND s.id=$i",("$p",project),("$i",submission)))!=1)throw new ArgumentException("Work source unavailable in selected project.");
+  var ids=new List<long>();using(var q=Command(c,t,"SELECT draft_id FROM invoice_draft_lines WHERE source_id=$i ORDER BY draft_id LIMIT 501",("$i",submission)))using(var r=q.ExecuteReader()){while(r.Read()){if(ids.Count==500)throw new ArgumentException("Allocation review exceeds development limit.");ids.Add(r.GetInt64(0));}}
+  var evidence=new List<WorkAllocationEvidence>();foreach(var id in ids){var detail=InvoiceDetail(c,t,project,id);var line=detail.Lines.Single(x=>x.SourceId==submission);evidence.Add(new(id,detail.Summary.Number,detail.Summary.PayloadHash,detail.Summary.State,line.Amount));}
+  var hash=HashProposal(JsonSerializer.Serialize(new{Format="CRC-CANCELLED-ALLOCATION-1",Project=project,Submission=submission,Allocations=evidence.Select(x=>new{x.DraftId,x.DraftNumber,x.PayloadHash,x.State,AmountCents=BillingCents(x.Amount,true)}).ToArray()})).ToLowerInvariant();
+  var eligible=evidence.Count>0&&evidence.All(x=>x.State=="Cancelled")&&Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM work_submissions s JOIN work_reviews r ON r.submission_id=s.id WHERE s.id=$i AND r.decision='Approved' AND NOT EXISTS(SELECT 1 FROM work_invalidations z WHERE z.submission_id=s.id) AND NOT EXISTS(SELECT 1 FROM invoice_draft_lines l LEFT JOIN invoice_draft_decisions d ON d.draft_id=l.draft_id WHERE l.source_id=s.id AND (coalesce(d.decision,'Draft')!='Cancelled' OR EXISTS(SELECT 1 FROM generated_review_documents g WHERE g.invoice_draft_id=l.draft_id) OR EXISTS(SELECT 1 FROM audit_events u WHERE u.entity='InvoiceDraft' AND u.entity_id=l.draft_id AND u.action='PrepareManualExport')))",("$i",submission)))==1;
+  return new(project,submission,hash,evidence.AsReadOnly(),eligible);
+ }
+ public WorkInvalidation ReconcileCancelledWorkAllocations(long project,long submission,string expectedHash,long? closureId,string reason,bool confirmed)
+ {if(project<=0||submission<=0||string.IsNullOrWhiteSpace(expectedHash)||expectedHash.Length!=64)throw new ArgumentException("Exact allocation review required.");return InvalidateWorkCore(submission,reason,confirmed,closureId,project,expectedHash);}
  private const long MaxBillingCents=999999999999;
  private static long BillingCents(decimal value,bool positive=false)
  {
