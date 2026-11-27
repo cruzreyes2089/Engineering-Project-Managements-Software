@@ -11,15 +11,12 @@ public static class ProjectFolderTemplate
   new ProjectFolderTemplateItem("Calculations",true),
   new ProjectFolderTemplateItem("Construction Administration",true),
   new ProjectFolderTemplateItem("Plancheck Comment Responses",true),
+  new ProjectFolderTemplateItem("QA-QC",true),
   new ProjectFolderTemplateItem("Reference Documents",true),
   new ProjectFolderTemplateItem("Send Outs",true),
   new ProjectFolderTemplateItem("Site Pictures",true),
   new ProjectFolderTemplateItem("Structural DWGs",true),
-  new ProjectFolderTemplateItem("Correspondence",false),
-  new ProjectFolderTemplateItem("QA-QC",false),
-  new ProjectFolderTemplateItem("Mechanical",false),
-  new ProjectFolderTemplateItem("Electrical",false),
-  new ProjectFolderTemplateItem("Plumbing",false)
+  new ProjectFolderTemplateItem("Correspondence",false)
  });
  public static IReadOnlyList<string> Preview(IReadOnlyList<ProjectFolderTemplateItem> template)
  {

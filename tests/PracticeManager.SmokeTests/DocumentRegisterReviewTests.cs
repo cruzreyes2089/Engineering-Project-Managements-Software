@@ -18,11 +18,14 @@ internal static class DocumentRegisterReviewTests
   Invalid(()=>ProjectFolderPolicy.Review(external,"projects/B",db),"database ancestor cannot be external root");
   Invalid(()=>ProjectFolderPolicy.Review(projectRoot,"Missing",db),"folder review never creates directory");
   var defaults=ProjectFolderTemplate.Preview(ProjectFolderTemplate.Defaults);
-  check(defaults.SequenceEqual(new[]{"Architectural","Calculations","Construction Administration","Plancheck Comment Responses","Reference Documents","Send Outs","Site Pictures","Structural DWGs"}),"CRC preferred folder names are the proposed default template");
+  check(defaults.SequenceEqual(new[]{"Architectural","Calculations","Construction Administration","Plancheck Comment Responses","QA-QC","Reference Documents","Send Outs","Site Pictures","Structural DWGs"}),"CRC preferred folder names are the proposed default template");
   var structuralOnly=ProjectFolderTemplate.Defaults.Select(x=>x with{IncludedByDefault=x.Name is "Structural DWGs" or "Calculations" or "Site Pictures" or "Send Outs"}).ToArray();
   check(ProjectFolderTemplate.Preview(structuralOnly).Count==4,"project template preview supports discipline-specific selection");
-  var optional=ProjectFolderTemplate.Defaults.Select(x=>x.Name=="QA-QC"?x with{IncludedByDefault=true}:x).ToArray();
-  check(ProjectFolderTemplate.Preview(optional).Contains("QA-QC"),"internal QA folder remains optional");
+  check(defaults.Contains("QA-QC")&&!ProjectFolderTemplate.Defaults.Any(x=>x.Name is "Mechanical" or "Electrical" or "Plumbing"),"QA-QC is standard and consultant MEP belongs in reference documents");
+  var custom=ProjectFolderTemplate.Defaults.Append(new ProjectFolderTemplateItem("Mechanical Design",true)).ToArray();
+  check(ProjectFolderTemplate.Preview(custom).Contains("Mechanical Design"),"custom template allows contracted production disciplines");
+  var optional=ProjectFolderTemplate.Defaults.Select(x=>x.Name=="Correspondence"?x with{IncludedByDefault=true}:x).ToArray();
+  check(ProjectFolderTemplate.Preview(optional).Contains("Correspondence"),"correspondence remains selectable");
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("Drawings",true),new ProjectFolderTemplateItem("drawings",false)}),"folder template rejects case-alias duplicates");
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("../Secret",true)}),"folder template rejects traversal");
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("COM¹",true)}),"folder template rejects Windows device names");
