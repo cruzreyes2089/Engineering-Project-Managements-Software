@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Security.Cryptography;
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 
@@ -46,7 +47,21 @@ internal static class HistoricalArchiveServiceTests
         check(Count("SELECT (SELECT count(*) FROM historical_project_batches)+(SELECT count(*) FROM historical_project_rows)+(SELECT count(*) FROM historical_project_seals)")==0&&
             Count("SELECT count(*) FROM audit_events")==audit,"Archive failed transaction rolled back");
         Sql("DROP TRIGGER synthetic_abort_archive");
-        check(Import()=="Imported","Archive sealed import committed");
+        // Independent sessions and connections compete for the same reviewed bytes.
+        var second=new LocalPractice(path);
+        check(second.Login("admin",password),"Archive independent concurrent session");
+        using(var start=new ManualResetEventSlim(false))
+        {
+            var a=Task.Run(()=>{start.Wait();return Import();});
+            var b=Task.Run(()=>{start.Wait();return second.ImportHistoricalProjects(crm,projects,census,
+                p.SourceSha256,p.CrmTransferSha256,p.ProjectTransferSha256,p.CensusSha256,true,"Synthetic concurrent review");});
+            start.Set();
+            check(Task.WaitAll(new Task[]{a,b},TimeSpan.FromSeconds(30)),"Archive concurrent attempts complete");
+            check(new[]{a.Result,b.Result}.OrderBy(x=>x,StringComparer.Ordinal).SequenceEqual(new[]{"AlreadyImported","Imported"}),
+                "Archive concurrent exact imports commit once");
+        }
+        second.Logout();
+        check(Count("SELECT count(*) FROM audit_events WHERE action='ImportHistoricalProjects'")==1,"Archive single commit audit");
         var rows=s.ReadHistoricalProjects();
         check(rows.Count==p.Rows.Count&&rows.All(x=>!x.WorkAuthorized)&&rows.Select(x=>x.Source).ToHashSet().SetEquals(p.Rows),"Archive exact stored historical values");
         check(Count("SELECT count(*) FROM projects")==0&&Count("SELECT count(*) FROM engagements")==0&&
@@ -54,6 +69,15 @@ internal static class HistoricalArchiveServiceTests
         audit=Count("SELECT count(*) FROM audit_events");
         check(Preview().TargetStatus=="AlreadyImported"&&Import()=="AlreadyImported"&&Count("SELECT count(*) FROM audit_events")==audit,"Archive replay is read-only");
         Reject<SqliteException>(()=>Sql("UPDATE historical_project_rows SET title='Changed'"),"Archive historical rows immutable");
+
+        var changedCensus=census.Concat(new byte[]{32}).ToArray();
+        var changedHash=Convert.ToHexString(SHA256.HashData(changedCensus)).ToLowerInvariant();
+        check(s.PreviewHistoricalProjects(crm,projects,changedCensus,p.SourceSha256,p.CrmTransferSha256,p.ProjectTransferSha256,changedHash).TargetStatus=="DifferentPackageAlreadyImported",
+            "Archive valid changed census cannot replace original");
+        Reject<ArgumentException>(()=>s.ImportHistoricalProjects(crm,projects,changedCensus,p.SourceSha256,p.CrmTransferSha256,p.ProjectTransferSha256,changedHash,true,"Synthetic changed package"),
+            "Archive changed exact package import denied");
+        check(Count("SELECT count(*) FROM audit_events")==audit,"Archive changed package creates no audit or write");
+        HistoricalArchiveRecoveryTests.Run(s,path,password,p,check);
         check(s.CanImportHistoricalProjects(),"Archive import administrator capability");
         check(rows.Any(x=>!string.IsNullOrEmpty(x.Source.AuthorizationEvidenceRef)),"Archive reviewed fixture contains restricted evidence");
         Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Administration.HistoricalProjectImport' AND role_id=1");
