@@ -1,0 +1,10 @@
+# Linked rejected project work replacement — proposed schema 35
+
+Dependent on candidate schema 34 (6d19647); must not promote until that baseline passes. Existing independent rejection permits a fresh fact but does not establish lineage. This slice adds a controlled employee-initiated replacement of a rejected project time/expense record, preserving the original record and reviewer decision. It does not reverse approved work, cancel actual wages, amend an invoice or post accounting transactions.
+
+- Work.Own and active employee link required. Original must be owned, independently rejected, and have no existing successor. Same employee, assignment and kind; corrected date, duration, amount, category and description subject to normal work entry rules. New operation key and normalized content required. Exact retry checks the original ID and entire replacement intent. Reject reuse of linked operation as standalone work, or vice versa. Unique predecessor and successor, immutable link, no cycles; a rejected replacement can itself be corrected through a new link.
+- Fact creation, lineage and audit must commit atomically. No extra balance or cost facts; original stays Rejected, new fact starts Submitted. Daily limit, operational closure, discontinuation dates, independent review, financial classifications and invoice eligibility remain enforced. Ordinary unlinked submissions remain possible for separate actual work; do not infer duplicate solely from matching data.
+- Own history and management review should identify replacement lineage without revealing financial rates or classifications. Explicit UI action from selected rejected fact, corrected content, confirmation. No production data, posting or distribution. Approved corrections, late closed-project facts, overhead replacements and actual financial reversals remain distinct.
+- Add migration/restore tests, duplicate/retry, race, rollback, cross-employee and direct SQL guard regressions. Observe red and full green Windows regression before promotion.
+
+Test-first API stubs intentionally nonfunctional. Candidate is not a verified release.

@@ -1,8 +1,11 @@
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 namespace PracticeManager.Persistence;
+public sealed record WorkReplacement(long OriginalId,long ReplacementId,string RecordedUtc);
 public sealed partial class LocalPractice
 {
+ public WorkReplacement? ReadMyWorkReplacement(long original)=>throw new NotImplementedException("Work replacement history not implemented.");
+ public long ReplaceRejectedWork(long original,WorkSubmissionInput input)=>throw new NotImplementedException("Rejected work replacement not implemented.");
  public AttendanceSession? ReadMyOpenAttendance()
  {
   using var c=Open();using var t=c.BeginTransaction();var employee=OwnEmployee(c,t);
