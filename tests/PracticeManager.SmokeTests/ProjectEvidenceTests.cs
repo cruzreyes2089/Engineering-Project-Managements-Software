@@ -12,6 +12,23 @@ internal static class ProjectEvidenceTests
   var client=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
   (long Id,string Hash) Project(string title){var p=s.CreateProposal(new(client,title,"Site","Scope",100m));var h=ConflictReviewTests.Issue(s,p,1);return(s.RecordProposalDecision(p,h,true,"Synthetic").ProjectId!.Value,h);}
   var p=Project("First");var other=Project("Other");var bytes="Synthetic document"u8.ToArray();var key=Guid.NewGuid();
+  var folders=s.ReadProjectFolderPreview(p.Id);
+  check(folders.ProjectId==p.Id&&folders.TemplateRevision=="CRC-Production-1"&&!folders.Provisioned&&!folders.FilesystemInspected,"folder preview bound to project without disk activity");
+  check(folders.Production.Select(x=>x.Name).SequenceEqual(new[]{"Architectural","Calculations","Construction Administration","Plancheck Comment Responses","QA-QC","Reference Documents","Send Outs","Site Pictures","Structural DWGs"}),"approved default production folder names");
+  var mep=folders.Production.Single(x=>x.Name=="Reference Documents").Children.Single();
+  check(mep.Name=="MEP"&&mep.Children.Select(x=>x.Name).SequenceEqual(new[]{"Mechanical","Electrical","Plumbing"}),"MEP stays below reference documents");
+  check(folders.Restricted.Count==4&&folders.Production.All(x=>x.Name!="Billing Administration"),"restricted layout separate from production");
+  check(s.ReadProjectFolderPreview(p.Id,true).Production.Count(x=>x.Name=="Correspondence")==1&&s.ReadProjectFolderPreview(p.Id).Production.All(x=>x.Name!="Correspondence"),"optional correspondence does not modify default");
+  check(s.ReadProjectFolderPreview(other.Id).ProjectNumber!=folders.ProjectNumber,"folder preview preserves project context");
+  Invalid(()=>s.ReadProjectFolderPreview(long.MaxValue),"folder preview rejects nonexistent project");
+  check(s.ReadProjectDocuments(p.Id).Count==0,"folder preview creates no document records");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.View'");
+  Denied(()=>s.ReadProjectFolderPreview(p.Id),"folder preview requires document view");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.View'; UPDATE role_permissions SET allowed=0 WHERE permission_code='Projects.View'");
+  Denied(()=>s.ReadProjectFolderPreview(p.Id),"folder preview requires project view");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Projects.View'; UPDATE role_permissions SET allowed=0 WHERE permission_code='Clients.View'");
+  Denied(()=>s.ReadProjectFolderPreview(p.Id),"folder preview requires client view");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Clients.View'");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","../report.txt",bytes),"document traversal rejected");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","CON.txt",bytes),"reserved name rejected");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","program.exe",bytes),"executable document rejected");
@@ -29,6 +46,7 @@ internal static class ProjectEvidenceTests
   Denied(()=>s.RetrieveProjectDocument(other.Id,id,old.Hash),"cross-project retrieval denied");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'");
   check(s.ReadProjectDocuments(p.Id,false).All(x=>x.Id!=restricted),"restricted document omitted from list");
+  check(s.ReadProjectFolderPreview(p.Id).Restricted.Count==0&&s.ReadProjectFolderPreview(p.Id).Production.Count==9,"restricted folder projection omitted when grant revoked");
   Denied(()=>s.RetrieveProjectDocument(p.Id,restricted,rd.Hash),"restricted document direct retrieval denied");
   Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","secret.txt",bytes),"restricted write denied");
   Invalid(()=>s.RecordProjectLifecycle(p.Id,null,true,"Synthetic pending closure",true),"pending project cannot close");
