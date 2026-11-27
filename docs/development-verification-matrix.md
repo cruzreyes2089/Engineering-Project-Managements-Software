@@ -44,3 +44,6 @@ Exact verified baseline: 9670918c763b1d0e6ed6bbe90246436170d156a3. Schema 46 is 
 - Upgrade rehearsal initial red run 45951814689 stopped on pooled fixture connection before reaching stub; corrected test-first revision requires qualification. No new schema.
 
 [Desktop acceptance execution plan](desktop-release-acceptance-plan.md) covers all original scenarios without marking any passed. No security hold change.
+
+- Complete acceptance procedure documentation: run 45952257022, 22 Python + 1618 native checks, zero warnings/errors; integrated. No interactive acceptance executed.
+- Isolated upgrade rehearsal: run 45952285436, 22 Python + 1630 native checks, zero warnings/errors; independent package passed. Combined integration pending.
