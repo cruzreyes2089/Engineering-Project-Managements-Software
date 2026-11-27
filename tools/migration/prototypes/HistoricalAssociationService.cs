@@ -25,6 +25,19 @@ public sealed record HistoricalAssociationReversalReview(
     public override string ToString() => "[Confidential association reversal review]";
 }
 
+public sealed record HistoricalAssociationProjectChoice(long ProjectId,string ProjectNumber,string Title)
+{
+    public string Label => ProjectNumber+" — "+Title;
+    public override string ToString()=>"[Confidential project choice]";
+}
+public sealed record HistoricalAssociationHistoryItem(long Id,string LegacyId,long NativeProjectId,
+    string NativeProjectNumber,string RecordedUtc,string ReviewNote,string? ReversedUtc,string? ReversalNote)
+{
+    public bool IsActive=>ReversedUtc==null;
+    public bool WorkAuthorized=>false;
+    public override string ToString()=>"[Confidential historical association]";
+}
+
 public sealed partial class LocalPractice
 {
     private const int MaxAssociationHistoryRows = 100000;
@@ -63,6 +76,60 @@ public sealed partial class LocalPractice
         if(reversals>links||(archive.Count==0&&links!=0))
             throw new InvalidOperationException("Historical association history is inconsistent.");
         return (archive.Count,links,reversals,Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
+    }
+
+    public bool CanReviewHistoricalAssociations()
+    {
+        using var c=Open();using var t=c.BeginTransaction();
+        try{RequireHistoricalImport(c,t);RequireProjectView(c,t);return true;}
+        catch(UnauthorizedAccessException){return false;}
+    }
+
+    // A bounded, explicit same-client search; never return a candidate based on fuzzy identity.
+    public IReadOnlyList<HistoricalAssociationProjectChoice> FindHistoricalAssociationProjects(string legacyId,string projectNumber)
+    {
+        using var c=Open();using var t=c.BeginTransaction();
+        RequireHistoricalImport(c,t);RequireProjectView(c,t);
+        var number=Validation.Text(projectNumber,100,"Exact native project number",true);
+        var row=HistoricalRows(c,t).SingleOrDefault(x=>string.Equals(x.Source.LegacyId,legacyId,StringComparison.Ordinal))
+            ??throw new ArgumentException("Exact historical project identity unavailable.");
+        long id;
+        using(var q=Command(c,t,@"SELECT p.id FROM projects p JOIN engagements e ON e.id=p.engagement_id
+            JOIN proposals s ON s.id=e.proposal_id WHERE p.project_no=$n COLLATE BINARY AND s.client_id=$c
+            AND s.state='Accepted' LIMIT 2",("$n",number),("$c",row.NativeClientId)))
+        using(var reader=q.ExecuteReader())
+        {
+            if(!reader.Read())return Array.Empty<HistoricalAssociationProjectChoice>();
+            id=reader.GetInt64(0);
+            if(reader.Read())throw new InvalidOperationException("Ambiguous native project number.");
+        }
+        var p=ProjectRow(c,t,id);
+        if(p.Client!=row.NativeClientId)throw new InvalidOperationException("Native project identity changed.");
+        using var doc=JsonDocument.Parse(p.Snapshot);
+        return Array.AsReadOnly(new[]{new HistoricalAssociationProjectChoice(id,p.Number,
+            doc.RootElement.GetProperty("Title").GetString()??"")});
+    }
+
+    public IReadOnlyList<HistoricalAssociationHistoryItem> ReadHistoricalAssociationHistory(string legacyId)
+    {
+        using var c=Open();using var t=c.BeginTransaction();
+        RequireHistoricalImport(c,t);RequireProjectView(c,t);
+        if(!HistoricalRows(c,t).Any(x=>string.Equals(x.Source.LegacyId,legacyId,StringComparison.Ordinal)))
+            throw new ArgumentException("Exact historical project identity unavailable.");
+        var rows=new List<HistoricalAssociationHistoryItem>();
+        using var q=Command(c,t,@"SELECT a.id,a.legacy_id,a.native_project_id,p.project_no,a.recorded_utc,
+            a.review_note,r.recorded_utc,r.review_note FROM historical_associations a
+            JOIN projects p ON p.id=a.native_project_id LEFT JOIN historical_association_reversals r ON r.association_id=a.id
+            WHERE a.batch_id=1 AND a.legacy_id=$l COLLATE BINARY ORDER BY a.id DESC LIMIT 1001",("$l",legacyId));
+        using var reader=q.ExecuteReader();
+        while(reader.Read())
+        {
+            if(rows.Count==1000)throw new InvalidOperationException("Association history exceeds display limit.");
+            rows.Add(new(reader.GetInt64(0),reader.GetString(1),reader.GetInt64(2),reader.GetString(3),
+                reader.GetString(4),reader.GetString(5),reader.IsDBNull(6)?null:reader.GetString(6),
+                reader.IsDBNull(7)?null:reader.GetString(7)));
+        }
+        return rows.AsReadOnly();
     }
 
     private static HistoricalAssociationCommitReview BuildAssociationReview(
