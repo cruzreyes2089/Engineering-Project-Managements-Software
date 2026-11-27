@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Set-Location (Join-Path $PSScriptRoot '../..')
+$source = & (Join-Path $PSScriptRoot 'Assert-DevelopmentSource.ps1') -Stage AfterBuild
 $root = (Resolve-Path -LiteralPath 'artifacts/win-x64').Path
 if ((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Unexpected build root reparse point.' }
 $all = @(Get-ChildItem -LiteralPath $root -Force -Recurse | Select-Object -First 10001)
@@ -25,11 +26,11 @@ foreach ($required in @('CRC.PracticeManager.exe','CRC.PracticeManager.dll','CRC
   if (-not $names.Contains($required)) { throw "Required output missing: $required" }
 }
 $sorted = @($rows | Sort-Object -Property { $_.path } -CaseSensitive)
-$manifest = [ordered]@{format='CRC-Development-Build-Inventory-v1';architecture='win-x64';fileCount=$files.Count;bytes=$total;files=$sorted}
+$signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
+$manifest = [ordered]@{format='CRC-Development-Build-Inventory-v2';source=$source;sourceIdentitySha256=$env:CRC_SOURCE_IDENTITY_SHA256;architecture='win-x64';applicationAuthenticodeStatus=[string]$signature.Status;distributionAuthorized=$false;fileCount=$files.Count;bytes=$total;files=$sorted}
 $json = ConvertTo-Json -InputObject $manifest -Depth 5 -Compress
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json)
 $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-$signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
 Write-Host "Build file count: $($files.Count)"
 Write-Host "Build total bytes: $total"
 Write-Host "Application Authenticode status: $($signature.Status)"
