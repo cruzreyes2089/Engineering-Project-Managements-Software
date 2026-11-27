@@ -1,19 +1,84 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Threading;
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 namespace PracticeManager.Desktop;
 public partial class MainWindow : Window
 {
  LocalPractice? service; bool setup; DevelopmentWorkspace? workspace;
+ readonly DispatcherTimer sessionGuard=new(){Interval=TimeSpan.FromSeconds(5)};
+ bool authenticated,locking,lockFault,renewService;
+ int operationDepth;
+ string? accessStamp;
  LocalPractice S=>service??throw new InvalidOperationException("Local store unavailable.");
- public MainWindow(){InitializeComponent();try{workspace=DevelopmentWorkspace.Resolve(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),Environment.GetCommandLineArgs().Skip(1).ToArray());if(workspace.IsAcceptance){Title="CRC Practice Manager — SYNTHETIC ACCEPTANCE — "+workspace.AcceptanceId;BuildLabel.Text="SYNTHETIC ACCEPTANCE · "+workspace.AcceptanceId;Status.Text=AcceptanceStatus();}service=new LocalPractice(workspace.DatabasePath);ShowLogin();if(workspace.IsAcceptance)LoginMessage.Text="Synthetic test data only. Session ID is in the title; retain it to reopen."; }catch(ArgumentException e){LoginMessage.Text=e.Message;LoginButton.IsEnabled=false;RequiredPasswordButton.IsEnabled=false;}catch(Exception){LoginMessage.Text="Cannot open requested workspace. No fallback database opened.";LoginButton.IsEnabled=false;RequiredPasswordButton.IsEnabled=false;}}
+ public MainWindow(){InitializeComponent();sessionGuard.Tick+=(_,_)=>CheckSession();InputManager.Current.PreProcessInput+=OnSessionInput;Activated+=(_,_)=>CheckSession();Closed+=(_,_)=>{sessionGuard.Stop();InputManager.Current.PreProcessInput-=OnSessionInput;service?.Logout();};try{workspace=DevelopmentWorkspace.Resolve(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),Environment.GetCommandLineArgs().Skip(1).ToArray());if(workspace.IsAcceptance){Title="CRC Practice Manager — SYNTHETIC ACCEPTANCE — "+workspace.AcceptanceId;BuildLabel.Text="SYNTHETIC ACCEPTANCE · "+workspace.AcceptanceId;Status.Text=AcceptanceStatus();}service=new LocalPractice(workspace.DatabasePath);ShowLogin();if(workspace.IsAcceptance)LoginMessage.Text="Synthetic test data only. Session ID is in the title; retain it to reopen."; }catch(ArgumentException e){LoginMessage.Text=e.Message;LoginButton.IsEnabled=false;RequiredPasswordButton.IsEnabled=false;}catch(Exception){LoginMessage.Text="Cannot open requested workspace. No fallback database opened.";LoginButton.IsEnabled=false;RequiredPasswordButton.IsEnabled=false;}}
  string AcceptanceStatus()=>workspace?.IsAcceptance==true?"SYNTHETIC ACCEPTANCE · "+workspace.AcceptanceId+" · No real data or accounting credentials":"Development preview · Local database · No live data";
- void Run(Action a){try{a();}catch(UnauthorizedAccessException){Status.Text="Access denied. Sign in again if your session expired.";}catch(ArgumentException e){MessageBox.Show(this,e.Message,"Check entry",MessageBoxButton.OK,MessageBoxImage.Warning);}catch(Exception){MessageBox.Show(this,"Operation failed. No successful change is assumed.","Development application",MessageBoxButton.OK,MessageBoxImage.Error);}}
- void ShowLogin(){S.Logout();Workspace.Visibility=Visibility.Collapsed;SignOut.Visibility=Visibility.Collapsed;LoginPanel.Visibility=Visibility.Visible;setup=!S.IsInitialized();RequiredPasswordButton.Visibility=setup?Visibility.Collapsed:Visibility.Visible;SetupPanel.Visibility=ConfirmPanel.Visibility=setup?Visibility.Visible:Visibility.Collapsed;LoginHeading.Text=setup?"Set up your practice":"Sign in";LoginButton.Content=setup?"Create company":"Sign in";Password.Clear();Confirm.Clear();LoginMessage.Text="";Username.Focus();}
- void Login_Click(object sender,RoutedEventArgs e){try{if(setup){if(Password.Password!=Confirm.Password)throw new ArgumentException("Passwords do not match.");S.Bootstrap(Firm.Text,Username.Text,Password.Password,Prefix.Text);setup=false;ShowLogin();LoginMessage.Text="Company created. Sign in with your new credentials.";return;}if(!S.Login(Username.Text,Password.Password)){LoginMessage.Text="Sign-in unsuccessful. Check credentials or try later.";return;}LoginPanel.Visibility=Visibility.Collapsed;Workspace.Visibility=Visibility.Visible;SignOut.Visibility=Visibility.Visible;FirmLabel.Text=S.FirmName();CrmNav.IsEnabled=S.Can("Clients.View");AccountingNav.IsEnabled=S.CanTestAccountingConnection();EngagementNav.IsEnabled=S.Can("Engagements.View")||S.Can("Projects.View");StaffNav.IsEnabled=S.Can("Administration.Manage")||S.Can("Employees.View");WorkNav.IsEnabled=S.Can("Work.Own");ScheduleNav.IsEnabled=S.Can("Projects.Plan")&&S.Can("Projects.View")&&S.Can("Employees.View");TimeNav.IsEnabled=S.Can("Work.Own");ReviewNav.IsEnabled=S.Can("Work.Review")||S.Can("Billing.Classify");InvoiceNav.IsEnabled=S.Can("Billing.Invoices.View")||S.Can("Billing.Rates");ReportsNav.IsEnabled=S.Can("Reports.Operations")||S.Can("Reports.Financial");RecoveryNav.IsEnabled=S.Can("Administration.RecoveryCopy");RestoreNav.IsEnabled=S.Can("Administration.RecoveryCopy")&&S.Can("Administration.Manage");LegacyNav.IsEnabled=S.Can("Administration.LegacyCrmImport")&&S.Can("Administration.Manage");HistoricalNav.IsEnabled=S.Can("HistoricalProjects.View")&&S.Can("Clients.View");Dashboard();}catch(ArgumentException ex){LoginMessage.Text=ex.Message;}catch(Exception){LoginMessage.Text="Operation failed. Check the local development database.";}finally{Password.Clear();Confirm.Clear();}}
- void SignOut_Click(object sender,RoutedEventArgs e){ClientGrid.ItemsSource=null;ContactGrid.ItemsSource=null;ClientCount.Text="";ShowLogin();}
+ void OnSessionInput(object sender,PreProcessInputEventArgs e)
+ {
+  if(!authenticated||locking)return;
+  var input=e.StagingItem.Input;
+  if(input is not KeyEventArgs { IsDown:true }&&input is not MouseButtonEventArgs { ButtonState:MouseButtonState.Pressed }&&input is not MouseWheelEventArgs&&input is not TouchEventArgs)return;
+  try{S.RegisterSessionActivity();}catch(Exception){LockSession("Session expired. Sign in again.");}
+ }
+ bool CheckSession()
+ {
+  if(!authenticated||locking)return false;
+  try{if(accessStamp!=null&&S.ReadSessionAccessStamp()==accessStamp)return true;}catch(Exception){}
+  LockSession("Session expired or access changed. Sign in again.");return false;
+ }
+ void ClearWorkspace()
+ {
+  Workspace.Visibility=Visibility.Collapsed;CrmPanel.Visibility=Visibility.Collapsed;
+  ClientGrid.ItemsSource=null;ContactGrid.ItemsSource=null;Search.Clear();
+  ClientCount.Text="";ContactsHeading.Text="Select a client to view contacts";FirmLabel.Text="";
+  Status.Text=AcceptanceStatus();Password.Clear();Confirm.Clear();Username.Clear();Firm.Clear();Prefix.Text="CL";
+ }
+ void CloseOwned(Window owner)
+ {
+  foreach(var child in owner.OwnedWindows.Cast<Window>().ToArray())
+  {
+   CloseOwned(child);
+   try{child.IsEnabled=false;child.Close();}
+   catch(Exception){lockFault=true;try{child.Hide();}catch(Exception){}}
+  }
+  if(owner.OwnedWindows.Count!=0)lockFault=true;
+ }
+ void UpdateLoginAvailability()
+ {
+  var ready=!locking&&!lockFault&&!authenticated&&operationDepth==0&&service!=null;
+  LoginButton.IsEnabled=ready;RequiredPasswordButton.IsEnabled=ready&&!setup;
+ }
+ void LockSession(string message)
+ {
+  if(locking||!authenticated)return;
+  locking=true;authenticated=false;accessStamp=null;sessionGuard.Stop();
+  // Invalidate the old service before closing any modal or running close callbacks.
+  service?.Logout();renewService=true;
+  try
+  {
+   ClearWorkspace();SignOut.Visibility=Visibility.Collapsed;
+   CloseOwned(this);ShowLogin();
+   LoginMessage.Text=lockFault?"Session closed. Restart the application before signing in.":message;
+  }
+  catch(Exception){lockFault=true;Workspace.Visibility=Visibility.Collapsed;LoginPanel.Visibility=Visibility.Visible;LoginMessage.Text="Session closed. Restart the application before signing in.";}
+  finally{locking=false;UpdateLoginAvailability();}
+ }
+ void Run(Action a)
+ {
+  if(!CheckSession())return;
+  operationDepth++;
+  try{a();}
+  catch(UnauthorizedAccessException){if(CheckSession())Status.Text="Access denied.";}
+  catch(ArgumentException e){if(CheckSession())MessageBox.Show(this,e.Message,"Check entry",MessageBoxButton.OK,MessageBoxImage.Warning);}
+  catch(Exception){if(CheckSession())MessageBox.Show(this,"Operation failed. No successful change is assumed.","Development application",MessageBoxButton.OK,MessageBoxImage.Error);}
+  finally{operationDepth--;if(authenticated)CheckSession();else UpdateLoginAvailability();}
+ }
+ void ShowLogin(){S.Logout();Workspace.Visibility=Visibility.Collapsed;SignOut.Visibility=Visibility.Collapsed;LoginPanel.Visibility=Visibility.Visible;setup=!S.IsInitialized();RequiredPasswordButton.Visibility=setup?Visibility.Collapsed:Visibility.Visible;SetupPanel.Visibility=ConfirmPanel.Visibility=setup?Visibility.Visible:Visibility.Collapsed;LoginHeading.Text=setup?"Set up your practice":"Sign in";LoginButton.Content=setup?"Create company":"Sign in";Password.Clear();Confirm.Clear();LoginMessage.Text="";Username.Focus();UpdateLoginAvailability();}
+ void Login_Click(object sender,RoutedEventArgs e){if(authenticated||locking||lockFault||operationDepth!=0)return;try{if(renewService){var path=LocalStoragePath.FilePath(workspace!.DatabasePath,mustExist:true);service=new LocalPractice(path);renewService=false;}if(setup){if(Password.Password!=Confirm.Password)throw new ArgumentException("Passwords do not match.");S.Bootstrap(Firm.Text,Username.Text,Password.Password,Prefix.Text);setup=false;ShowLogin();LoginMessage.Text="Company created. Sign in with your new credentials.";return;}if(!S.Login(Username.Text,Password.Password)){LoginMessage.Text="Sign-in unsuccessful. Check credentials or try later.";return;}authenticated=true;accessStamp=S.ReadSessionAccessStamp();FirmLabel.Text=S.FirmName();CrmNav.IsEnabled=S.Can("Clients.View");AccountingNav.IsEnabled=S.CanTestAccountingConnection();EngagementNav.IsEnabled=S.Can("Engagements.View")||S.Can("Projects.View");StaffNav.IsEnabled=S.Can("Administration.Manage")||S.Can("Employees.View");WorkNav.IsEnabled=S.Can("Work.Own");ScheduleNav.IsEnabled=S.Can("Projects.Plan")&&S.Can("Projects.View")&&S.Can("Employees.View");TimeNav.IsEnabled=S.Can("Work.Own");ReviewNav.IsEnabled=S.Can("Work.Review")||S.Can("Billing.Classify");InvoiceNav.IsEnabled=S.Can("Billing.Invoices.View")||S.Can("Billing.Rates");ReportsNav.IsEnabled=S.Can("Reports.Operations")||S.Can("Reports.Financial");RecoveryNav.IsEnabled=S.Can("Administration.RecoveryCopy");RestoreNav.IsEnabled=S.Can("Administration.RecoveryCopy")&&S.Can("Administration.Manage");LegacyNav.IsEnabled=S.Can("Administration.LegacyCrmImport")&&S.Can("Administration.Manage");HistoricalNav.IsEnabled=S.Can("HistoricalProjects.View")&&S.Can("Clients.View");Dashboard();if(CheckSession()){LoginPanel.Visibility=Visibility.Collapsed;Workspace.Visibility=Visibility.Visible;SignOut.Visibility=Visibility.Visible;sessionGuard.Start();}}catch(ArgumentException ex){if(authenticated)LockSession("Sign-in setup failed. Sign in again.");else LoginMessage.Text=ex.Message;}catch(Exception){if(authenticated)LockSession("Sign-in setup failed. Sign in again.");else LoginMessage.Text="Operation failed. Check the local development database.";}finally{Password.Clear();Confirm.Clear();}}
+ void SignOut_Click(object sender,RoutedEventArgs e)=>LockSession("Signed out.");
  void Dashboard(){DashboardPanel.Visibility=Visibility.Visible;CrmPanel.Visibility=Visibility.Collapsed;ClientCount.Text=S.Can("Clients.View")?S.SearchClients("").Count.ToString():"Restricted";Status.Text=AcceptanceStatus();}
  void Time_Click(object sender,RoutedEventArgs e)=>Run(()=>new WorkEntriesWindow(S){Owner=this}.ShowDialog());
  void Legacy_Click(object sender,RoutedEventArgs e)=>Run(()=>new LegacyCrmImportWindow(S){Owner=this}.ShowDialog());
@@ -45,7 +110,7 @@ public partial class MainWindow : Window
  void Staff_Click(object sender,RoutedEventArgs e)=>Run(()=>new StaffWindow(S){Owner=this}.ShowDialog());
  void RequiredPassword_Click(object sender,RoutedEventArgs e)
  {
-  if(setup)return;var w=new Window{Owner=this,Title="Change temporary password",Width=440,Height=290,WindowStartupLocation=WindowStartupLocation.CenterOwner};var p=new StackPanel{Margin=new Thickness(18)};p.Children.Add(new TextBlock{Text="Enter current temporary password on the sign-in screen first. Choose a different permanent password." ,TextWrapping=TextWrapping.Wrap});var next=new PasswordBox{MaxLength=256};var confirm=new PasswordBox{MaxLength=256};p.Children.Add(new TextBlock{Text="New password (14–256 characters)"});p.Children.Add(next);p.Children.Add(new TextBlock{Text="Confirm"});p.Children.Add(confirm);var b=new Button{Content="Change password"};p.Children.Add(b);w.Content=p;
+  if(setup||authenticated||locking||lockFault||operationDepth!=0)return;var w=new Window{Owner=this,Title="Change temporary password",Width=440,Height=290,WindowStartupLocation=WindowStartupLocation.CenterOwner};var p=new StackPanel{Margin=new Thickness(18)};p.Children.Add(new TextBlock{Text="Enter current temporary password on the sign-in screen first. Choose a different permanent password." ,TextWrapping=TextWrapping.Wrap});var next=new PasswordBox{MaxLength=256};var confirm=new PasswordBox{MaxLength=256};p.Children.Add(new TextBlock{Text="New password (14–256 characters)"});p.Children.Add(next);p.Children.Add(new TextBlock{Text="Confirm"});p.Children.Add(confirm);var b=new Button{Content="Change password"};p.Children.Add(b);w.Content=p;
   b.Click+=(_,_)=>{try{if(next.Password!=confirm.Password)throw new ArgumentException("Passwords do not match.");if(S.ChangeRequiredPassword(Username.Text,Password.Password,next.Password)){w.DialogResult=true;}else MessageBox.Show(w,"Password change unsuccessful. Verify temporary credentials or try later.");}catch(ArgumentException ex){MessageBox.Show(w,ex.Message);}catch(Exception){MessageBox.Show(w,"Password change failed.");}finally{next.Clear();confirm.Clear();}};
   if(w.ShowDialog()==true)LoginMessage.Text="Password changed. Sign in with your new password.";Password.Clear();
  }

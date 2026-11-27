@@ -27,7 +27,20 @@ internal static class CredentialSessionTests
   wall.SetValue(s,DateTimeOffset.UtcNow.AddSeconds(-1));
   check(!s.Can("Clients.View"),"wall clock expiry denies domain permission");
   Denied(()=>s.FirmName(),"wall clock expiry denies firm identity");
-  check(s.Login("admin",password),"login after wall expiry");s.Logout();
+  check(s.Login("admin",password),"login after wall expiry");
+  var idle=typeof(LocalPractice).GetField("sessionLastActivity",BindingFlags.Instance|BindingFlags.NonPublic)!;
+  idle.SetValue(s,Stopwatch.GetTimestamp()-checked(Stopwatch.Frequency*14L*60));
+  var previous=(long)idle.GetValue(s)!;
+  var stamp=s.ReadSessionAccessStamp();
+  check((long)idle.GetValue(s)! == previous,"session guard reads do not renew inactivity");
+  s.RegisterSessionActivity();
+  check((long)idle.GetValue(s)! > previous&&s.ReadSessionAccessStamp()==stamp,"explicit activity renews idle clock without changing access stamp");
+  idle.SetValue(s,Stopwatch.GetTimestamp()-checked(Stopwatch.Frequency*16L*60));
+  check(!s.Can("Clients.View"),"idle session denies domain permission");
+  Denied(()=>s.RegisterSessionActivity(),"expired inactivity cannot be revived by input");
+  Denied(()=>s.ReadSessionAccessStamp(),"idle session denies access stamp");
+  check(s.Login("admin",password)&&s.ReadSessionAccessStamp()==stamp,"fresh authentication restores session with same grants");
+  s.Logout();
   Denied(()=>s.FirmName(),"logout denies firm identity");
  }
 }

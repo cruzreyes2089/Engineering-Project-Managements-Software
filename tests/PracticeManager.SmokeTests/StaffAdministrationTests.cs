@@ -20,12 +20,15 @@ internal static class StaffAdministrationTests
   check(staff.FirmName()=="Synthetic Staff Firm","authenticated staff may read firm identity without domain grants");
   Denied(()=>staff.ReadStaffAccounts(),"ordinary account cannot enumerate users");
   Denied(()=>staff.ReadEmployees(),"ordinary account cannot enumerate employees without grant");
+  var initialStamp=staff.ReadSessionAccessStamp();
   s.SetStaffGrant(role.Id,"Clients.View",true,false);check(staff.Can("Clients.View"),"grant becomes effective on existing session");
+  check(staff.ReadSessionAccessStamp()!=initialStamp,"grant change alters desktop access stamp");
   Invalid(()=>s.SetStaffGrant(role.Id,"Clients.View",false,false),"stale grant update denied");
   s.SetStaffGrant(role.Id,"Clients.View",false,true);check(!staff.Can("Clients.View"),"revocation effective immediately");
   s.SetStaffGrant(role.Id,"Clients.View",true,false);
   var row=s.ReadStaffAccounts().Single(a=>a.Id==user);s.ResetStaffPassword(user,row.Revision,"Synthetic-temporary-0002");
   check(!staff.Can("Clients.View"),"reset invalidates existing session");
+  Denied(()=>staff.ReadSessionAccessStamp(),"reset invalidates access stamp");
   Denied(()=>staff.FirmName(),"reset invalidates firm identity read");
   var replacement=new LocalPractice(path);check(replacement.ChangeRequiredPassword("synthetic-engineer","Synthetic-temporary-0002","Synthetic-permanent-0002"),"reset temporary password replaced");
   check(!staff.Can("Clients.View"),"old session remains invalid after password changed");
