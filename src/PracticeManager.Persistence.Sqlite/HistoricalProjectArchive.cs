@@ -26,10 +26,15 @@ public sealed partial class LocalPractice
         var batches=HistoricalCount(c,t,"historical_project_batches");
         var seals=HistoricalCount(c,t,"historical_project_seals");
         var count=HistoricalCount(c,t,"historical_project_rows");
-        if(batches==0&&seals==0&&count==0)return Array.Empty<HistoricalArchiveItem>();
-        if(batches!=1||seals!=1||count is <1 or >10000||
+        var auditCount=Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM audit_events WHERE action='ImportHistoricalProjects'"));
+        if(batches==0&&seals==0&&count==0&&auditCount==0)return Array.Empty<HistoricalArchiveItem>();
+        if(batches!=1||seals!=1||auditCount!=1||count is <1 or >10000||
             Convert.ToInt64(Scalar(c,t,"SELECT expected_count FROM historical_project_batches WHERE id=1"))!=count)
             throw new InvalidOperationException("Incomplete historical archive.");
+        if(Convert.ToInt64(Scalar(c,t,@"SELECT count(*) FROM audit_events a JOIN historical_project_batches b
+            ON b.id=a.entity_id AND b.imported_by=a.actor_id WHERE a.action='ImportHistoricalProjects'
+            AND a.entity='HistoricalProjectBatch' AND b.id=1"))!=1)
+            throw new InvalidOperationException("Historical archive audit evidence mismatch.");
         var crm=LegacyHistory(c,t);
         var archivedCrm=Scalar(c,t,"SELECT crm_transfer_hash FROM historical_project_batches WHERE id=1");
         if(crm==null||archivedCrm is not string hash||!string.Equals(crm.Sha256,hash,StringComparison.OrdinalIgnoreCase))
@@ -65,6 +70,7 @@ public sealed partial class LocalPractice
         }
         Scan("SELECT id,crm_batch_id,crm_transfer_hash,source_hash,project_transfer_hash,census_hash,expected_count,review_note,imported_by,imported_utc FROM historical_project_batches ORDER BY id");
         Scan("SELECT batch_id,sealed_utc FROM historical_project_seals ORDER BY batch_id");
+        Scan("SELECT id,actor_id,action,entity,entity_id,occurred_at FROM audit_events WHERE action='ImportHistoricalProjects' ORDER BY id");
         Scan("SELECT batch_id,legacy_id,legacy_client_id,native_client_id,legacy_number,title,site,legacy_status,legacy_authorization_status,authorization_evidence_ref FROM historical_project_register ORDER BY batch_id,legacy_id COLLATE BINARY");
         return (rows.Count,Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
     }
@@ -117,8 +123,9 @@ public sealed partial class LocalPractice
                 VALUES(1,$i,$c,$n,$t,$s,$l,$a,$e)",("$i",row.LegacyId),("$c",row.LegacyClientId),("$n",row.LegacyProjectNumber),
                 ("$t",row.Title),("$s",row.Site),("$l",row.LegacyStatus),("$a",row.LegacyAuthorizationStatus),("$e",row.AuthorizationEvidenceRef));
         Exec(c,t,"INSERT INTO historical_project_seals(batch_id,sealed_utc) VALUES(1,$u)",("$u",UtcNow()));
+        Audit(c,t,actor,"ImportHistoricalProjects","HistoricalProjectBatch",1);
         if(HistoricalTarget(c,t,p)!="AlreadyImported")throw new InvalidOperationException("Historical import evidence mismatch.");
-        Audit(c,t,actor,"ImportHistoricalProjects","HistoricalProjectBatch",1);t.Commit();return "Imported";
+        t.Commit();return "Imported";
     }
     public bool CanImportHistoricalProjects()
     {
