@@ -127,7 +127,7 @@ try{
  Check(migrated.Login("employee",pw),"v1 upgrade preserves employee login");
  Check(!migrated.CanTestAccountingConnection()&&!migrated.CanManageAccountingConnection(),"v1 upgrade does not grant employees accounting access");
  Check(!migrated.Can("Projects.Closeout"),"v1 upgrade leaves employee lifecycle grant disabled");
- using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==51,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
+ using(var db=new SqliteConnection($"Data Source={legacyPath}")){db.Open();using var q=db.CreateCommand();q.CommandText="PRAGMA user_version";Check(Convert.ToInt32(q.ExecuteScalar())==52,"v1 upgrade advances schema version");q.CommandText="UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Accounting.Connection.Test'";q.ExecuteNonQuery();}
  migrated=new LocalPractice(legacyPath);
  Check(migrated.Login("admin",pw)&&!migrated.CanTestAccountingConnection(),"reopen preserves revoked permission");
 
@@ -169,6 +169,7 @@ try{
   FirmStoragePreferenceTests.Run(Path.GetDirectoryName(path)!,pw,Check);
   FirmFolderTemplateTests.Run(Path.GetDirectoryName(path)!,pw,Check);
   NamedFolderTemplateTests.Run(Path.GetDirectoryName(path)!,pw,Check);
+  FolderTemplateRecommendationTests.Run(Path.GetDirectoryName(path)!,pw,Check);
   if(OperatingSystem.IsWindows())SyntheticWindowsStorageAclTests.Run(Path.GetDirectoryName(path)!,Check);
   else Console.WriteLine("NOT QUALIFIED: Windows storage ACL checks unavailable.");
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);

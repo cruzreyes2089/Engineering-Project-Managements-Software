@@ -45,10 +45,10 @@ internal static class FirmStoragePreferenceTests
   // Explicit previous-schema fixture: the new table is absent in a schema 47 database.
   var old=Path.Combine(folder,"schema47.db");File.Copy(path,old);
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=old,Pooling=false}.ToString()))
-  {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; DROP TABLE firm_storage_preferences; PRAGMA user_version=47";q.ExecuteNonQuery();}
+  {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TABLE folder_template_rules; DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; DROP TABLE firm_storage_preferences; PRAGMA user_version=47";q.ExecuteNonQuery();}
   var hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(old))).ToLowerInvariant();
   var rehearsal=UpgradeRehearsal.Run(old,hash,true);
-  check(rehearsal.SourceSchema==47&&rehearsal.TargetSchema==51&&rehearsal.SourceUnchanged,"schema 47 to current storage preference upgrade rehearsal");
+  check(rehearsal.SourceSchema==47&&rehearsal.TargetSchema==52&&rehearsal.SourceUnchanged,"schema 47 to current storage preference upgrade rehearsal");
   var upgraded=new LocalPractice(old);
   check(upgraded.Login("admin",pw)&&!upgraded.ReadFirmStoragePreference().Configured,"upgraded business has no invented storage preferences");
   upgraded.Logout();

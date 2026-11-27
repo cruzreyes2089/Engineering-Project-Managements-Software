@@ -58,10 +58,10 @@ internal static class FirmFolderTemplateTests
   check(restored.Login("admin",pw)&&restored.ReadFirmFolderLayout().RevisionId==reset.RevisionId&&!restored.ReadProjectFolderPreview(project).Provisioned,"recovery retains inactive template history");
   var old=Path.Combine(root,"folder-template-schema48.db");File.Copy(path,old);
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=old,Pooling=false}.ToString()))
-  {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; PRAGMA user_version=48";q.ExecuteNonQuery();}
+  {db.Open();using var q=db.CreateCommand();q.CommandText="DROP TABLE folder_template_rules; DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; PRAGMA user_version=48";q.ExecuteNonQuery();}
   var digest=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(old))).ToLowerInvariant();
   var rehearsal=UpgradeRehearsal.Run(old,digest,true);
-  check(rehearsal.SourceSchema==48&&rehearsal.TargetSchema==51&&rehearsal.SourceUnchanged,"schema 48 to current template rehearsal");
+  check(rehearsal.SourceSchema==48&&rehearsal.TargetSchema==52&&rehearsal.SourceUnchanged,"schema 48 to current template rehearsal");
   var upgraded=new LocalPractice(old);check(upgraded.Login("admin",pw)&&upgraded.ReadFirmFolderLayout().RevisionId==0,"upgrade uses default without inventing template settings");
   upgraded.Logout();restored.Logout();reopened.Logout();b.Logout();
  }

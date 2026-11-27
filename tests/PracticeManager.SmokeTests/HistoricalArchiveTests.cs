@@ -73,7 +73,7 @@ internal static class HistoricalArchiveTests
     HistoricalArchivePreview Preview()=>p.PreviewHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census));
     HistoricalArchiveImportResult Import(bool confirm=true,string note="Synthetic reviewed mapping")=>p.ImportHistoricalProjects(crm,data.Projects,data.Census,source,ch,Digest(data.Projects),Digest(data.Census),confirm,note);
     long ArchiveCount()=>Count("SELECT (SELECT count(*) FROM historical_project_batches)+(SELECT count(*) FROM historical_project_rows)+(SELECT count(*) FROM historical_project_seals)+(SELECT count(*) FROM audit_events WHERE action='CommitHistoricalProjectArchive')");
-    check(Count("PRAGMA user_version")==51,"archive native schema 51");
+    check(Count("PRAGMA user_version")==52,"archive native schema 52");
     check(Count("SELECT count(*) FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport') AND role_id=1 AND allowed=1")==2,"archive bootstrap administrator grants");
     check(Count("SELECT count(*) FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport') AND role_id<>1 AND allowed=1")==0,"archive nonadministrator grants default denied");
     Reject<UnauthorizedAccessException>(()=>Preview(),"logged-out preview denied");
@@ -164,12 +164,12 @@ internal static class HistoricalArchiveTests
     using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=priorPath,ForeignKeys=true,Pooling=false}.ToString()))
     {
         db.Open();using var q=db.CreateCommand();
-        q.CommandText="DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; DROP TABLE firm_storage_preferences; DROP VIEW historical_project_register; DROP TABLE historical_project_seals; DROP TABLE historical_project_rows; DROP TABLE historical_project_batches; DELETE FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport'); DELETE FROM permissions WHERE code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport'); UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Clients.View'; PRAGMA user_version=46;";
+        q.CommandText="DROP TABLE folder_template_rules; DROP TABLE project_folder_selections; DROP TABLE named_folder_templates; DROP TABLE firm_folder_templates; DROP TABLE firm_storage_preferences; DROP VIEW historical_project_register; DROP TABLE historical_project_seals; DROP TABLE historical_project_rows; DROP TABLE historical_project_batches; DELETE FROM role_permissions WHERE permission_code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport'); DELETE FROM permissions WHERE code IN ('HistoricalProjects.View','Administration.HistoricalProjectImport'); UPDATE role_permissions SET allowed=0 WHERE role_id=1 AND permission_code='Clients.View'; PRAGMA user_version=46;";
         q.ExecuteNonQuery();
     }
     var priorHash=Digest(File.ReadAllBytes(priorPath));
     var rehearsal=UpgradeRehearsal.Run(priorPath,priorHash,true);
-    check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==51&&rehearsal.Clients==2&&rehearsal.SourceUnchanged&&Digest(File.ReadAllBytes(priorPath))==priorHash,"schema 46 rehearsal preserves original and client identities");
+    check(rehearsal.SourceSchema==46&&rehearsal.TargetSchema==52&&rehearsal.Clients==2&&rehearsal.SourceUnchanged&&Digest(File.ReadAllBytes(priorPath))==priorHash,"schema 46 rehearsal preserves original and client identities");
     var upgradedPath=Path.Combine(root,"upgraded-v47.db");File.Copy(priorPath,upgradedPath);
     var upgraded=new LocalPractice(upgradedPath);
     check(upgraded.Login("admin",pw)&&upgraded.Can("HistoricalProjects.View")&&upgraded.Can("Administration.HistoricalProjectImport")&&!upgraded.Can("Clients.View"),"archive upgrade adds only new administrator grants and preserves revoked CRM access");
