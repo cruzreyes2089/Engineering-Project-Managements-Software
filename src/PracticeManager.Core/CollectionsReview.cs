@@ -6,7 +6,7 @@ public sealed record CollectionInvoice(Guid Key,string Reference,DateOnly Issued
 {
  public override string ToString()=>"[Synthetic collection invoice]";
 }
-public sealed record CollectionPreview(string Outcome,IReadOnlyList<CollectionInvoice>? Invoices=null,DateTimeOffset? ObservedUtc=null)
+public sealed record CollectionPreview(string Outcome,IReadOnlyList<CollectionInvoice>? Invoices=null,DateTimeOffset? ObservedUtc=null,IReadOnlyList<ObservedInvoiceDueDate>? DueDates=null)
 {
  public decimal? TotalOutstanding=>Invoices?.Sum(x=>x.Outstanding);
  public override string ToString()=>"Collection preview: "+Outcome;
@@ -15,10 +15,18 @@ public sealed partial class ManagerDesktopProbe
 {
  // This adapter qualifies the first synthetic fixture only. The date and
  // outstanding amount are observations, not a legal due date or a ledger.
- public async Task<CollectionPreview> ReadSyntheticCollectionsAsync(string endpoint,string secret,Guid marker,bool singleUsdConfirmed,CancellationToken cancellationToken=default)
+ public Task<CollectionPreview> ReadSyntheticCollectionsAsync(string endpoint,string secret,Guid marker,bool singleUsdConfirmed,CancellationToken cancellationToken=default)
+  =>ReadCollectionsScopeAsync(endpoint,secret,marker,singleUsdConfirmed,false,cancellationToken);
+ // Dedicated operator-confirmed read-only fixture, not enrolled in the original
+ // accounting profile. Only this exact business and three known invoices qualify.
+ public Task<CollectionPreview> ReadSyntheticDueDateFixtureAsync(string endpoint,string secret,bool explicitlyConfirmed,CancellationToken cancellationToken=default)
+  =>ReadCollectionsScopeAsync(endpoint,secret,null,explicitlyConfirmed,true,cancellationToken);
+ private async Task<CollectionPreview> ReadCollectionsScopeAsync(string endpoint,string secret,Guid? marker,bool singleUsdConfirmed,bool dueFixture,CancellationToken cancellationToken)
  {
   CollectionPreview Stop(string outcome)=>new(outcome);
-  if(marker==Guid.Empty||!singleUsdConfirmed)return Stop("OperatorScopeEvidenceRequired");
+  if(marker==Guid.Empty||!singleUsdConfirmed||!dueFixture&&marker==null)return Stop("OperatorScopeEvidenceRequired");
+  var business=dueFixture?"CRC DUE DATE TEST":FixtureBusiness;
+  var markerName=dueFixture?"CRC Due Date Test Identity":BusinessMarker.TestName;
   using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);deadline.CancelAfter(TimeSpan.FromSeconds(90));var ct=deadline.Token;
   async Task<JsonElement> Read(AccountingDiscoveryResource? resource=null,AccountingDetailResource? detail=null,Guid? key=null,string? markerName=null)
   {
@@ -30,16 +38,19 @@ public sealed partial class ManagerDesktopProbe
   }
   async Task Marker()
   {
-   var root=await Read(AccountingDiscoveryResource.IdentityFields,markerName:BusinessMarker.TestName).ConfigureAwait(false);
-   var parsed=BusinessMarker.Parse(root,BusinessMarker.TestName);
-   if(!BusinessIsFixture(root)||!parsed.Success||parsed.MarkerKey!=marker)throw new AcquisitionStop("CollectionMarkerMismatch");
+   var root=await Read(AccountingDiscoveryResource.IdentityFields,markerName:markerName).ConfigureAwait(false);
+   var parsed=BusinessMarker.Parse(root,markerName);
+   if(!root.TryGetProperty("business",out var b)||b.ValueKind!=JsonValueKind.Object||Str(b,"name")!=business||!parsed.Success||!parsed.MarkerKey.HasValue||marker.HasValue&&parsed.MarkerKey!=marker)throw new AcquisitionStop("CollectionMarkerMismatch");
+   if(dueFixture&&(!root.TryGetProperty("totalRecords",out var total)||!total.TryGetInt32(out var count)||count!=1))throw new AcquisitionStop("CollectionMarkerMismatch");
+   marker=parsed.MarkerKey;
   }
-  async Task<(CollectionInvoice[] Rows,JsonElement[] Evidence)> Sweep()
+  async Task<(CollectionInvoice[] Rows,JsonElement[] Evidence,DateOnly[] Dates)> Sweep()
   {
    var root=await Read(AccountingDiscoveryResource.SalesInvoices).ConfigureAwait(false);
-   var parsed=FinancialPageParser.Parse(root,AccountingDiscoveryResource.SalesInvoices);
-   if(!parsed.Success||parsed.Financial is not { } page||page.BusinessName!=FixtureBusiness)throw new AcquisitionStop("CollectionRegisterIncompleteOrInvalid");
-   var evidence=new List<JsonElement>{root};var rows=new List<CollectionInvoice>();
+   var parsed=FinancialPageParser.Parse(root,AccountingDiscoveryResource.SalesInvoices,explicitUsd:dueFixture);
+   if(!parsed.Success||parsed.Financial is not { } page||page.BusinessName!=business)throw new AcquisitionStop("CollectionRegisterIncompleteOrInvalid");
+   if(dueFixture&&page.Rows.Count!=3)throw new AcquisitionStop("DueFixtureCountMismatch");
+   var evidence=new List<JsonElement>{root};var rows=new List<CollectionInvoice>();var dates=new List<DateOnly>();var references=new HashSet<string>(StringComparer.Ordinal);
    foreach(var row in page.Rows.OrderBy(x=>x.Key)){
     var detail=await Read(detail:AccountingDetailResource.Invoice,key:row.Key).ConfigureAwait(false);evidence.Add(detail);
     if(Id(detail,"Key")!=row.Key||Id(detail,"id")!=row.Key)throw new AcquisitionStop("CollectionInvoiceIdentityMismatch");
@@ -56,15 +67,27 @@ public sealed partial class ManagerDesktopProbe
      if(customerNode.ValueKind!=JsonValueKind.String||!Guid.TryParseExact(customerNode.GetString(),"D",out var customerId)||customerId==Guid.Empty)throw new AcquisitionStop("CollectionCustomerIdentityInvalid");
      customer=customerId;
     }
-    rows.Add(new(row.Key,reference??"",DateOnly.FromDateTime(issued),row.Amount,balance,customer));
+    var day=DateOnly.FromDateTime(issued);
+    if(dueFixture){
+     if(reference==null||!references.Add(reference)||customer==null||day!=new DateOnly(2026,11,1)||row.Amount!=100m||balance!=100m||Str(registerRow,"reference")!=reference||Str(registerRow,"issueDate")!="2026-11-01")throw new AcquisitionStop("DueFixtureIdentityMismatch");
+     var expected=reference switch{"CRC-DUE-IMMEDIATE"=>new DateOnly(2026,11,1),"CRC-DUE-NET30"=>new DateOnly(2026,12,1),"CRC-DUE-FIXED"=>new DateOnly(2026,12,15),_=>throw new AcquisitionStop("DueFixtureReferenceMismatch")};
+     var parsedDue=ManagerInvoiceTerms.Parse(detail,day);
+     if(parsedDue==null||parsedDue.DueDate!=expected||parsedDue.Mode!=(reference switch{"CRC-DUE-IMMEDIATE"=>"Immediate","CRC-DUE-NET30"=>"NetDays",_=>"FixedDate"})||reference=="CRC-DUE-NET30"&&parsedDue.NetDays!=30)throw new AcquisitionStop("DueFixtureTermsMismatch");
+     dates.Add(parsedDue.DueDate);
+    }
+    rows.Add(new(row.Key,reference??"",day,row.Amount,balance,customer));
    }
-   return(rows.ToArray(),evidence.ToArray());
+   if(dueFixture&&rows.Select(x=>x.CustomerKey).Distinct().Count()!=1)throw new AcquisitionStop("DueFixtureCustomerMismatch");
+   return(rows.ToArray(),evidence.ToArray(),dates.ToArray());
   }
   try{
    await Marker().ConfigureAwait(false);var a=await Sweep().ConfigureAwait(false);var b=await Sweep().ConfigureAwait(false);await Marker().ConfigureAwait(false);
    if(ct.IsCancellationRequested)return Stop("Cancelled");
    if(a.Evidence.Length!=b.Evidence.Length||!a.Evidence.Zip(b.Evidence).All(x=>JsonElement.DeepEquals(x.First,x.Second))||!a.Rows.SequenceEqual(b.Rows))return Stop("CollectionRegisterChanged");
-   return new("ObservedForReview",Array.AsReadOnly(b.Rows),DateTimeOffset.UtcNow);
+   var utc=DateTimeOffset.UtcNow;
+   if(dueFixture&&!a.Dates.SequenceEqual(b.Dates))return Stop("CollectionRegisterChanged");
+   var dueDates=dueFixture?Array.AsReadOnly(b.Rows.Select((x,i)=>new ObservedInvoiceDueDate(x.Key,x.Reference,x.CustomerKey,x.Issued,b.Dates[i],utc)).ToArray()):null;
+   return new("ObservedForReview",Array.AsReadOnly(b.Rows),utc,dueDates);
   }catch(AcquisitionStop e){return Stop(e.Outcome);}catch(OperationCanceledException){return Stop("Cancelled");}
  }
 }

@@ -29,16 +29,16 @@ internal static class FinancialPageParser
  static bool Unique(JsonElement v)=>v.ValueKind==JsonValueKind.Object&&v.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()==v.EnumerateObject().Count();
  static bool Int(JsonElement v,string name,out int n){n=0;return v.TryGetProperty(name,out var p)&&p.ValueKind==JsonValueKind.Number&&p.TryGetInt32(out n);}
  static string? Text(JsonElement v,string name,int max)=>v.TryGetProperty(name,out var p)&&p.ValueKind==JsonValueKind.String&&p.GetString() is string s&&s.Length<=max&&!s.Any(char.IsControl)?s:null;
- // Synthetic fixture supports only explicitly null currency. Never infer USD, convert or mix currencies.
- static bool Money(JsonElement r,string name,out decimal value)
+ // Original fixture retains null-only currency; dedicated due fixture requires exact USD.
+ static bool Money(JsonElement r,string name,out decimal value,bool explicitUsd)
  {
   value=0;
-  if(!r.TryGetProperty(name,out var p)||!Unique(p)||!p.TryGetProperty("currency",out var currency)||currency.ValueKind!=JsonValueKind.Null||!p.TryGetProperty("value",out var n)||n.ValueKind!=JsonValueKind.Number)return false;
+  if(!r.TryGetProperty(name,out var p)||!Unique(p)||!p.TryGetProperty("currency",out var currency)||(explicitUsd?currency.ValueKind!=JsonValueKind.String||currency.GetString()!="USD":currency.ValueKind!=JsonValueKind.Null)||!p.TryGetProperty("value",out var n)||n.ValueKind!=JsonValueKind.Number)return false;
   var raw=n.GetRawText();
   // Deliberately bounded precision and magnitude. Reject exponent notation, excessive scale and negative values rather than guessing semantics.
   return Regex.IsMatch(raw,@"\A(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,6})?\z",RegexOptions.CultureInvariant)&&decimal.TryParse(raw,NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out value);
  }
- internal static AccountingProbeResult Parse(JsonElement root,AccountingDiscoveryResource resource)
+ internal static AccountingProbeResult Parse(JsonElement root,AccountingDiscoveryResource resource,bool explicitUsd=false)
  {
   AccountingProbeResult Invalid()=>new("InvalidFinancialPage",200);
   var arrayName=resource switch{AccountingDiscoveryResource.SalesInvoices=>"salesInvoices",AccountingDiscoveryResource.Receipts=>"receipts",AccountingDiscoveryResource.Payments=>"payments",_=>""};
@@ -51,9 +51,9 @@ internal static class FinancialPageParser
   foreach(var row in a.EnumerateArray()){
    if(!Unique(row)||!Guid.TryParse(Text(row,"key",64),out var id)||id==Guid.Empty||!ids.Add(id))return Invalid();
    var invoice=resource==AccountingDiscoveryResource.SalesInvoices;
-   if(!Money(row,invoice?"invoiceAmount":"amount",out var amount))return new("UnsupportedFinancialAmount",200);
+   if(!Money(row,invoice?"invoiceAmount":"amount",out var amount,explicitUsd))return new("UnsupportedFinancialAmount",200);
    decimal? balance=null;
-   if(invoice){if(!Money(row,"balanceDue",out var due)||due>amount)return new("UnsupportedFinancialAmount",200);balance=due;}
+   if(invoice){if(!Money(row,"balanceDue",out var due,explicitUsd)||due>amount)return new("UnsupportedFinancialAmount",200);balance=due;}
    rows.Add(new(id,amount,balance));
   }
   return new("Connected",200,"Object",Financial:new(resource,business,rows.AsReadOnly()));

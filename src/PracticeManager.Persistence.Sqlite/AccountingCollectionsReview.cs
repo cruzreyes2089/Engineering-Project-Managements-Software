@@ -7,6 +7,19 @@ public sealed partial class LocalPractice
 {
  public bool CanReviewCollections()=>CanManageBusinessMarker()&&Can("Reports.Financial");
  private long RequireCollections(SqliteConnection c,SqliteTransaction t){var actor=RequireMarker(c,t);Require(c,t,"Reports.Financial");return actor;}
+ // Deliberately separate from saved accounting profile and enrolled original marker.
+ // One-time credential in memory only; no profile, journal or hold mutation.
+ public async Task<CollectionPreview> ReadDueDateFixtureAsync(string endpoint,string secret,bool confirmed,CancellationToken ct=default)
+ {
+  long actor;var generation=sessionGeneration;
+  using(var c=Open())using(var t=c.BeginTransaction()){actor=RequireCollections(c,t);}
+  if(!confirmed)return new("OperatorScopeEvidenceRequired");
+  var result=await new ManagerDesktopProbe().ReadSyntheticDueDateFixtureAsync(endpoint,secret,true,ct);
+  using var read=Open();using var tx=read.BeginTransaction();
+  if(sessionGeneration!=generation||RequireCollections(read,tx)!=actor)throw new UnauthorizedAccessException();
+  if(ct.IsCancellationRequested)return new("Cancelled");
+  return result;
+ }
  public async Task<CollectionPreview> ReadSavedCollectionsAsync(bool singleUsdConfirmed,CancellationToken ct=default)
  {
   long actor;StoredProfile? profile;Guid? marker;var generation=sessionGeneration;

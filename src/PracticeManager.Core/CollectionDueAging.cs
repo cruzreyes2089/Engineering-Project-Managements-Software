@@ -1,6 +1,6 @@
 namespace PracticeManager.Core;
 
-// Explicit dates from the same acquisition. Provider mapping is not yet qualified.
+// Explicit dates from the same acquisition; dedicated synthetic fixture only.
 // A draft date, default payment term or manually guessed date is not evidence.
 public sealed record ObservedInvoiceDueDate(Guid InvoiceKey,string Reference,Guid? CustomerKey,DateOnly Issued,DateOnly DueDate,DateTimeOffset ObservedUtc)
 {

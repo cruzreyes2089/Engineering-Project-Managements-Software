@@ -16,7 +16,7 @@ internal sealed class CollectionsReviewWindow:Window
   this.service=service;Title="Collections review — synthetic read-only";Width=950;Height=600;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});
   head.Children.Add(new TextBlock{Text="Manager invoice balances observed twice. Age is measured from issue date to today's local date, not days overdue. Payment terms and due dates are not yet qualified. No reminders, posting or local receivable ledger.",TextWrapping=TextWrapping.Wrap});
-  head.Children.Add(currency);head.Children.Add(run);head.Children.Add(status);head.Children.Add(summary);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
+  head.Children.Add(currency);head.Children.Add(run);var due=new Button{Content="Review dedicated due-date fixture",Margin=new Thickness(0,4,0,4)};due.Click+=(_,_)=>new DueFixtureWindow(service){Owner=this}.ShowDialog();head.Children.Add(due);head.Children.Add(status);head.Children.Add(summary);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   WorkWindowFields.Columns(grid,("Reference","Reference"),("Issued","Issued"),("Invoice USD","Amount"),("Outstanding USD","Outstanding"),("Days since issue","DaysSinceIssue"),("Age band","AgeBand"));root.Children.Add(grid);Content=root;
   run.Click+=async(_,_)=>await RefreshAsync();Closed+=(_,_)=>{closed=true;pending?.Cancel();grid.ItemsSource=null;};
   currency.Unchecked+=(_,_)=>{pending?.Cancel();grid.ItemsSource=null;summary.Text="";status.Text="Currency confirmation required.";};
