@@ -9,3 +9,5 @@ Dependent on schema 36 candidate 83ea28a. This deliberately narrow workflow addr
 - Overhead approved corrections, self-correction policy, closed project corrections, payroll/expense settlement, exported/posted invoice reconciliation and reversal remain deferred. No release distribution or production data.
 
 Test-first stubs intentionally nonfunctional. Run red then green after schema 36 verification.
+
+Candidate schema 37 implementation: separate immutable invalidation evidence, administrator-seeded grant, independent actor, unallocated active-project guard, effective report states and exclusion from daily cap, labor cost and invoice eligibility. Existing classification and original approval remain historical. Shared replacement lineage uses immutable predecessor state to distinguish correction paths. Added concurrent and rollback tests. Windows and interactive acceptance pending; no payroll or external accounting changes.

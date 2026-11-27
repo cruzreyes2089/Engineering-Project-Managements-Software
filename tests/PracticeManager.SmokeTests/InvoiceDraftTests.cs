@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 internal static class InvoiceDraftTests
@@ -99,7 +100,16 @@ internal static class InvoiceDraftTests
   Invalid(()=>s.InvalidateApprovedWork(erroneous,"",true),"invalidation requires evidence");
   Invalid(()=>s.InvalidateApprovedWork(erroneous,"Duplicate",false),"invalidation requires explicit confirmation");
   check(s.ReadInvoiceCandidates(project,day).Single().SourceId==erroneous,"unallocated approved fact initially billable");
-  var invalidation=s.InvalidateApprovedWork(erroneous,"Verified duplicate entry, not actual additional work",true);
+  void CorrectionSql(string sql){using var db=new SqliteConnection($"Data Source={path};Pooling=False");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
+  CorrectionSql("CREATE TRIGGER test_invalidate_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='InvalidateApprovedWork' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{s.InvalidateApprovedWork(erroneous,"Synthetic rollback",true);throw new Exception("FAIL: invalidation rollback");}catch(SqliteException){check(s.ReadWorkInvalidation(erroneous)==null&&s.ReadInvoiceCandidates(project,day).Single().SourceId==erroneous,"failed audit rolls back invalidation and billing eligibility");}
+  CorrectionSql("DROP TRIGGER test_invalidate_audit_abort");
+  var correctionPeer=new LocalPractice(path);check(correctionPeer.Login("admin",pw),"correction concurrent session authenticated");
+  WorkInvalidation? TryInvalidate(LocalPractice service){try{return service.InvalidateApprovedWork(erroneous,"Verified duplicate entry, not actual additional work",true);}catch(ArgumentException){return null;}}
+  var results=await Task.WhenAll(Task.Run(()=>TryInvalidate(s)),Task.Run(()=>TryInvalidate(correctionPeer)));
+  check(results.Count(x=>x!=null)==1,"concurrent invalidation records one decision");
+  var invalidation=results.Single(x=>x!=null)!;
+  foreach(var sql in new[]{$"UPDATE work_invalidations SET reason='Changed' WHERE submission_id={erroneous}",$"DELETE FROM work_invalidations WHERE submission_id={erroneous}",$"INSERT INTO work_invalidations(submission_id,reason,actor_id,recorded_utc) VALUES({time},'Invalid',1,'synthetic')"}){try{CorrectionSql(sql);throw new Exception("FAIL: invalidation SQL guard");}catch(SqliteException){check(true,"database protects invalidation evidence and allocated work");}}
   check(invalidation.SubmissionId==erroneous&&s.ReadWorkInvalidation(erroneous)==invalidation,"approved fact invalidation retains independent evidence");
   check(worker.ReadMySubmissions(day,day).Single(x=>x.Id==erroneous).ReviewState=="Invalidated","employee sees effective invalidation rather than original approval");
   check(s.ReadWorkReview(day,day,false).Single(x=>x.Id==erroneous).ReviewState=="Invalidated","review history exposes effective invalidation");
@@ -121,6 +131,7 @@ internal static class InvoiceDraftTests
   check(s.ReadInvoiceCandidates(project,day).Single().SourceId==correctedId&&s.ReadProjectFinancialReport(project,day,day).ApprovedMinutes==71,"only newly approved correction becomes billable");
   var erroneousExpense=worker.SubmitWork(new(Guid.NewGuid(),task,day,"Expense",null,5m,"Supplies","Synthetic duplicate expense"));s.ReviewWork(erroneousExpense,true,"Reviewed in error");
   s.InvalidateApprovedWork(erroneousExpense,"Verified duplicate expense",true);
+  check(s.ClassifyWork(erroneousExpense,true,"Synthetic")== "Invalidated","invalidated unclassified expense cannot enter billing");
   check(s.ReadProjectFinancialReport(project,day,day).ApprovedExpenseCost==12.34m&&s.ReadProjectOperations(project,day,day).InvalidatedExpenseSubmissions==1,"invalidated expense excluded from cost and reported separately");
   var allocated=s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),Array.Empty<FixedFeeInput>(),new[]{correctedId}));
   var allocatedDetail=s.ReadInvoiceDraft(project,allocated);
