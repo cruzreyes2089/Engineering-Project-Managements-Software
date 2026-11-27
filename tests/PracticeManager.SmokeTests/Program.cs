@@ -8,6 +8,21 @@ void Check(bool condition,string name){if(!condition)throw new Exception("FAIL: 
 void Denied(Action a,string name){try{a();}catch(UnauthorizedAccessException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 void Invalid(Action a,string name){try{a();}catch(ArgumentException){Check(true,name);return;} throw new Exception("FAIL: "+name);}
 try{
+ if(args.Length!=0){
+  if(args.Length!=4||args[0]!="--synthetic-crm-transfer"||args[1] is not ("populated" or "empty")||
+      args[3].Length!=64||args[3].Any(c=>!char.IsAsciiHexDigit(c)))throw new ArgumentException("Invalid synthetic smoke-test arguments.");
+  byte[] bytes;
+  using(var file=new FileStream(args[2],FileMode.Open,FileAccess.Read,FileShare.Read)){
+   if(file.Length is <1 or >LegacyCrmTransfer.MaxBytes)throw new ArgumentException("Synthetic transfer size rejected.");
+   bytes=new byte[checked((int)file.Length)];file.ReadExactly(bytes);
+   if(file.ReadByte()!=-1)throw new ArgumentException("Synthetic transfer length changed.");
+  }
+  var digest=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+  if(!string.Equals(digest,args[3],StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Synthetic transfer digest mismatch.");
+  SyntheticCrmNativeTests.Run(path,bytes,args[1]=="empty",Check);
+  Console.WriteLine($"Synthetic CRM native checks passed: {passed}; transfer SHA-256: {digest.ToLowerInvariant()}");
+  return 0;
+ }
  DevelopmentWorkspaceTests.Run(Path.GetDirectoryName(path)!,Check);
  var s=new LocalPractice(path);
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open(); using var version=db.CreateCommand(); version.CommandText="SELECT sqlite_version()"; var native=Version.Parse(Convert.ToString(version.ExecuteScalar())!); Console.WriteLine($"SQLite runtime: {native}"); Check(native>=new Version(3,50,2),"native SQLite meets GHSA-2m69-gcr7-jv3q fixed-version floor");}
@@ -135,5 +150,7 @@ try{
  ConflictReviewTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"conflict-review.db"),pw,Check);
  ReviewDocxTests.Run(Check);
  LegacyCrmTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"legacy-crm.db"),pw,Check);
+ SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-populated.db"),SyntheticCrmNativeTests.Fixture(false),false,Check);
+ SyntheticCrmNativeTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"synthetic-dao-empty.db"),SyntheticCrmNativeTests.Fixture(true),true,Check);
  Console.WriteLine($"{passed} checks passed"); return 0;
-}catch(Exception e){Console.Error.WriteLine(e); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
+}catch(Exception e){if(args.Length==0)Console.Error.WriteLine(e);else Console.Error.WriteLine("Synthetic native qualification rejected or failed."); return 1;}finally{SqliteConnection.ClearAllPools();Directory.Delete(Path.GetDirectoryName(path)!,true);}
