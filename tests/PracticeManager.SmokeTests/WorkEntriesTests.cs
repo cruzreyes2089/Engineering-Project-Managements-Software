@@ -94,13 +94,20 @@ internal static class WorkEntriesTests
   Invalid(()=>worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection with{Minutes=1261}),"overhead correction respects combined daily cap");
   Invalid(()=>worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection with{Category="Billable"}),"overhead correction remains nonbillable");
   Invalid(()=>worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection with{Date=day.AddDays(1)}),"future overhead correction blocked");
-  var replacement=worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection);
+  ReplacementSql("CREATE TRIGGER test_overhead_replacement_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='ReplaceRejectedOverheadTime' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END");
+  try{worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection);throw new Exception("FAIL: overhead replacement rollback");}catch(SqliteException){check(worker.ReadMyOverheadReplacement(rejected)==null&&worker.ReadMyOverheadTime(day,day).Count==2,"overhead replacement rolls back with failed audit");}
+  ReplacementSql("DROP TRIGGER test_overhead_replacement_audit_abort");
+  var overheadIds=await Task.WhenAll(Task.Run(()=>worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection)),Task.Run(()=>peer.ReplaceRejectedOverheadTime(rejected,overheadCorrection)));
+  check(overheadIds.Distinct().Count()==1,"concurrent overhead correction creates one fact");
+  var replacement=overheadIds[0];
   check(replacement!=rejected&&worker.ReadMyOverheadReplacement(rejected)?.ReplacementId==replacement,"rejected overhead no longer consumes daily cap and successor is linked");
   check(peer.ReplaceRejectedOverheadTime(rejected,overheadCorrection)==replacement,"identical overhead replacement retry returns existing fact");
   Invalid(()=>worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection with{Minutes=61}),"overhead replacement intent immutable");
   Invalid(()=>worker.ReplaceRejectedOverheadTime(rejected,overheadCorrection with{OperationKey=Guid.NewGuid()}),"rejected overhead cannot acquire second successor");
   Invalid(()=>worker.SubmitOverheadTime(overheadCorrection),"linked overhead operation cannot be replayed as standalone");
   check(worker.ReadMyOverheadTime(day,day).Single(x=>x.Id==rejected).ReviewState=="Rejected"&&worker.ReadMyOverheadTime(day,day).Single(x=>x.Id==replacement).ReviewState=="Submitted","original overhead rejection retained and correction requires independent review");
+  check(worker.ReadMyOverheadTime(day,day).Single(x=>x.Id==replacement).ReplacesId==rejected&&admin.ReadOverheadReview(day,day).Single(x=>x.Id==replacement).ReplacesId==rejected,"overhead correction lineage projected to employee and reviewer");
+  foreach(var sql in new[]{$"UPDATE overhead_time SET replaces_submission_id=NULL WHERE id={replacement}",$"DELETE FROM overhead_time WHERE id={replacement}",$"INSERT INTO overhead_time(operation_key,employee_id,work_date,minutes,category,description,submitted_by,submitted_utc,replaces_submission_id) SELECT '{Guid.NewGuid():D}',employee_id,work_date,minutes,category,description,submitted_by,submitted_utc,id FROM overhead_time WHERE id={o}"}){try{ReplacementSql(sql);throw new Exception("FAIL: overhead replacement SQL guard");}catch(SqliteException){check(true,"database blocks overhead replacement history mutation or invalid predecessor");}}
   var own=admin.CreateEmployee(new("Synthetic","Owner","","",true),1);
   Invalid(()=>admin.ReadMyWorkReplacement(expenseId),"cross-employee replacement history denied");
   Invalid(()=>admin.ReplaceRejectedWork(expenseId,corrected with{OperationKey=Guid.NewGuid()}),"cross-employee replacement creation denied");
