@@ -24,7 +24,7 @@ public sealed record HistoricalArchiveEntry(string LegacyId,string LegacyClientI
 public sealed partial class LocalPractice
 {
     private const string ArchiveBatchQuery="SELECT source_hash,crm_transfer_hash,project_transfer_hash,census_hash,expected_count FROM historical_project_batches WHERE id=1";
-    private const string ArchiveCountsQuery="SELECT (SELECT count(*) FROM historical_project_rows),(SELECT count(*) FROM historical_project_seals),(SELECT count(*) FROM historical_project_batches)";
+    private const string ArchiveCountsQuery="SELECT (SELECT count(*) FROM historical_project_rows),(SELECT count(*) FROM historical_project_seals),(SELECT count(*) FROM historical_project_batches),(SELECT count(*) FROM audit_events WHERE action='CommitHistoricalProjectArchive' AND entity='Firm' AND entity_id=1)";
     private const string ArchiveRowsQuery="SELECT legacy_id,legacy_client_id,native_client_id,legacy_number,title,site,legacy_status,legacy_authorization_status,authorization_evidence_ref,work_authorized FROM historical_project_register WHERE batch_id=1 ORDER BY legacy_id COLLATE NOCASE LIMIT 10001";
     private const string ArchiveInsertBatch="INSERT INTO historical_project_batches(id,crm_batch_id,source_hash,crm_transfer_hash,project_transfer_hash,census_hash,expected_count,review_note,imported_by,imported_utc) VALUES(1,1,$s,$c,$p,$h,$n,$r,$a,$u)";
     private const string ArchiveInsertRow="INSERT INTO historical_project_rows(batch_id,legacy_id,legacy_client_id,legacy_number,title,site,legacy_status,legacy_authorization_status,authorization_evidence_ref) VALUES(1,$i,$c,$n,$t,$s,$l,$a,$e)";
@@ -60,11 +60,11 @@ public sealed partial class LocalPractice
             if(!r.Read())throw new InvalidOperationException("Historical archive counts unavailable.");
             if(source is null)
             {
-                if(r.GetInt64(0)!=0||r.GetInt64(1)!=0||r.GetInt64(2)!=0)
+                if(r.GetInt64(0)!=0||r.GetInt64(1)!=0||r.GetInt64(2)!=0||r.GetInt64(3)!=0)
                     throw new InvalidOperationException("Incomplete historical archive.");
                 return null;
             }
-            if(expected is <1 or >10000||r.GetInt64(0)!=expected||r.GetInt64(1)!=1||r.GetInt64(2)!=1)
+            if(expected is <1 or >10000||r.GetInt64(0)!=expected||r.GetInt64(1)!=1||r.GetInt64(2)!=1||r.GetInt64(3)!=1)
                 throw new InvalidOperationException("Incomplete historical archive.");
         }
         var map=ArchiveClientMap(c,t,crm!);
@@ -126,9 +126,11 @@ public sealed partial class LocalPractice
                 ("$t",row.Title),("$s",row.Site),("$l",row.LegacyStatus),("$a",row.LegacyAuthorizationStatus),
                 ("$e",row.AuthorizationEvidenceRef))!=1)
                 throw new InvalidOperationException("Historical archive row write failed.");
-        if(Exec(c,t,ArchiveInsertSeal,("$u",UtcNow()))!=1||ArchiveTarget(c,t,p)!="AlreadyImported")
-            throw new InvalidOperationException("Historical archive seal/readback failed.");
+        if(Exec(c,t,ArchiveInsertSeal,("$u",UtcNow()))!=1)
+            throw new InvalidOperationException("Historical archive seal failed.");
         Audit(c,t,actor,"CommitHistoricalProjectArchive","Firm",1);
+        if(ArchiveTarget(c,t,p)!="AlreadyImported")
+            throw new InvalidOperationException("Historical archive readback failed.");
         t.Commit();
         return new("Imported",p.ProjectTransferSha256,p.Rows.Count);
     }
