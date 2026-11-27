@@ -13,9 +13,10 @@ internal sealed class SyntheticFolderProvisioning
  internal long ProjectId=>projectId;
  readonly long projectId;
  readonly string projectNumber;
- public SyntheticFolderProvisioning(string ownedRoot,long projectId,string projectNumber)
+ readonly ProjectFolderLayout layout;
+ public SyntheticFolderProvisioning(string ownedRoot,long projectId,string projectNumber,ProjectFolderLayout? layout=null)
  {
-  this.projectId=projectId;this.projectNumber=projectNumber;
+  this.projectId=projectId;this.projectNumber=projectNumber;this.layout=layout??ProjectFolderLayout.Default();
   var root=Path.GetFullPath(ownedRoot);
   RequireDirectory(root);
   WorkspaceRoot=root;
@@ -51,7 +52,7 @@ internal sealed class SyntheticFolderProvisioning
   var root=entry.Boundary switch{"Production"=>production,"Restricted"=>restricted,_=>throw new ArgumentException("Unknown boundary.")};
   RequireDirectory(root);
   var parts=entry.RelativeDirectory.Split('/');
-  if(parts.Length is <1 or >2||parts[0]!=projectNumber||parts.Any(x=>x is "." or ".."||x.Contains('\\')||x.Contains(':')))
+  if(parts.Length is <1 or >5||parts[0]!=projectNumber||parts.Any(x=>x is "." or ".."||x.Contains('\\')||x.Contains(':')))
    throw new ArgumentException("Unexpected synthetic path.");
   var target=Path.GetFullPath(Path.Combine(root,Path.Combine(parts)));
   if(!target.StartsWith(root+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))
@@ -61,7 +62,7 @@ internal sealed class SyntheticFolderProvisioning
  static string Hash(object value)=>Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value))).ToLowerInvariant();
  Review Build(bool correspondence,bool includeRestricted)
  {
-  var plan=ProjectFolderPlanning.Build(projectId,projectNumber,correspondence,includeRestricted);
+  var plan=ProjectFolderPlanning.Build(projectId,projectNumber,correspondence,includeRestricted,layout);
   var steps=new List<Step>();
   // Bind both root identities in the owned synthetic workspace, including the parent.
   // Other platforms keep the preceding existence-only test and are not identity-qualified.
@@ -70,10 +71,17 @@ internal sealed class SyntheticFolderProvisioning
   foreach(var entry in plan.Entries)
   {
    var target=Resolve(entry);
-   // For the flat v2 template the project directory precedes every child.
-   var parent=Path.GetDirectoryName(target)!;
-   if(IsDirectory(parent))RequireDirectory(parent);
-   var present=IsDirectory(target);
+   // Observe ancestor components in order, never inspect a descendant of an absent
+   // or redirected parent. The logical plan guarantees parent-before-child order.
+   var parts=entry.RelativeDirectory.Split('/');
+   var root=entry.Boundary=="Production"?production:restricted;
+   var parent=root;var ancestorsPresent=true;
+   foreach(var component in parts[..^1])
+   {
+    parent=Path.Combine(parent,component);
+    if(!IsDirectory(parent)){ancestorsPresent=false;break;}
+   }
+   var present=ancestorsPresent&&IsDirectory(target);
    steps.Add(new(entry.Boundary,entry.RelativeDirectory,present,
     present&&OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Observe(target):null));
   }
@@ -98,6 +106,18 @@ internal sealed class SyntheticFolderProvisioning
    var parent=Path.GetDirectoryName(target)!;
    RequireDirectory(parent);
    using var parentPin=OperatingSystem.IsWindows()?SyntheticWindowsDirectoryIdentity.Open(parent):null;
+   if(OperatingSystem.IsWindows())
+   {
+    var currentRoots=new[]{workspacePin!.ReadCurrentIdentity(),productionPin!.ReadCurrentIdentity(),restrictedPin!.ReadCurrentIdentity()};
+    if(!currentRoots.SequenceEqual(reviewed.RootIdentities)||
+       !new[]{WorkspaceRoot,production,restricted}.Select(SyntheticWindowsDirectoryIdentity.Observe).SequenceEqual(reviewed.RootIdentities))
+     throw new IOException("Synthetic root identity changed.");
+    // Parent must still be the directory that was observed or created by this operation.
+    var prior=completed.FirstOrDefault(x=>x.Boundary==step.Boundary&&
+      x.RelativeDirectory==step.RelativeDirectory[..Math.Max(0,step.RelativeDirectory.LastIndexOf('/'))]);
+    var expectedParent=prior?.DirectoryIdentity??reviewed.RootIdentities[step.Boundary=="Production"?1:2];
+    if(parentPin!.Identity!=expectedParent)throw new IOException("Synthetic parent identity changed.");
+   }
    var present=IsDirectory(target);
    if(present!=step.Exists)throw new IOException("Synthetic directory changed after review.");
    if(present)

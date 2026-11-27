@@ -9,7 +9,7 @@ internal sealed class SyntheticFolderJournal
  public SyntheticFolderJournal(string path,SyntheticFolderProvisioning folders,long project)
  {
   if(project!=folders.ProjectId)throw new ArgumentException("Synthetic journal project identity mismatch.");
-  if(!string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)),folders.WorkspaceRoot,StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Synthetic journal must remain in its owned workspace.");
+  if(!string.Equals(Path.GetFullPath(path),Path.Combine(folders.WorkspaceRoot,"synthetic-journal.db"),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Synthetic journal must use the single owned workspace journal.");
   this.folders=folders;this.project=project;
   connection=new SqliteConnectionStringBuilder{DataSource=path,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString();
   using var c=Open();
@@ -95,9 +95,11 @@ internal sealed class SyntheticFolderJournal
    t.Commit();
   }
   var result=folders.Apply(correspondence,restricted,reviewHash,true,afterCreate);
+  var completed=folders.Preview(correspondence,restricted);
   beforeOutcome?.Invoke();
   var final=folders.Preview(correspondence,restricted);
-  if(final.PlanFingerprint!=review.PlanFingerprint||final.Steps.Any(x=>!x.Exists))throw new IOException("Folder outcome no longer matches the reviewed plan.");
+  if(final.PlanFingerprint!=review.PlanFingerprint||final.Steps.Any(x=>!x.Exists)||
+     final.ReviewFingerprint!=completed.ReviewFingerprint)throw new IOException("Folder outcome no longer matches the reviewed plan.");
   using(var c=Open())
   using(var t=c.BeginTransaction(deferred:false))
   {
@@ -131,6 +133,7 @@ internal static class SyntheticFolderJournalTests
   }
   check(SyntheticFolderOperationFence.ProbeInOtherProcess(root)==0,"folder fence released after handle disposal");
   Reject<ArgumentException>(()=>new SyntheticFolderJournal(path,folders,12),"journal rejects mismatched project identity");
+  Reject<ArgumentException>(()=>new SyntheticFolderJournal(Path.Combine(root,"alternate.db"),folders,11),"alternate journal cannot bypass uncertainty");
   var review=folders.Preview(false,false);
   Reject<ArgumentException>(()=>journal.ExecuteReviewed(false,false,review.ReviewFingerprint,false),"journal confirmation required");
   check(journal.Pending()==null,"unconfirmed folder review records no intent");

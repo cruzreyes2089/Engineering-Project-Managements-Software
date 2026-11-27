@@ -164,6 +164,7 @@ try{
  ProjectEvidenceTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"project-evidence.db"),pw,Check);
   SyntheticFolderProvisioningTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderJournalTests.Run(Path.GetDirectoryName(path)!,Check);
+  SyntheticNestedFolderTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderBackupTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderCrashTests.Run(Check);
   FirmStoragePreferenceTests.Run(Path.GetDirectoryName(path)!,pw,Check);
