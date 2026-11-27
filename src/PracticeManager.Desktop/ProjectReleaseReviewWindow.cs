@@ -16,8 +16,8 @@ internal sealed class ProjectReleaseReviewWindow:Window
   this.service=service;this.project=project;Title="Internal PDF release review";Width=1050;Height=720;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();
   head.Children.Add(new TextBlock{Text="Select current production PDF versions for internal review only. No electronic signatures, technical validation, permission to issue or delivery is inferred. Active project, conflict clearance, start authorization and resolved QA required.",TextWrapping=TextWrapping.Wrap});
-  WorkWindowFields.Button(head,"Refresh current versions",Refresh);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
-  var bottom=new StackPanel();bottom.Children.Add(new TextBlock{Text="Proposed purpose"});bottom.Children.Add(purpose);bottom.Children.Add(new TextBlock{Text="Proposed recipient (label only; no sending)"});bottom.Children.Add(recipient);bottom.Children.Add(new TextBlock{Text="Review note"});bottom.Children.Add(note);WorkWindowFields.Button(bottom,"Prepare and save private review ZIP",Save);
+  var refreshBar=new WrapPanel();WorkWindowFields.Button(refreshBar,"Refresh current versions",Refresh);head.Children.Add(refreshBar);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
+  var bottom=new StackPanel();bottom.Children.Add(new TextBlock{Text="Proposed purpose"});bottom.Children.Add(purpose);bottom.Children.Add(new TextBlock{Text="Proposed recipient (label only; no sending)"});bottom.Children.Add(recipient);bottom.Children.Add(new TextBlock{Text="Review note"});bottom.Children.Add(note);var saveBar=new WrapPanel();WorkWindowFields.Button(saveBar,"Prepare and save private review ZIP",Save);bottom.Children.Add(saveBar);
   DockPanel.SetDock(bottom,Dock.Bottom);root.Children.Add(bottom);
   grid.SelectionMode=DataGridSelectionMode.Extended;
   WorkWindowFields.Columns(grid,("ID","Id"),("File","FileName"),("Category","Category"),("Bytes","Bytes"),("SHA-256","Hash"));
