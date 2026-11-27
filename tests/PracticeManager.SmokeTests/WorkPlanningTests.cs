@@ -25,6 +25,9 @@ internal static class WorkPlanningTests
   check(worker.ReadMyWork(day,day.AddDays(10)).Single().Id==task,"own work scoped to linked employee");
   Denied(()=>worker.ReadProjectTasks(project),"own work grant does not grant planning register");
   Denied(()=>worker.ReadStaffSchedule(day,day.AddDays(10)),"own work grant does not grant staff schedule");
+  Denied(()=>worker.ReadStaffWorkload(day,day.AddDays(10)),"own work grant does not grant staff workload");
+  var pendingWorkload=s.ReadStaffWorkload(day,day.AddDays(3));
+  check(pendingWorkload.Rows.Count==2&&pendingWorkload.Rows.All(x=>x.HeldTasks==1&&x.HeldMinutes==120&&x.EligibleMinutes==0&&x.ScenarioCapacityMinutes==null),"pending projects held with no assumed capacity");
   Invalid(()=>worker.AdvanceMyTask(task,1,"InProgress"),"pending project cannot start task");
   Invalid(()=>s.EditProjectPhase(project,phase,1,"Design",day,day.AddDays(1)),"phase cannot exclude existing tasks");
   s.EditProjectTask(project,task,1,plan with{EstimateMinutes=180});
@@ -32,6 +35,9 @@ internal static class WorkPlanningTests
   var a=s.RecordSignedAgreement(project,hash,"test.pdf","%PDF-1.7\nSynthetic only\n%%EOF"u8.ToArray(),"Synthetic review",true);
   ConflictReviewTests.Clear(s,project);
   check(s.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")=="Active","project explicitly authorized for work");
+  var plannedWorkload=s.ReadStaffWorkload(day,day.AddDays(3),60);
+  check(plannedWorkload.Rows.Single(x=>x.EmployeeId==e).EligibleMinutes==180&&plannedWorkload.Rows.Single(x=>x.EmployeeId==e).OverCapacityWeekdays==2,"authorized workload allocated to weekdays with scenario overload");
+  check(plannedWorkload.Rows.Single(x=>x.EmployeeId==other).ScenarioCapacityMinutes==120,"scenario capacity counts weekdays inclusively");
   Invalid(()=>worker.AdvanceMyTask(otherTask,1,"InProgress"),"cannot start another employee task");
   Invalid(()=>worker.AdvanceMyTask(task,2,"Completed"),"cannot skip task start");
   worker.AdvanceMyTask(task,2,"InProgress");check(worker.ReadMyWork(day,day.AddDays(10)).Single().State=="InProgress","own task started");
@@ -108,6 +114,8 @@ internal static class WorkPlanningTests
   check(s.ReadProjectCloseoutReview(project).OpenTasks==1,"discontinued task is not outstanding");
   var afterStop=s.ReadProjectOperations(project,day,day.AddDays(10));
   check(afterStop.DiscontinuedTasks==1&&afterStop.CancelledTasks==2&&afterStop.StartedTasks==0&&afterStop.EstimatedMinutes==300,"report separates discontinued task and excludes its original estimate");
+  var heldWorkload=s.ReadStaffWorkload(day,day.AddDays(10));
+  check(heldWorkload.Rows.Single(x=>x.EmployeeId==other).HeldMinutes==120&&heldWorkload.Rows.Single(x=>x.EmployeeId==e).EligibleTasks==0&&heldWorkload.Rows.Single(x=>x.EmployeeId==e).HeldTasks==0,"closed task history excluded and conflict-held task separated");
   var employee=s.ReadEmployees().Single(x=>x.Id==e);s.EditEmployee(e,employee.Revision,new(employee.First,employee.Last,employee.Email,employee.Title,false));Denied(()=>worker.ReadMyWork(day,day.AddDays(10)),"inactive linked employee denied work access");
  }
 }

@@ -107,6 +107,20 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction();RequirePlan(c,t);DateRange(start,end,366);
   using var q=Command(c,t,TaskProjection+" WHERE t.start_on<=$e AND t.end_on>=$s AND ($i IS NULL OR e.id=$i) ORDER BY t.start_on,t.id LIMIT 501",("$s",PlanDate(start)),("$e",PlanDate(end)),("$i",employee));return TaskRows(q);
  }
+ public StaffWorkloadReview ReadStaffWorkload(DateOnly start,DateOnly end,int? scenarioMinutesPerWeekday=null)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequirePlan(c,t);DateRange(start,end,366);
+  var employees=new List<WorkloadEmployee>();
+  using(var q=Command(c,t,"SELECT id,employee_no,trim(first_name||' '||last_name),active FROM employees ORDER BY employee_no,id LIMIT 501"))
+  using(var r=q.ExecuteReader())while(r.Read())
+  {
+   if(employees.Count==500)throw new ArgumentException("Employee register exceeds workload review limit.");
+   employees.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2),r.GetBoolean(3)));
+  }
+  using var tasks=Command(c,t,TaskProjection+" WHERE t.start_on<=$e AND t.end_on>=$s ORDER BY t.start_on,t.id LIMIT 501",
+   ("$s",PlanDate(start)),("$e",PlanDate(end)));
+  return StaffWorkload.Build(start,end,scenarioMinutesPerWeekday,employees,TaskRows(tasks));
+ }
  private long OwnEmployee(SqliteConnection c,SqliteTransaction t)
  {
   var actor=Require(c,t,"Work.Own");
