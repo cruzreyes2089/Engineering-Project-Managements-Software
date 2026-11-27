@@ -20,7 +20,11 @@ internal sealed class ProjectReportsWindow:Window
    WorkWindowFields.Button(filters,"Review closeout (all dates)",()=>{tabs.SelectedItem=closeoutTab;RefreshCloseout();});
    if(service.Can("Projects.Closeout"))WorkWindowFields.Button(filters,"Close / reopen project",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectLifecycleWindow(service,p.Id){Owner=this}.ShowDialog();tabs.SelectedItem=closeoutTab;RefreshCloseout();});
   }
-  if(service.Can("Reports.Financial"))tabs.Items.Add(new TabItem{Header="Restricted financial preview",Content=new ScrollViewer{Content=finance}});
+  if(service.Can("Reports.Financial")){
+   tabs.Items.Add(new TabItem{Header="Restricted financial preview",Content=new ScrollViewer{Content=finance}});
+   if(service.Can("Billing.Rates")&&service.Can("Reports.Operations")&&service.Can("Projects.Budget.View"))
+    WorkWindowFields.Button(filters,"Direct-cost scenario",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectCostScenarioWindow(service,p.Id){Owner=this}.ShowDialog();});
+  }
   root.Children.Add(tabs);Content=root;projects.SelectionChanged+=(_,_)=>{ops.Text=finance.Text=closeout.Text="";status.Text="Generate report for selected project.";};
  }
  void RefreshCloseout()

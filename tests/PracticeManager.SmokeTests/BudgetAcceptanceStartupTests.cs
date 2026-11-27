@@ -18,7 +18,7 @@ internal static class BudgetAcceptanceStartupTests
   var role=service.ReadStaffRoles().Single(x=>x.Name=="Engineer");
   service.SetStaffGrant(role.Id,"Projects.Budget.View",true,false);
   check(service.ReadStaffGrants(role.Id).Single(x=>x.Permission=="Projects.Budget.View").Allowed,"budget viewer grant persisted via staff administration");
-  var client=service.SaveClient(new Client(0,"","Business / Company","Synthetic restart client","","","","","","","","","","","","Active"));
+  var client=service.SaveClient(new Client(0,"","Business / Company","Synthetic restart client","","","","","","","","","","","Active"));
   var proposal=service.CreateProposal(new(client,"Synthetic restart project","Site","Scope",100m));
   var proposalHash=ConflictReviewTests.Issue(service,proposal,1);
   var project=service.RecordProposalDecision(proposal,proposalHash,true,"Synthetic").ProjectId!.Value;

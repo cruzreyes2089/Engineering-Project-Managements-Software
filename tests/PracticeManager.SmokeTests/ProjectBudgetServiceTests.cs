@@ -16,7 +16,7 @@ internal static class ProjectBudgetServiceTests
   var proposalHash=ConflictReviewTests.Issue(admin,proposal,1);
   var project=admin.RecordProposalDecision(proposal,proposalHash,true,"Synthetic").ProjectId!.Value;
   var employee=admin.CreateEmployee(new("Synthetic","Budget worker","","",true),user);
-  var day=new DateOnly(2026,11,26);var phase=admin.CreateProjectPhase(project,"Design",day,day);
+  var day=DateOnly.FromDateTime(DateTime.Today);var phase=admin.CreateProjectPhase(project,"Design",day,day);
   var plan=new ProjectTaskPlan(phase,employee,"Design",day,day,120);var task=admin.CreateProjectTask(project,plan);
   var effort=admin.ReadProjectEffort(project);var snapshot=ProjectBudgetReview.SnapshotHash(project,effort);
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
@@ -70,6 +70,35 @@ internal static class ProjectBudgetServiceTests
   check(saved.CanRecord&&saved.ReviewedSnapshotHash==nextSnapshot&&saved.History.Budgets.Count==2&&saved.History.Forecasts.Single().Hash==forecast.Entry.Hash,"budget workspace refresh reconciles revision and forecast");
   VerifyRecoveryCandidate(path,check);
   VerifyRecoveryWorkflow(admin,path,check);
+  var assumptions=new ProjectCostAssumptions(1000m,50m,40m);
+  Denied(()=>worker.ReadProjectCostScenario(project,assumptions),"budget viewer cannot see financial forecast");
+  var initialCost=admin.ReadProjectCostScenario(project,assumptions);
+  check(initialCost.ForecastMinutes==160&&initialCost.EstimatedDirectCost==173.33m,"candidate financial scenario uses saved remaining forecast");
+  admin.SetStaffGrant(role.Id,"Work.Own",true,false);
+  var agreement=admin.RecordSignedAgreement(project,proposalHash,"test.pdf","%PDF-1.7\\nSynthetic only\\n%%EOF"u8.ToArray(),"Synthetic review",true);
+  ConflictReviewTests.Clear(admin,project);check(admin.AuthorizeProjectStart(project,proposalHash,agreement.Id,agreement.PdfHash,true,"Synthetic")=="Active","financial fixture project authorized");
+  worker.AdvanceMyTask(task,2,"InProgress");
+  var approvedId=worker.SubmitWork(new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",60,null,null,"Synthetic approved time"));
+  var pendingId=worker.SubmitWork(new WorkSubmissionInput(Guid.NewGuid(),task,day,"Time",30,null,null,"Synthetic pending time"));
+  var expenseId=worker.SubmitWork(new WorkSubmissionInput(Guid.NewGuid(),task,day,"Expense",null,20m,"Supplies","Synthetic approved expense"));
+  worker.SubmitWork(new WorkSubmissionInput(Guid.NewGuid(),task,day,"Expense",null,10m,"Supplies","Synthetic pending expense"));
+  check(admin.ReviewWork(approvedId,true,"Synthetic")=="Approved"&&admin.ReviewWork(expenseId,true,"Synthetic")=="Approved","financial fixture independently reviews recorded work");
+  try{admin.ReadProjectCostScenario(project,assumptions);throw new Exception("FAIL: stale cost forecast");}
+  catch(ArgumentException){check(true,"financial forecast refuses stale effort record");}
+  var current=ProjectBudgetReview.SnapshotHash(project,admin.ReadProjectEffort(project));
+  admin.RecordProjectEffortForecast(project,Guid.NewGuid(),forecast.Entry.Hash,second.Entry.Model.Hash,current,new[]{new TaskRemainingInput(task,60)},"Synthetic revised cost forecast",true);
+  var missing=admin.ReadProjectCostScenario(project,assumptions);
+  check(missing.Evidence.ApprovedMissingRates==1&&missing.Evidence.PendingMissingRates==1&&missing.EstimatedDirectCost==null,"missing work-date rates block actual service cost estimate");
+  admin.RecordEmployeeRate(new(employee,day.AddDays(-1),180m,35m));
+  admin.RecordEmployeeRate(new(employee,day.AddDays(1),180m,99m));
+  var cost=admin.ReadProjectCostScenario(project,assumptions);
+  check(cost.Evidence.ApprovedMinutes==60&&cost.Evidence.PendingMinutes==30&&cost.Evidence.ApprovedKnownLabor==35m&&cost.Evidence.PendingKnownLabor==17.50m&&cost.EstimatedDirectCost==172.50m&&cost.ProjectedDirectContribution==827.50m,"actual service uses effective dated rates and separates pending costs");
+  admin.SetStaffGrant(role.Id,"Reports.Financial",true,false);
+  Denied(()=>worker.ReadProjectCostScenario(project,assumptions),"financial report without rates grant cannot see scenario");
+  admin.SetStaffGrant(role.Id,"Billing.Rates",true,false);
+  check(worker.ReadProjectCostScenario(project,assumptions).EstimatedDirectCost==172.50m,"explicit restricted financial grants permit read-only scenario");
+  admin.SetStaffGrant(role.Id,"Billing.Rates",false,true);
+  Denied(()=>worker.ReadProjectCostScenario(project,assumptions),"revoked rates grant denies scenario");
   worker.Logout();Denied(()=>worker.ReadProjectBudgetHistory(project),"budget read rejects signed-out actor");
   Denied(()=>worker.ReadProjectBudgetWorkspace(project),"budget workspace rejects signed-out actor");
   admin.Logout();Denied(()=>admin.RecordProjectBudgetRevision(project,op,null,snapshot,120,"FirstRecorded","Synthetic baseline",true),"budget replay requires current authorized actor");

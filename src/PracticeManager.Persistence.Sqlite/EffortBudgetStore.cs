@@ -184,7 +184,7 @@ internal sealed class EffortBudgetStore(SqliteConnection db,Func<SqliteTransacti
   if(read.Hash!=hash||read.Model.Hash!=model.Hash||read.Operation!=key||read.Actor!=actor||read.Sequence!=sequence||read.Previous!=expectedForecast||read.Reason!=reason||read.Utc!=utc||read.AuditId!=audit)throw new InvalidOperationException("Forecast read-back failed.");
   t.Commit();return(read,false);
  }
- EffortBudgetHistory ReadCore(SqliteTransaction t,long project)
+ internal EffortBudgetHistory ReadCore(SqliteTransaction t,long project)
  {
   var b=Budgets(t,project);var f=Forecasts(t,project,b);
   return new(b,f);
