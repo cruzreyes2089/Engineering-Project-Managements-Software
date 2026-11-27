@@ -88,6 +88,7 @@ public sealed partial class LocalPractice
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Employees.Edit");Require(c,t,"Employees.View");var v=ValidateEmployee(input);
   if(Exec(c,t,"UPDATE employees SET first_name=$f,last_name=$l,email=$e,title=$t,active=$a,revision=revision+1 WHERE id=$i AND revision=$r",("$f",v.First),("$l",v.Last),("$e",v.Email),("$t",v.Title),("$a",input.Active?1:0),("$i",id),("$r",revision))!=1)throw new ArgumentException("Employee changed. Refresh.");Audit(c,t,actor,"Update","Employee",id);t.Commit();
  }
+ public LicenseExpiryReview ReadLicenseExpiryReview(DateOnly asOf)=>throw new NotImplementedException("Firm license expiry review not implemented.");
  public IReadOnlyList<EmployeeLicense> ReadEmployeeLicenses(long employee)
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Employees.View");using var q=Command(c,t,"SELECT id,employee_id,jurisdiction,license_type,license_number,expires_on,revision FROM employee_licenses WHERE employee_id=$i ORDER BY expires_on,id",("$i",employee));using var r=q.ExecuteReader();var rows=new List<EmployeeLicense>();while(r.Read())rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetString(2),r.GetString(3),r.GetString(4),DateOnly.ParseExact(r.GetString(5),"yyyy-MM-dd",CultureInfo.InvariantCulture),r.GetInt32(6)));return rows.AsReadOnly();

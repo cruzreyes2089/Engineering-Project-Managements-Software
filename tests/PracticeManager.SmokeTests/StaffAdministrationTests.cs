@@ -42,5 +42,29 @@ internal static class StaffAdministrationTests
   s.EditEmployee(employee,e.Revision,new(e.First,e.Last,e.Email,e.Title,false));check(!s.ReadEmployees().Single().Active,"employee status persisted");
   Invalid(()=>s.CreateEmployeeLicense(employee,"CA","Other","SYNTHETIC2",day),"inactive employee cannot receive license");
   check(!s.ReadEmployees().Single().ToString().Contains("password",StringComparison.OrdinalIgnoreCase),"employee view has no credentials or rates");
+  var initial=s.ReadLicenseExpiryReview(day);check(initial.EvaluationDate==day&&initial.Rows.Count==0&&initial.ExpiredCount==0&&initial.DueTodayCount==0&&initial.UpcomingCount==0,"empty active license expiry review");
+  check(replacement.Login("synthetic-engineer","Synthetic-permanent-0002"),"ordinary user signed in for license review permission test");
+  Denied(()=>replacement.ReadLicenseExpiryReview(DateOnly.MinValue),"license expiry review authorization precedes date validation");
+  var second=s.CreateEmployee(new("Synthetic","Active","","Engineer",true));
+  var expired=s.CreateEmployeeLicense(second,"CA","Civil Engineer","SECRET-SYNTHETIC-1",day.AddDays(-1));
+  var today=s.CreateEmployeeLicense(second,"CA","Civil Engineer","SECRET-SYNTHETIC-2",day);
+  var upcoming=s.CreateEmployeeLicense(second,"CA","Civil Engineer","SECRET-SYNTHETIC-3",day.AddDays(30));
+  s.CreateEmployeeLicense(second,"CA","Civil Engineer","SECRET-SYNTHETIC-4",day.AddDays(31));
+  var inactive=s.CreateEmployee(new("Synthetic","Inactive","","Engineer",true));
+  s.CreateEmployeeLicense(inactive,"CA","Civil Engineer","SECRET-SYNTHETIC-5",day.AddDays(-1));
+  var inactiveRow=s.ReadEmployees().Single(x=>x.Id==inactive);s.EditEmployee(inactive,inactiveRow.Revision,new(inactiveRow.First,inactiveRow.Last,inactiveRow.Email,inactiveRow.Title,false));
+  var review=s.ReadLicenseExpiryReview(day);
+  check(review.Rows.Select(x=>x.LicenseId).SequenceEqual(new[]{expired,today,upcoming})&&review.Rows.All(x=>x.EmployeeId==second),"firm expiry review includes active employees and inclusive thirty day boundary only");
+  check(review.ExpiredCount==1&&review.DueTodayCount==1&&review.UpcomingCount==1&&review.Rows.Select(x=>x.DaysUntilExpiry).SequenceEqual(new[]{-1,0,30}),"expired due today and upcoming buckets reconcile");
+  check(review.Rows.Select(x=>x.Status).SequenceEqual(new[]{"Expired","Due today","Due within 30 days"})&&!review.Rows.Any(x=>x.ToString().Contains("SECRET-SYNTHETIC",StringComparison.Ordinal)),"minimal expiry projection excludes license numbers");
+  Invalid(()=>s.ReadLicenseExpiryReview(DateOnly.MinValue),"invalid evaluation date denied");
+  Invalid(()=>s.ReadLicenseExpiryReview(DateOnly.MaxValue),"overflowing horizon denied");
+  s.SetStaffGrant(role.Id,"Employees.View",true,false);
+  check(replacement.ReadLicenseExpiryReview(day).Rows.SequenceEqual(review.Rows),"authorized employee directory reviewer sees same expiry results");
+  s.SetStaffGrant(role.Id,"Employees.View",false,true);
+  Denied(()=>replacement.ReadLicenseExpiryReview(day),"revoked directory permission blocks expiry review");
+  var exp=s.ReadEmployeeLicenses(second).Single(x=>x.Id==expired);s.RenewEmployeeLicense(second,exp.Id,exp.Revision,day.AddYears(1));
+  check(s.ReadLicenseExpiryReview(day).ExpiredCount==0&&s.ReadLicenseExpiryReview(day).Rows.Count==2,"renewal removes expired record from current review");
+
  }
 }

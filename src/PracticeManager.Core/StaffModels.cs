@@ -11,3 +11,7 @@ public sealed record EmployeeLicense(long Id,long EmployeeId,string Jurisdiction
 {
  public string ExpiryStatus(DateOnly asOf)=>Expires<asOf?"Expired":Expires.DayNumber-asOf.DayNumber<=30?"Due within 30 days":"Current";
 }
+
+// Recorded-date review, not confirmation of current licensing-board standing.
+public sealed record LicenseExpiryRow(long EmployeeId,string EmployeeNumber,string EmployeeName,long LicenseId,string Jurisdiction,string Type,DateOnly Expires,int DaysUntilExpiry,string Status);
+public sealed record LicenseExpiryReview(DateOnly EvaluationDate,IReadOnlyList<LicenseExpiryRow> Rows,int ExpiredCount,int DueTodayCount,int UpcomingCount);
