@@ -95,9 +95,9 @@ public static class HistoricalProjectTransfer
         var crm=Snapshot(crmBytes,expectedCrmSha256);
         var projects=Snapshot(projectBytes,expectedProjectSha256);
         var census=Snapshot(censusBytes,expectedCensusSha256);
-        var clients=LegacyCrmTransfer.Parse(crm).Clients.ToDictionary(x=>x.LegacyId,x=>x.Value.Status,StringComparer.OrdinalIgnoreCase);
         try
         {
+            var clients=LegacyCrmTransfer.Parse(crm).Clients.ToDictionary(x=>x.LegacyId,x=>x.Value.Status,StringComparer.OrdinalIgnoreCase);
             using var p=JsonDocument.Parse(projects,new JsonDocumentOptions{MaxDepth=8});
             using var c=JsonDocument.Parse(census,new JsonDocumentOptions{MaxDepth=8});
             var pr=p.RootElement;var cr=c.RootElement;
