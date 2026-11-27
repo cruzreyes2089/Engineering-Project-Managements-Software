@@ -2,6 +2,7 @@ using PracticeManager.Core;
 using PracticeManager.Persistence;
 using Microsoft.Data.Sqlite;
 if(args.Length==2&&args[0]=="--synthetic-folder-lock-probe")return SyntheticFolderOperationFence.Probe(args[1]);
+if(args.Length==2&&args[0]=="--synthetic-folder-crash-worker")return SyntheticFolderCrashTests.Worker(args[1]);
 var path = Path.Combine(Path.GetTempPath(), "CRC-test-" + Guid.NewGuid().ToString("N"), "test.db");
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 int passed=0;
@@ -164,6 +165,7 @@ try{
   SyntheticFolderProvisioningTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderJournalTests.Run(Path.GetDirectoryName(path)!,Check);
   SyntheticFolderBackupTests.Run(Path.GetDirectoryName(path)!,Check);
+  SyntheticFolderCrashTests.Run(Check);
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);
  RecoveryCopyTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"recovery-source.db"),pw,Check);
  OwnerApprovalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"owner-approval.db"),pw,Check);
