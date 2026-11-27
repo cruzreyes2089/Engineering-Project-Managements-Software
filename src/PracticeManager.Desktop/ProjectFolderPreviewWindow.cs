@@ -23,6 +23,7 @@ internal sealed class ProjectFolderPreviewWindow:Window
   {
    WorkWindowFields.Button(bar,"Choose template",()=>{new ProjectFolderSelectionWindow(service,project){Owner=this}.ShowDialog();Refresh();});
    WorkWindowFields.Button(bar,"Customize project folders",()=>{new ProjectFolderCustomizationWindow(service,project){Owner=this}.ShowDialog();Refresh();});
+   WorkWindowFields.Button(bar,"Storage assignment",()=>new ProjectStorageBindingWindow(service,project){Owner=this}.ShowDialog());
    WorkWindowFields.Button(bar,"Review storage locations",()=>new ProjectStorageDraftWindow(service,project,correspondence.IsChecked==true){Owner=this}.ShowDialog());
   }
   WorkWindowFields.Button(bar,"Close",Close);

@@ -10,7 +10,7 @@ public sealed record UpgradeRehearsalResult(int SourceSchema,int TargetSchema,st
 // publish the disposable copy as a working database. The local folder must be trusted.
 public static class UpgradeRehearsal
 {
- const int CurrentSchema=53;
+ const int CurrentSchema=54;
  const long MaximumBytes=4L*1024*1024*1024;
  static readonly string[] Sidecars=["-wal","-shm","-journal"];
  private sealed record Snapshot(int Version,long Clients,long Contacts,long Users,string IdentityHash);

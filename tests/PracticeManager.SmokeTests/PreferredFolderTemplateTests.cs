@@ -49,7 +49,7 @@ internal static class PreferredFolderTemplateTests
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=old,Pooling=false,ForeignKeys=true}.ToString()))
   {
    db.Open();using var q=db.CreateCommand();
-   q.CommandText="DROP TABLE preferred_folder_templates; DROP TRIGGER folder_template_rule_retired; INSERT INTO folder_template_rules(firm_id,category,enabled,recorded_by,recorded_utc) VALUES(1,'Legacy category',1,1,'Synthetic'); PRAGMA user_version=52";q.ExecuteNonQuery();
+   q.CommandText="DROP TABLE project_storage_bindings; DROP TABLE preferred_folder_templates; DROP TRIGGER folder_template_rule_retired; INSERT INTO folder_template_rules(firm_id,category,enabled,recorded_by,recorded_utc) VALUES(1,'Legacy category',1,1,'Synthetic'); PRAGMA user_version=52";q.ExecuteNonQuery();
   }
   var upgraded=new LocalPractice(old);check(upgraded.Login("admin",pw)&&!upgraded.ReadPreferredFolderTemplate().Available&&upgraded.ReadProjectFolderPreview(project).Plan.Fingerprint==fingerprint,"schema 52 upgrade retains project selection without inventing preference");
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=old,Pooling=false,ForeignKeys=true}.ToString()))
