@@ -143,6 +143,7 @@ try{
  TestLedgerReconciliationTests.Run(Check);
   SyntheticReceiptCapacityTests.Run(Check);
  await SyntheticConcurrentReceiptTests.Run(Check);
+ await SyntheticAccountingRestoreTests.Run(Path.GetDirectoryName(path)!,pw,Check);
  SyntheticRecoveryReviewTests.Run(Check);
  SyntheticWireCompilerTests.Run(Check);
  SyntheticWireReadbackTests.Run(Check);

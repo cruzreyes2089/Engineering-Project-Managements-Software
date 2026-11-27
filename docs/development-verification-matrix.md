@@ -76,3 +76,5 @@ The later read-only storage observation revision must be qualified separately. N
 Accounting receipt-capacity candidate added independently of production posting; G2, G3, G5–G8 remain open. No production access or release approval.
 
 - Receipt capacity review: 27432965f0641ea97e91162984a0ca1b59f64709, run 46066468327: 103 Python, 2,144 native, zero warnings/errors. DAO and Windows rename exclusion remain unqualified. Concurrent reference-provider candidate pending; no live accounting authorization.
+
+- Concurrent receipt reference-provider regression: e1c001de176bb85456b1fd6095b41c5d2083ec7f, run 46073194557: 103 Python, 2,158 native, zero warnings/errors. No actual provider concurrency, DAO or Windows rename exclusion qualification. Accounting backup/restore regression candidate pending.
