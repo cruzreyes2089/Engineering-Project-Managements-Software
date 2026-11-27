@@ -84,6 +84,7 @@ try{
   q.CommandText="INSERT INTO firms VALUES(1,'Migration Test','CL'); INSERT INTO roles VALUES(1,'Administrator'),(2,'Employee'); INSERT INTO permissions VALUES('Clients.View'); INSERT INTO role_permissions VALUES(1,'Clients.View',1); INSERT INTO users(id,username,normalized_username,password_hash,role_id,active) VALUES(1,'admin','ADMIN',$h,1,1),(2,'employee','EMPLOYEE',$h,2,1); INSERT INTO clients(client_no,client_type,company_name) VALUES('CL-000001','Business / Company','Migration Test Client');";
   q.Parameters.AddWithValue("$h",PasswordCodec.Hash(pw));q.ExecuteNonQuery();
  }
+ UpgradeRehearsalTests.Run(legacyPath,pw,Check);
  var migrated=new LocalPractice(legacyPath);
  Check(migrated.Login("admin",pw),"v1 upgrade preserves administrator login");
  Check(migrated.SearchClients("").Count==1,"v1 upgrade preserves client records");
