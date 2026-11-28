@@ -93,18 +93,26 @@ public static class WorkspaceConfidentiality
   var full=LocalStoragePath.FilePath(path,mustExist:true,rejectSidecars:true);
   return OperatingSystem.IsWindows()&&CheckWindowsFile(full);
  }
+ // Database and marker files normally inherit the qualified parent DACL.
+ // Accept the same exact trusted principals on an inherited or explicit file
+ // DACL, without changing the file. Recovery staging still requires explicit ACLs.
+ public static bool HasWorkspaceFileAcl(string path)
+ {
+  var full=LocalStoragePath.FilePath(path,mustExist:true);
+  return OperatingSystem.IsWindows()&&HasRestrictedDirectoryAcl(Path.GetDirectoryName(full)!)&&CheckWindowsFile(full,allowInherited:true);
+ }
  [SupportedOSPlatform("windows")]
- static bool CheckWindowsFile(string full)
+ static bool CheckWindowsFile(string full,bool allowInherited=false)
  {
   var trusted=TrustedPrincipals();
   var security=new FileInfo(full).GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
   var raw=new RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(),0);
-  if(raw.DiscretionaryAcl is null||!security.AreAccessRulesProtected||!security.AreAccessRulesCanonical||
+  if(raw.DiscretionaryAcl is null||(!allowInherited&&!security.AreAccessRulesProtected)||!security.AreAccessRulesCanonical||
      security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner||!trusted.Contains(owner))return false;
   var seen=new HashSet<SecurityIdentifier>();
   foreach(FileSystemAccessRule rule in security.GetAccessRules(true,true,typeof(SecurityIdentifier)))
    if(rule.IdentityReference is not SecurityIdentifier sid||!trusted.Contains(sid)||!seen.Add(sid)||
-      rule.IsInherited||rule.AccessControlType!=AccessControlType.Allow||rule.FileSystemRights!=FileSystemRights.FullControl||
+      (!allowInherited&&rule.IsInherited)||rule.AccessControlType!=AccessControlType.Allow||rule.FileSystemRights!=FileSystemRights.FullControl||
       rule.InheritanceFlags!=InheritanceFlags.None||rule.PropagationFlags!=PropagationFlags.None)return false;
   return seen.SetEquals(trusted);
  }
