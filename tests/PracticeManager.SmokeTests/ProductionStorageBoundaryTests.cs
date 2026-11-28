@@ -193,6 +193,25 @@ internal static class ProductionStorageBoundaryTests
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",Guid.NewGuid().ToString("N")}),"unknown acceptance session refused without creation");
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,Array.Empty<string>()),"implicit acceptance startup refused");
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session","../other"}),"invalid acceptance session refused");
+   var sessionBackup=Path.Combine(sessionRoot,"synthetic-backups");
+   var backupReceipt=reopened.Service.CreateConfiguredAcceptanceBackup();
+   check(Path.GetDirectoryName(backupReceipt.Path)==sessionBackup&&File.Exists(backupReceipt.Path),"acceptance backup uses configured directory");
+   Refuse(()=>reopened.Service.CreateRecoveryCopy(Path.Combine(root,"outside-backup.db")),"acceptance backup rejects outside destination");
+   check(!File.Exists(Path.Combine(root,"outside-backup.db")),"refused backup does not create outside file");
+   var restore=reopened.Service.VerifyConfiguredAcceptanceBackup(backupReceipt.Path,backupReceipt.Sha256);
+   check(Path.GetDirectoryName(restore.Path)==sessionBackup&&restore.Path!=backupReceipt.Path&&restore.Sha256==backupReceipt.Sha256,"configured isolated restore preserves source and hash");
+   try{_=new LocalPractice(restore.Path);throw new Exception("FAIL: recovery copy opened as development");}
+   catch(InvalidOperationException){check(true,"recovery-only copy refused by normal opener");}
+   Refuse(()=>reopened.Service.VerifyConfiguredAcceptanceBackup(backupReceipt.Path,new string('0',64)),"wrong recovery hash refused");
+   var unrelated=ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-new"});
+   unrelated.Service.Bootstrap("Other synthetic firm","admin",pw,"CL");
+   check(unrelated.Service.Login("admin",pw),"separate acceptance fixture authenticates");
+   var unrelatedBackup=Path.Combine(desktopProfile,"CRC Practice Manager PRODUCTION ACCEPTANCE",unrelated.SessionId,"synthetic-backups");
+   var foreignPath=Path.Combine(unrelatedBackup,"foreign.db");
+   File.Copy(backupReceipt.Path,foreignPath);
+   WorkspaceConfidentiality.ProtectOwnedStagingFile(foreignPath);
+   Refuse(()=>unrelated.Service.VerifyConfiguredAcceptanceBackup(foreignPath,backupReceipt.Sha256),"foreign workspace recovery rejected despite matching hash");
+   check(reopened.Service.IsInitialized(),"active workspace remains open after recovery validation");
    var sessionMarker=Path.Combine(sessionRoot,"production-acceptance-session.txt");
    File.WriteAllText(sessionMarker,session.SessionId+":"+Guid.NewGuid().ToString("N"));
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",session.SessionId}),"changed session binding refuses reopen");
