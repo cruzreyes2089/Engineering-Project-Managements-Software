@@ -153,6 +153,14 @@ def verify_payload(raw, expected_hash, root):
     def identity(st):
         return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
+    def opened_identity_matches(path_stat, handle_stat):
+        # Windows path and descriptor stat results can use different device,
+        # inode and timestamp representations. Compare like with like there;
+        # both observations must still report the exact manifest size.
+        if os.name == "nt":
+            return path_stat.st_size == handle_stat.st_size
+        return identity(path_stat) == identity(handle_stat)
+
     inventory_tree()
     for name, row in expected.items():
         path = root.joinpath(*path_parts(name))
@@ -163,13 +171,14 @@ def verify_payload(raw, expected_hash, root):
         hashed = hashlib.sha256()
         count = 0
         with path.open("rb") as stream:
-            require(identity(os.fstat(stream.fileno())) == identity(before),
+            opened = os.fstat(stream.fileno())
+            require(stat.S_ISREG(opened.st_mode) and opened_identity_matches(before, opened),
                     "Payload file changed before reading")
             while chunk := stream.read(1024 * 1024):
                 count += len(chunk)
                 require(count <= row["bytes"], "Payload file grew during reading")
                 hashed.update(chunk)
-            require(identity(os.fstat(stream.fileno())) == identity(before),
+            require(identity(os.fstat(stream.fileno())) == identity(opened),
                     "Payload file changed while reading")
         require(identity(plain(path, False)) == identity(before)
                 and count == row["bytes"] and hashed.hexdigest() == row["sha256"],
@@ -189,8 +198,10 @@ def main():
             raw = stream.read(LIMIT + 1)
         report = (verify_payload(raw, args.expected_sha256, args.payload_root)
                   if args.payload_root is not None else validate(raw, args.expected_sha256))
-    except (ValueError, OSError, UnicodeError, RecursionError):
-        print("Installer layout rejected; inspect trusted inventory locally.", file=sys.stderr)
+    except (ValueError, OSError, UnicodeError, RecursionError) as exc:
+        # Fixed validation messages identify the failed invariant. Never print
+        # raw OS errors or JSON input, which may contain local paths/data.
+        print("Installer payload rejected: " + (str(exc) if type(exc) is ValueError else type(exc).__name__), file=sys.stderr)
         return 2
     print(json.dumps(report, sort_keys=True))
     return 0
