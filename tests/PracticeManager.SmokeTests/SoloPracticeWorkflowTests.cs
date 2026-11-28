@@ -36,6 +36,7 @@ internal static class SoloPracticeWorkflowTests
   var office=s.SubmitOverheadTime(new(Guid.NewGuid(),day,WorkDuration.Parse("0:30"),"Administration","Office work"));
   var expense=s.SubmitWork(new(Guid.NewGuid(),task,day,"Expense",null,12.34m,"Supplies","Synthetic receipt"));
   s.RecordEmployeeRate(new(employee,day,180m,35m));
+  check(s.ReadAcceptedBillingFee(project)==1000m&&s.ReadBillingPolicy(project)==null,"billing setup displays accepted fee without implicitly recording terms");
   s.RecordBillingPolicy(new(project,"FixedFee",1000m,1000m,false,"Reviewed fixed fee; expenses included"));
   check(s.ReadInvoiceCandidates(project,day).Count==0&&s.ReadProjectFinancialReport(project,day,day).ApprovedMinutes==0,"unreviewed solo work does not enter billing or approved totals");
   var policy=s.ReadOwnerApprovalPolicy();
@@ -65,6 +66,9 @@ internal static class SoloPracticeWorkflowTests
   check(restored.Clients==1&&restored.Projects==1&&copy.Login("admin",password)&&!copy.ReadOwnerApprovalPolicy().Enabled,"isolated restore preserves counts and disables self-approval");
   check(copy.ReadProjectFinancialReport(project,day,day)==fin&&copy.ReadProjectLifecycle(project).Single().Id==closed.Id&&copy.ReadInvoiceDraft(project,draft).Summary.PayloadHash==detail.Summary.PayloadHash,"restored project reports, lifecycle and invoice evidence reconcile");
   check(s.ReadOwnerApprovalPolicy().Enabled&&s.ReadProjectCloseoutReview(project).ProjectState=="OperationalClosed","source state unchanged by recovery");
+  var final=s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Final milestone",500m)},Array.Empty<long>()));
+  check(s.ReadInvoiceDraft(project,final).Summary.Total==500m&&s.ReadProjectCloseoutReview(project).ProjectState=="OperationalClosed","final fixed-fee draft allowed without reopening completed operations");
+  try{s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Excess",0.01m)},Array.Empty<long>()));throw new Exception("FAIL: excess final billing");}catch(ArgumentException){check(s.ReadInvoiceDrafts(project).Count==2,"final billing retains contractual cap after closeout");}
   copy.Logout();s.Logout();
  }
 }
