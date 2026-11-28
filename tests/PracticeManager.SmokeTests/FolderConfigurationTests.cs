@@ -7,9 +7,9 @@ internal static class FolderConfigurationTests
  {
   var fixture=Path.Combine(root,"folder-configuration-fixture");Directory.CreateDirectory(fixture);
   var external=Path.Combine(fixture,"projects");var data=Path.Combine(fixture,"db");
-  Directory.CreateDirectory(external);Directory.CreateDirectory(data);
-  var project=Path.Combine(external,"Synthetic Project");Directory.CreateDirectory(project);
-  var existing=Path.Combine(project,"Calculations");Directory.CreateDirectory(existing);
+  WorkspaceConfidentiality.EnsureWorkspaceDirectory(external);Directory.CreateDirectory(data);
+  var project=Path.Combine(external,"Synthetic Project");WorkspaceConfidentiality.EnsureWorkspaceDirectory(project);
+  var existing=Path.Combine(project,"Calculations");WorkspaceConfidentiality.EnsureWorkspaceDirectory(existing);
   var marker=Path.Combine(existing,"preserve.txt");File.WriteAllText(marker,"Synthetic existing file");
   var dbPath=Path.Combine(data,"synthetic.db");
   using var db=new SqliteConnection("Data Source=:memory:;Foreign Keys=True;Pooling=False");db.Open();
@@ -33,10 +33,22 @@ internal static class FolderConfigurationTests
   try{store.Read();throw new Exception("FAIL: configuration access");}catch(UnauthorizedAccessException){check(true,"configuration authorization rechecked");}
   permitted=true;
   var selected=defaults.Where(x=>x.Name is "Calculations" or "QA-QC" or "Reference Documents").ToArray();
+  var collision=Path.Combine(project,"Reference Documents");File.WriteAllText(collision,"Synthetic collision");
+  Invalid(()=>FolderCreationRehearsal.Preview(second.Entry,"Synthetic Project",dbPath,selected),"folder preflight rejects file collision");
+  check(!Directory.Exists(Path.Combine(project,"QA-QC"))&&File.ReadAllText(collision)=="Synthetic collision"&&File.ReadAllText(marker)=="Synthetic existing file","failed preflight leaves existing files and missing directories unchanged");
+  File.Delete(collision);
+  if(OperatingSystem.IsWindows())
+  {
+   var unqualified=Path.Combine(project,"QA-QC");Directory.CreateDirectory(unqualified);
+   check(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(unqualified),"synthetic inherited directory is not explicitly qualified");
+   Invalid(()=>FolderCreationRehearsal.Preview(second.Entry,"Synthetic Project",dbPath,selected),"folder preflight rejects unqualified existing directory");
+   check(Directory.Exists(unqualified)&&!Directory.Exists(collision),"unqualified existing directory is neither removed nor repaired");
+   Directory.Delete(unqualified);
+  }
   var plan=FolderCreationRehearsal.Preview(second.Entry,"Synthetic Project",dbPath,selected);
   check(plan.Items.Count==3&&plan.Items.Count(x=>x.AlreadyExists)==1&&!Directory.Exists(Path.Combine(project,"QA-QC")),"creation preview distinguishes existing and missing folders without writing");
   Invalid(()=>FolderCreationRehearsal.Execute(second.Entry,"Synthetic Project",dbPath,selected,plan.Hash,false),"creation requires confirmation");
-  Directory.CreateDirectory(Path.Combine(project,"QA-QC"));
+  WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(project,"QA-QC"));
   Invalid(()=>FolderCreationRehearsal.Execute(second.Entry,"Synthetic Project",dbPath,selected,plan.Hash,true),"changed filesystem invalidates creation plan");
   var updated=FolderCreationRehearsal.Preview(second.Entry,"Synthetic Project",dbPath,selected);
   var created=FolderCreationRehearsal.Execute(second.Entry,"Synthetic Project",dbPath,selected,updated.Hash,true);
