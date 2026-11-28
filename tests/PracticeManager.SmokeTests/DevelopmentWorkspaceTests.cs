@@ -18,6 +18,18 @@ internal static class DevelopmentWorkspaceTests
   check(!normal.IsAcceptance&&normal.DatabasePath==Path.Combine(root,"CRC Practice Manager DEV","practice-dev.db"),"default development workspace unchanged");
   Directory.CreateDirectory(Path.GetDirectoryName(normal.DatabasePath)!);File.WriteAllText(normal.DatabasePath,"synthetic protected default");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--unknown"}),"unknown startup arguments fail closed");
+  Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--production"}),"production startup remains disabled");
+  Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--database",normal.DatabasePath}),"arbitrary database startup remains disabled");
+  foreach(var suffix in new[]{"-wal","-shm","-journal"})
+  {
+   var sidecar=normal.DatabasePath+suffix;
+   Directory.CreateDirectory(sidecar);
+   Invalid(()=>DevelopmentWorkspace.Resolve(root,Array.Empty<string>()),"development sidecar directory blocked "+suffix);
+   Directory.Delete(sidecar);
+   File.WriteAllText(sidecar,"synthetic sidecar");
+   check(DevelopmentWorkspace.Resolve(root,Array.Empty<string>())==normal&&File.ReadAllText(sidecar)=="synthetic sidecar","existing ordinary sidecar preserved "+suffix);
+   File.Delete(sidecar);
+  }
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session","../practice-dev.db"}),"arbitrary path cannot select acceptance workspace");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new","extra"}),"new acceptance requires exact arguments");
   var one=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"});
@@ -32,6 +44,9 @@ internal static class DevelopmentWorkspaceTests
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!.ToUpperInvariant()}),"noncanonical session identifier rejected");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",Guid.Empty.ToString("N")}),"empty session identifier rejected");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",two.AcceptanceId!}),"unfinished acceptance workspace cannot silently reopen");
+  var sidecarCollision=one.DatabasePath+"-journal";Directory.CreateDirectory(sidecarCollision);
+  Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"acceptance sidecar directory blocked");
+  Directory.Delete(sidecarCollision);
   var marker=Path.Combine(Path.GetDirectoryName(one.DatabasePath)!,"acceptance-session.txt");File.WriteAllText(marker,"wrong");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"altered session identity rejected");
   check(File.ReadAllText(normal.DatabasePath)=="synthetic protected default","acceptance startup never opens or modifies default store");

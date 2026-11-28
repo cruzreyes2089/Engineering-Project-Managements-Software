@@ -16,6 +16,17 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
  {
   if(!File.Exists(path)||(File.GetAttributes(path)&(FileAttributes.ReparsePoint|FileAttributes.Directory))!=0)throw new ArgumentException("Acceptance workspace file missing or redirected.");
  }
+ // SQLite may open these adjacent files during normal database access.
+ // Reject existing directory/reparse collisions; do not delete or modify sidecars.
+ private static void CheckSidecars(string db)
+ {
+  foreach(var suffix in new[]{"-wal","-shm","-journal"})
+  {
+   var path=db+suffix;
+   if(Directory.Exists(path))throw new ArgumentException("Database sidecar directory collision.");
+   if(File.Exists(path))PlainFile(path);
+  }
+ }
  public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments)
  {
   if(string.IsNullOrWhiteSpace(localAppData)||!Path.IsPathFullyQualified(localAppData))throw new ArgumentException("Trusted local application data folder required.");
@@ -34,6 +45,7 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
    if(Directory.Exists(normal))PlainDirectory(normal);
    if(Directory.Exists(normalDb))throw new ArgumentException("Development database path collision.");
    if(File.Exists(normalDb))PlainFile(normalDb);
+   CheckSidecars(normalDb);
    return new(normalDb,null);
   }
   var create=arguments.Count==1&&arguments[0]=="--acceptance-new";
@@ -62,6 +74,7 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
    var bytes=new byte[32];stream.ReadExactly(bytes);
    if(Encoding.ASCII.GetString(bytes)!=id)throw new ArgumentException("Acceptance session marker mismatch.");
   }
+  CheckSidecars(db);
   return new(db,id);
  }
 }
