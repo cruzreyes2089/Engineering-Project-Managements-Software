@@ -15,7 +15,7 @@ public sealed partial class LocalPractice
   var path=LocalStoragePath.FilePath(Path.Combine(folder,"practice-document-acceptance.db"),mustExist:!newlyCreated,mustBeNew:newlyCreated,rejectSidecars:newlyCreated);
   if(newlyCreated){using var reserve=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None);}
   if(!newlyCreated&&DevelopmentWorkspace.Resolve(localAppData,new[]{"--document-acceptance-session",sessionId}).DatabasePath!=path)throw new ArgumentException("Acceptance workspace identity changed.");
-  return new LocalPractice(path,false,true,existingOnly:true);
+  return new LocalPractice(path,false,true,existingOnly:true,currentOnly:!newlyCreated);
  }
  public bool IsDocumentAcceptance=>documentAcceptance;
 }
