@@ -1,0 +1,7 @@
+# Direct expense payment — offline rehearsal (schema 8)
+
+Development only; no live API write paths, binary upload or production authorization. Separate original test fixture remains unchanged. Direct expense intent includes free-text vendor contact, expense ledger UUID, cash UUID, positive cent-precision amount, date and explicit synthetic currency; customer and sales invoice allocation are prohibited. Vendor and cash identities enter a separate domain fingerprint. Legacy invoice and receipt fingerprints remain byte-for-byte unchanged.
+
+Schema 8 transactionally rebuilds only the rehearsal table to expand its kind constraint, retaining source keys, row IDs, attempt keys, simulated external IDs, fingerprints, states, timestamps and actor IDs. Existing sticky lifecycle hold and revoked grants survive. Older builds must not open schema 8. Back up a closed development database before any future authorized upgrade; do not restore an older journal to bypass history. No live application upgrade requested or approved.
+
+Regression coverage includes v7 migration with all five prior states, exact legacy fingerprint compatibility, receipt and invoice replay, expense identity changes, concurrent begin in one SQLite database, cross-kind source collision, external ID collision, uncertainty and hold behavior. These are simulated domain and persistence tests, not evidence of provider idempotency or end-to-end financial posting. Exact-revision Windows CI remains required. Security hold continues.
