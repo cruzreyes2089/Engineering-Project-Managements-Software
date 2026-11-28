@@ -1,0 +1,7 @@
+# 0.4.1 — CRM phone acceptance corrections
+
+Owner reported 12/12 interactive checks passing on 0.4.0 (commit f1eecf7). Follow-up feedback: missing phone columns in both grids and unformatted phone entry. Regression-only commit 9e692a0 failed the client phone normalization check as expected in CI run 45708484194.
+
+Changes: preserve email/status/primary columns and add phone columns; shared optional 10-digit US/NANP format (XXX)XXX-XXXX, accept optional leading 1 or +1 and ordinary separators. Format complete phone values when leaving the form field and validate at save; partial entries may be typed normally. Persist normalized values on creation/update. Display previously stored valid unformatted values consistently without changing existing database rows or schema. Unsupported legacy values remain visible; editing/saving such a record requires correcting its phone or clearing the optional field. International numbers and extensions are deferred. No live data or schema migration.
+
+Acceptance: confirm both registers show phone, both forms format complete numbers on focus loss, existing records display correctly, blank remains optional, incomplete or unsupported numbers are rejected on Save, editing and restart preserve data. Recheck CI on the exact revised commit. Not production-ready; branch protection, full dependency/license review, CI action modernization and packaging/signing remain pending.
