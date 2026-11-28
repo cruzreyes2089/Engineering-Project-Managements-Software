@@ -49,14 +49,66 @@ try {
   if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch '(?i)(^|,\s*)O=Microsoft Corporation(,|$)') {
     throw 'Microsoft scanner publisher not verified.'
   }
+  # Capture a high-water mark so a previous or unrelated scan cannot qualify this build.
+  $log = 'Microsoft-Windows-Windows Defender/Operational'
+  $baseline = Get-WinEvent -LogName $log -MaxEvents 1 -ErrorAction Stop
   $start = Get-Date
   & $scanner -Scan -ScanType 3 -File $root
   if ($LASTEXITCODE -ne 0) { throw 'Candidate scan failed or reported a detection.' }
   $after = @(Snapshot)
   if ($before.Count -ne $after.Count -or (Compare-Object $before $after)) { throw 'Candidate bytes or census changed.' }
-  $events = @(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational';StartTime=$start} -ErrorAction Stop)
-  if (@($events | Where-Object { $_.Id -in @(1116,1117,1118,1119,1002,1005) }).Count -gt 0) { throw 'Detection, remediation or interrupted scan requires review.' }
-  if (@($events | Where-Object { $_.Id -eq 1001 }).Count -lt 1) { throw 'Scan completion not verified.' }
+  # Defender CLI completion may precede publication of its Operational event.
+  # Require a new matching start and finish, not merely any event 1001.
+  $deadline = [Diagnostics.Stopwatch]::StartNew()
+  $resourcePattern = '(?im)^\s*Scan Resources:\s*folder:_' + [regex]::Escape($root) + '\s*
+  $finalStatus = Get-MpComputerStatus
+  if (-not $finalStatus.AntivirusEnabled -or -not $finalStatus.AMServiceEnabled -or -not $finalStatus.RealTimeProtectionEnabled -or $null -eq $finalStatus.AntivirusSignatureLastUpdated) {
+    throw 'BLOCKED: active protection not verified after scan.'
+  }
+  $finalAge = ((Get-Date) - $finalStatus.AntivirusSignatureLastUpdated).TotalHours
+  if ($finalAge -lt 0 -or $finalAge -gt 48) { throw 'BLOCKED: definitions not current after scan.' }
+  ./tools/security/Inventory-DevelopmentBuild.ps1
+  Write-Host 'Fresh candidate static scan completed; matching detection events absent and bytes unchanged. Not release approval.'
+} finally {
+  Pop-Location
+}
+
+  $idPattern = '(?im)^\s*Scan ID:\s*(\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\})\s*
+  $finalStatus = Get-MpComputerStatus
+  if (-not $finalStatus.AntivirusEnabled -or -not $finalStatus.AMServiceEnabled -or -not $finalStatus.RealTimeProtectionEnabled -or $null -eq $finalStatus.AntivirusSignatureLastUpdated) {
+    throw 'BLOCKED: active protection not verified after scan.'
+  }
+  $finalAge = ((Get-Date) - $finalStatus.AntivirusSignatureLastUpdated).TotalHours
+  if ($finalAge -lt 0 -or $finalAge -gt 48) { throw 'BLOCKED: definitions not current after scan.' }
+  ./tools/security/Inventory-DevelopmentBuild.ps1
+  Write-Host 'Fresh candidate static scan completed; matching detection events absent and bytes unchanged. Not release approval.'
+} finally {
+  Pop-Location
+}
+
+  $complete = $false
+  do {
+    try {
+      $events = @(Get-WinEvent -FilterHashtable @{LogName=$log;StartTime=$start;Id=1000,1001,1002,1005,1116,1117,1118,1119} -ErrorAction Stop | Where-Object { $_.RecordId -gt $baseline.RecordId })
+    } catch {
+      if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound,*') { throw }
+      $events = @()
+    }
+    if (@($events | Where-Object { $_.Id -in @(1116,1117,1118,1119,1002,1005) }).Count -gt 0) { throw 'Detection, remediation or interrupted scan requires review.' }
+    $starts = @($events | Where-Object { $_.Id -eq 1000 -and $_.Message -match $resourcePattern -and $_.Message -match $idPattern })
+    if ($starts.Count -gt 1) { throw 'Ambiguous candidate scan start events.' }
+    if ($starts.Count -eq 1) {
+      $scanId = [regex]::Match($starts[0].Message,$idPattern).Groups[1].Value
+      $ends = @($events | Where-Object { $_.Id -eq 1001 -and $_.RecordId -gt $starts[0].RecordId -and [regex]::Match($_.Message,$idPattern).Groups[1].Value -ieq $scanId })
+      if ($ends.Count -gt 1) { throw 'Ambiguous candidate scan completion events.' }
+      $complete = $ends.Count -eq 1
+    }
+    if (-not $complete -and $deadline.Elapsed.TotalSeconds -lt 30) { Start-Sleep -Seconds 1 }
+  } while (-not $complete -and $deadline.Elapsed.TotalSeconds -lt 30)
+  if (-not $complete) { throw 'Scan completion not verified for exact candidate within 30 seconds.' }
+  Write-Host 'Matched new Defender scan start and completion for exact candidate directory.'
+  $finalSnapshot = @(Snapshot)
+  if ($before.Count -ne $finalSnapshot.Count -or (Compare-Object $before $finalSnapshot)) { throw 'Candidate bytes or census changed during event verification.' }
   $finalStatus = Get-MpComputerStatus
   if (-not $finalStatus.AntivirusEnabled -or -not $finalStatus.AMServiceEnabled -or -not $finalStatus.RealTimeProtectionEnabled -or $null -eq $finalStatus.AntivirusSignatureLastUpdated) {
     throw 'BLOCKED: active protection not verified after scan.'
