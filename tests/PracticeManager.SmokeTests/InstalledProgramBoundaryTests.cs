@@ -15,6 +15,17 @@ internal static class InstalledProgramBoundaryTests
    throw new Exception("FAIL: "+label);
   }
   check(boundary.ProgramRoot==root,"installed program root fixed to per-user Programs directory");
+  var expectedDigest=new string('a',64);
+  var previousDigest=new string('b',64);
+  foreach(var operation in new[]{"--install","--upgrade","--uninstall"})
+   check(InstallerCoordinatorCandidate.Run(new[]{operation})==3,"held coordinator refuses "+operation+" before any Windows operations");
+  foreach(var args in new[]{Array.Empty<string>(),new[]{"--install","--destination","C:\\Other"},new[]{"--approve"},new[]{"--uninstall","--force"}})
+   Refuse(()=>InstallerCoordinatorCandidate.Parse(args),"coordinator refuses ambiguous operation or override");
+  InstallerCoordinatorCandidate.Validate(new(InstallerCoordinatorCandidate.Operation.Upgrade,expectedDigest,previousDigest,expectedDigest));
+  Refuse(()=>InstallerCoordinatorCandidate.Validate(new(InstallerCoordinatorCandidate.Operation.Upgrade,expectedDigest,expectedDigest,expectedDigest)),"coordinator rejects same-version upgrade");
+  Refuse(()=>InstallerCoordinatorCandidate.Validate(new(InstallerCoordinatorCandidate.Operation.Fresh,expectedDigest,previousDigest,expectedDigest)),"coordinator rejects previous version for fresh installation");
+  Refuse(()=>InstallerCoordinatorCandidate.Validate(new(InstallerCoordinatorCandidate.Operation.Remove,expectedDigest,null,"not-a-digest")),"coordinator rejects unbound uninstaller identity");
+
   var digest=new string('a',64);
   var target=boundary.VersionDirectory(digest);
   check(target==Path.Combine(root,"versions",digest)&&!Directory.Exists(target),"version path derived from complete inventory digest without creating directory");
