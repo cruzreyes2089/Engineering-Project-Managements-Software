@@ -1,0 +1,82 @@
+name: Owner-led fresh candidate static scan
+on:
+  push:
+    branches: ['milestone-15/final-integration']
+    paths: ['.github/workflows/owner-led-candidate-scan.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Verify active current endpoint scanner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $status = Get-MpComputerStatus
+          if (-not $status.AntivirusEnabled -or -not $status.AMServiceEnabled -or -not $status.RealTimeProtectionEnabled) {
+            throw 'BLOCKED: active Defender unavailable. No candidate scan result.'
+          }
+          Update-MpSignature -ErrorAction Stop
+          $status = Get-MpComputerStatus
+          if (-not $status.AntivirusEnabled -or -not $status.AMServiceEnabled -or -not $status.RealTimeProtectionEnabled -or $null -eq $status.AntivirusSignatureLastUpdated -or ((Get-Date) - $status.AntivirusSignatureLastUpdated).TotalHours -gt 48 -or ((Get-Date) - $status.AntivirusSignatureLastUpdated).TotalHours -lt 0) {
+            throw 'BLOCKED: current active Defender not verified.'
+          }
+          $status | Select-Object AMProductVersion,AMEngineVersion,AntivirusSignatureVersion,AntivirusSignatureLastUpdated,AntivirusEnabled,RealTimeProtectionEnabled | Format-List
+      - name: Publish fresh runner-local desktop candidate (no launch or upload)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path -LiteralPath 'artifacts/win-x64') { throw 'Expected clean output.' }
+          dotnet publish src/PracticeManager.Desktop/PracticeManager.Desktop.csproj -c Release -r win-x64 --self-contained true -o artifacts/win-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+      - name: Inventory before scan
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./tools/security/Inventory-DevelopmentBuild.ps1
+      - name: Scan exact published files with normal endpoint protections
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Resolve-Path -LiteralPath 'artifacts/win-x64').Path
+          function Snapshot {
+            @(Get-ChildItem -LiteralPath $root -Force -Recurse -File | Sort-Object FullName | ForEach-Object {
+              if ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Unexpected reparse point.' }
+              (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash + ' ' + $_.FullName
+            })
+          }
+          $before = @(Snapshot)
+          if ($before.Count -lt 1 -or $before.Count -gt 10000) { throw 'Invalid file census.' }
+          $scanner = Join-Path $env:ProgramFiles 'Windows Defender/MpCmdRun.exe'
+          $platform = Join-Path $env:ProgramData 'Microsoft/Windows Defender/Platform'
+          if (Test-Path -LiteralPath $platform) {
+            $latest = Get-ChildItem -LiteralPath $platform -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($latest -and (Test-Path -LiteralPath (Join-Path $latest.FullName 'MpCmdRun.exe'))) {
+              $scanner = Join-Path $latest.FullName 'MpCmdRun.exe'
+            }
+          }
+          if ((Get-AuthenticodeSignature -LiteralPath $scanner).Status -ne 'Valid') { throw 'Scanner signature not verified.' }
+          $start = Get-Date
+          & $scanner -Scan -ScanType 3 -File $root
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate scan failed or reported a detection.' }
+          $after = @(Snapshot)
+          if (Compare-Object $before $after) { throw 'Candidate bytes or census changed.' }
+          $events = @(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational';StartTime=$start} -ErrorAction Stop)
+          if (@($events | Where-Object { $_.Id -in @(1116,1117,1118,1119,1002,1005) }).Count -gt 0) { throw 'Detection, remediation or interrupted scan requires review.' }
+          if (@($events | Where-Object { $_.Id -eq 1001 }).Count -lt 1) { throw 'Scan completion not verified.' }
+          Write-Host 'Fresh candidate static scan completed; matching detection events absent and bytes unchanged. Not release approval.'
+      - name: Inventory after scan
+        shell: pwsh
+        run: ./tools/security/Inventory-DevelopmentBuild.ps1

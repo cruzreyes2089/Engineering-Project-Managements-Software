@@ -14,7 +14,7 @@ GATES = {
     "G4": "Legal and document acceptance",
     "G5": "Clean-machine desktop acceptance",
     "G6": "Recovery and physical installer qualification",
-    "G7": "Independent release security and original warning resolution",
+    "G7": "Documented exact-candidate security qualification and owner risk decision",
     "G8": "Explicit final release decision",
 }
 ARTIFACTS = {"packageSha256", "coordinatorSha256", "uninstallerSha256", "desktopSha256", "inventorySha256"}
