@@ -191,6 +191,10 @@ internal static class InstalledProgramBoundaryTests
       check((string?)key.GetValue("Unexpected")=="unrelated","unrelated registry value preserved");
       key.DeleteValue("Unexpected"); // disposable fixture only
      }
+     var shortcutBytes=File.ReadAllBytes(shortcutPath);
+     File.AppendAllText(shortcutPath,"unexpected");
+     Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedRegistration(fresh,registry,shortcutFolder,receipt),"modified shortcut refuses registration ownership");
+     File.WriteAllBytes(shortcutPath,shortcutBytes); // disposable fixture only
      WindowsRegistrationCandidate.RemoveOwnedKey(registry,receipt);
      using(var removed=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
       check(removed==null,"exact owned registry key removed nonrecursively");
