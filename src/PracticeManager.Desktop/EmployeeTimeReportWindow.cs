@@ -19,11 +19,11 @@ internal sealed class EmployeeTimeReportWindow:Window
  {
   this.service=service;Title="Employee time — operational report";Width=1150;Height=720;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();
-  head.Children.Add(new TextBlock{Text="Submitted time facts, not payroll or attendance. Combine employee, project, work-date range and review status. All projects includes overhead; selecting a project excludes overhead. Historical rejected and invalidated time is separate from approved time.",TextWrapping=TextWrapping.Wrap});
+  head.Children.Add(new TextBlock{Text="Submitted time facts, not payroll or attendance. Combine employee, project, work-date range and review status. All projects includes overhead; selecting a project excludes overhead. Historical rejected and invalidated time is separate from approved time. Export CSV saves fresh confidential results to a new file; use protected local storage.",TextWrapping=TextWrapping.Wrap});
   var filters=new WrapPanel();
   void Field(string label,Control control){var p=new StackPanel{Margin=new Thickness(4)};p.Children.Add(new TextBlock{Text=label});p.Children.Add(control);filters.Children.Add(p);}
   Field("Employee",employee);Field("Project",project);Field("From (inclusive)",start);Field("To (inclusive)",end);Field("Review status",state);
-  WorkWindowFields.Button(filters,"Generate",Refresh);WorkWindowFields.Button(filters,"Export fresh CSV",Export);WorkWindowFields.Button(filters,"Clear filters",Reset);
+  WorkWindowFields.Button(filters,"Generate",Refresh);WorkWindowFields.Button(filters,"Export CSV",Export);WorkWindowFields.Button(filters,"Clear filters",Reset);
   head.Children.Add(filters);head.Children.Add(summary);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   WorkWindowFields.Columns(grid,("Employee no.","EmployeeNumber"),("Employee","Employee"),("Work date","WorkDate"),("Source","Source"),("Project","ProjectNumber"),("Task / category","TaskOrCategory"),("Hours","Hours"),("Minutes","Minutes"),("Status","Status"),("Record ID","SubmissionId"));
   root.Children.Add(grid);Content=root;
@@ -47,8 +47,7 @@ internal sealed class EmployeeTimeReportWindow:Window
  {
   try{
    var filter=CurrentFilter();
-   if(MessageBox.Show(this,"Export a fresh report for the selected filters? It may differ from the displayed snapshot. Save confidential employee information only in protected local storage.","Employee time export",MessageBoxButton.OKCancel,MessageBoxImage.Warning)!=MessageBoxResult.OK)return;
-   var picker=new SaveFileDialog{Title="Save confidential employee time report",FileName="CRC-employee-time.csv",DefaultExt=".csv",Filter="CSV file (*.csv)|*.csv",AddExtension=true,OverwritePrompt=true};
+   var picker=new SaveFileDialog{Title="Export fresh employee time CSV — protected local storage",FileName="CRC-employee-time.csv",DefaultExt=".csv",Filter="CSV file (*.csv)|*.csv",AddExtension=true,OverwritePrompt=true};
    if(picker.ShowDialog(this)!=true)return;
    if(CurrentFilter()!=filter)throw new ArgumentException("Report filters changed. Review and retry.");
    if(!string.Equals(Path.GetExtension(picker.FileName),".csv",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Keep the .csv extension.");
