@@ -74,6 +74,12 @@ public static class InstalledVersionSelectionCandidate
    if(existing!=null)throw new ArgumentException("Existing Windows registration requires review.");
   _=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,WindowsRegistrationCandidate.ShortcutName),mustExist:false,mustBeNew:true,rejectSidecars:true);
   WriteNew(boundary,"registration-pending.txt",expectedVersion);
+  RegisterUnderLease(boundary,expectedVersion,expectedUninstallerHash,parent,shortcutDirectory);
+ }
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ static void RegisterUnderLease(InstalledProgramBoundary boundary,string expectedVersion,string expectedUninstallerHash,Microsoft.Win32.RegistryKey parent,string shortcutDirectory)
+ {
+  var receiptPath=LocalStoragePath.FilePath(ReceiptPath(boundary),mustExist:false,mustBeNew:true,rejectSidecars:true);
   var receipt=WindowsRegistrationCandidate.RegisterFresh(boundary,expectedVersion,expectedUninstallerHash,parent,shortcutDirectory);
   var raw=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(receipt);
   using(var stream=new FileStream(receiptPath,FileMode.CreateNew,FileAccess.Write,FileShare.None))
@@ -83,6 +89,46 @@ public static class InstalledVersionSelectionCandidate
   if(Read(boundary,"registration-pending.txt")!=expectedVersion||Current(boundary)!=expectedVersion)
    throw new ArgumentException("Registration outcome requires review.");
   File.Delete(Path.Combine(boundary.ProgramRoot,"registration-pending.txt"));
+ }
+ // Fresh registered installation handoff. The caller supplies independently
+ // reviewed payload and helper digests; no executable is invoked here.
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ internal static InstalledProgramBoundary InstallFreshRegistered(string localAppData,string candidate,string extractedDirectory,
+  byte[] inventoryBytes,string uninstallerSource,string expectedUninstallerHash,Microsoft.Win32.RegistryKey parent,string shortcutDirectory)
+ {
+  var profile=LocalStoragePath.DirectoryPath(localAppData);
+  var source=LocalStoragePath.DirectoryPath(extractedDirectory);
+  var helper=LocalStoragePath.FilePath(uninstallerSource,mustExist:true,rejectSidecars:true);
+  var root=Path.Combine(profile,"Programs","CRC Practice Manager");
+  if(ProjectFolderPolicy.Overlaps(source,root)||ProjectFolderPolicy.Overlaps(helper,root)||ProjectFolderPolicy.Overlaps(helper,source))
+   throw new ArgumentException("Use separate reviewed extraction and uninstaller locations.");
+  if(expectedUninstallerHash.Length!=64||expectedUninstallerHash.Any(c=>c is not (>= '0' and <= '9' or >= 'a' and <= 'f')))
+   throw new ArgumentException("Exact uninstaller digest required.");
+  var raw=inventoryBytes.ToArray();
+  _=InstalledPayloadVerification.ReviewTree(source,raw,candidate);
+  using(var existing=parent.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
+   if(existing!=null)throw new ArgumentException("Existing Windows registration requires review.");
+  _=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,WindowsRegistrationCandidate.ShortcutName),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  using var input=new FileStream(helper,FileMode.Open,FileAccess.Read,FileShare.Read);
+  if(input.Length is <=0 or >250L*1024*1024||
+     Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(input)).ToLowerInvariant()!=expectedUninstallerHash)
+   throw new ArgumentException("Uninstaller content requires review.");
+  input.Position=0;
+  var boundary=InstalledProgramBoundary.InitializeNewInstallation(profile);
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  if(Current(boundary)!=null)throw new ArgumentException("Existing selected program requires review.");
+  WriteNew(boundary,"registration-pending.txt",candidate);
+  var destination=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"CRC.Uninstall.exe"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  using(var output=new FileStream(destination,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+  {input.CopyTo(output);output.Flush(true);}
+  if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(destination))throw new ArgumentException("Uninstaller permissions require review.");
+  using(var verified=new FileStream(destination,FileMode.Open,FileAccess.Read,FileShare.Read))
+   if(verified.Length!=input.Length||Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(verified)).ToLowerInvariant()!=expectedUninstallerHash)
+    throw new ArgumentException("Staged uninstaller content requires review.");
+  StageUnderLease(boundary,null,candidate,source,raw);
+  RegisterUnderLease(boundary,candidate,expectedUninstallerHash,parent,shortcutDirectory);
+  return boundary;
  }
  static string ReceiptPath(InstalledProgramBoundary boundary)=>Path.Combine(boundary.ProgramRoot,"registration-receipt.json");
  static void RequireUnregistered(InstalledProgramBoundary boundary)
