@@ -69,7 +69,11 @@ public sealed partial class LocalPractice
  }
  public ProjectOperationsReport ReadProjectOperations(long project,DateOnly start,DateOnly end)
  {
-  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Operations");var p=ProjectRow(c,t,project);DateRange(start,end,366);
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);RequireReport(c,t,"Reports.Operations");return ReadProjectOperationsCore(c,t,project,start,end);
+ }
+ private static ProjectOperationsReport ReadProjectOperationsCore(SqliteConnection c,SqliteTransaction t,long project,DateOnly start,DateOnly end)
+ {
+  var p=ProjectRow(c,t,project);DateRange(start,end,366);
   var range=new (string,object?)[]{("$p",project),("$s",PlanDate(start)),("$e",PlanDate(end))};
   int Count(string sql)=>Convert.ToInt32(Scalar(c,t,sql,range));
   var phaseCount=Count("SELECT count(*) FROM project_phases WHERE project_id=$p AND start_on<=$e AND end_on>=$s");
@@ -84,7 +88,11 @@ public sealed partial class LocalPractice
  }
  public ProjectFinancialReport ReadProjectFinancialReport(long project,DateOnly start,DateOnly end)
  {
-  using var c=Open();using var t=c.BeginTransaction();RequireReport(c,t,"Reports.Financial");Require(c,t,"Billing.Invoices.View");Require(c,t,"Billing.Rates");var p=ProjectRow(c,t,project);DateRange(start,end,366);
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);RequireReport(c,t,"Reports.Financial");Require(c,t,"Billing.Invoices.View");Require(c,t,"Billing.Rates");return ReadProjectFinancialCore(c,t,project,start,end);
+ }
+ private static ProjectFinancialReport ReadProjectFinancialCore(SqliteConnection c,SqliteTransaction t,long project,DateOnly start,DateOnly end)
+ {
+  var p=ProjectRow(c,t,project);DateRange(start,end,366);
   var range=new (string,object?)[]{("$p",project),("$s",PlanDate(start)),("$e",PlanDate(end))};
   long minutes=0,billable=0,nonbillable=0,unclassified=0;decimal cost=0,expense=0;int missing=0;
   using(var q=Command(c,t,@"SELECT s.kind,s.minutes,s.amount_cents,coalesce(b.classification,'Unclassified'),(SELECT z.cost_cents FROM employee_rates z WHERE z.employee_id=s.employee_id AND z.effective_on<=s.work_date ORDER BY z.effective_on DESC LIMIT 1) FROM work_submissions s JOIN work_reviews r ON r.submission_id=s.id JOIN project_tasks w ON w.id=s.task_id JOIN project_phases h ON h.id=w.phase_id LEFT JOIN work_billing_classifications b ON b.submission_id=s.id WHERE h.project_id=$p AND r.decision='Approved' AND NOT EXISTS(SELECT 1 FROM work_invalidations z WHERE z.submission_id=s.id) AND s.work_date BETWEEN $s AND $e",range))using(var r=q.ExecuteReader()){
@@ -100,6 +108,36 @@ public sealed partial class LocalPractice
   using(var q=Command(c,t,"SELECT coalesce(sum(d.total_cents),0),count(*) FROM invoice_drafts d JOIN current_approved_invoice_holds h ON h.draft_id=d.id WHERE d.project_id=$p AND d.invoice_date BETWEEN $s AND $e",range))using(var r=q.ExecuteReader()){if(r.Read()){held=r.GetInt64(0)/100m;heldCount=r.GetInt32(1);}}
   if(minutes!=billable+nonbillable+unclassified||held<0||held>ready)throw new InvalidOperationException("Project financial report does not reconcile.");
   return new(p.Number,start,end,minutes,billable,nonbillable,unclassified,missing==0?cost:null,missing,expense,draft,ready,cancelled,held,heldCount);
+ }
+ public string PrepareProjectOperationsCsv(long project,DateOnly start,DateOnly end)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireReport(c,t,"Reports.Operations");
+  var r=ReadProjectOperationsCore(c,t,project,start,end);
+  var csv=SafeCsv.Build(new IReadOnlyList<string?>[]{
+   new[]{"PROJECT OPERATIONS — NOT AN ACCOUNTING STATEMENT"},
+   new[]{"Project","Start (inclusive)","End (inclusive)"},new[]{r.ProjectNumber,SafeCsv.Date(start),SafeCsv.Date(end)},
+   new[]{"Metric","Value"},
+   new[]{"Overlapping phases",SafeCsv.Number(r.Phases)},new[]{"Planned tasks",SafeCsv.Number(r.PlannedTasks)},new[]{"In progress tasks",SafeCsv.Number(r.StartedTasks)},new[]{"Completed tasks",SafeCsv.Number(r.CompletedTasks)},
+   new[]{"Cancelled tasks",SafeCsv.Number(r.CancelledTasks)},new[]{"Discontinued tasks",SafeCsv.Number(r.DiscontinuedTasks)},
+   new[]{"Estimated minutes (overlapping tasks, not prorated, excludes cancelled/discontinued)",SafeCsv.Number(r.EstimatedMinutes)},
+   new[]{"Submitted minutes (all states)",SafeCsv.Number(r.SubmittedMinutes)},new[]{"Approved minutes",SafeCsv.Number(r.ApprovedMinutes)},new[]{"Pending minutes",SafeCsv.Number(r.PendingMinutes)},new[]{"Rejected minutes",SafeCsv.Number(r.RejectedMinutes)},new[]{"Invalidated minutes",SafeCsv.Number(r.InvalidatedMinutes)},
+   new[]{"Expense submissions (all)",SafeCsv.Number(r.ExpenseSubmissions)},new[]{"Invalidated expense submissions",SafeCsv.Number(r.InvalidatedExpenseSubmissions)},new[]{"Current open QA items (all dates)",SafeCsv.Number(r.OpenQualityItems)}
+  });
+  Audit(c,t,actor,"PrepareProjectOperationsExport","Project",project);t.Commit();return csv;
+ }
+ public string PrepareProjectFinancialCsv(long project,DateOnly start,DateOnly end)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireReport(c,t,"Reports.Financial");Require(c,t,"Billing.Invoices.View");Require(c,t,"Billing.Rates");
+  var r=ReadProjectFinancialCore(c,t,project,start,end);
+  var csv=SafeCsv.Build(new IReadOnlyList<string?>[]{
+   new[]{"RESTRICTED PROJECT FINANCIAL PREVIEW — NOT POSTED REVENUE, PROFIT OR RECEIVABLES"},
+   new[]{"Project","Start (inclusive)","End (inclusive)","Currency"},new[]{r.ProjectNumber,SafeCsv.Date(start),SafeCsv.Date(end),"USD"},
+   new[]{"Metric","Value"},
+   new[]{"Approved minutes",SafeCsv.Number(r.ApprovedMinutes)},new[]{"Billable minutes",SafeCsv.Number(r.BillableMinutes)},new[]{"Nonbillable minutes",SafeCsv.Number(r.NonbillableMinutes)},new[]{"Unclassified minutes",SafeCsv.Number(r.UnclassifiedMinutes)},
+   new[]{"Estimated labor cost (blank if incomplete)",SafeCsv.Amount(r.EstimatedLaborCost)},new[]{"Missing cost rate records",SafeCsv.Number(r.MissingCostRates)},new[]{"Approved expense cost",SafeCsv.Amount(r.ApprovedExpenseCost)},new[]{"Total operational cost (blank if incomplete)",SafeCsv.Amount(r.TotalOperationalCost)},
+   new[]{"Unapproved internal draft value",SafeCsv.Amount(r.DraftValue)},new[]{"Approved internal draft value",SafeCsv.Amount(r.ApprovedInternalDraftValue)},new[]{"Held approved draft value (included in approved total)",SafeCsv.Amount(r.HeldApprovedDraftValue)},new[]{"Held approved draft count",SafeCsv.Number(r.HeldApprovedDraftCount)},new[]{"Cancelled draft value",SafeCsv.Amount(r.CancelledDraftValue)}
+  });
+  Audit(c,t,actor,"PrepareProjectFinancialExport","Project",project);t.Commit();return csv;
  }
  public string ExportInvoiceDraftCsv(long project,long id,string expectedHash)
  {
