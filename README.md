@@ -11,7 +11,7 @@ CRC Practice Manager is a developing open-source Windows desktop application for
 
 ## Development status
 
-Early development; not production-ready. The planned native foundation uses C#/.NET, WPF and SQLite. Application source and verified build instructions have not yet been imported. No accounting integration is implemented or certified in this repository.
+Development source; not production-ready. The native C#/.NET, WPF and SQLite application now includes CRM, proposals, project handoff, staff, scheduling, work submissions, approvals, document evidence, QA, additional-scope controls, internal invoice drafts, reports and recovery copies. Manager.io read-only integration and synthetic posting rehearsals are experimental; no production posting, duplicate AR ledger, or automatic replacement of a live database is enabled. Recovery copies can be verified and restored to a separate file; collections review is bounded to a synthetic fixture. See the stacked draft pull requests and exact-commit Windows CI for verification. Desktop acceptance, release security review and live provider qualification remain required.
 
 ## Roadmap
 
