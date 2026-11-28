@@ -51,6 +51,8 @@ def run(candidates, invoke=subprocess.run):
         if probe.returncode == 0 and selected is None:
             selected = bitness
     if selected is None:
+        if not any(p["status"] == "NotRegistered" for p in report["probes"]):
+            report["reason"] = "NoUsablePowerShell"
         return report
     report["selectedBitness"] = selected
     # One explicitly selected engine (prefer native 64-bit). No fall-back after
@@ -59,7 +61,7 @@ def run(candidates, invoke=subprocess.run):
                           ("qualify_synthetic_crm.py", "crmPassed")):
         result = invoke([sys.executable, str(HERE / script), "--confirm-synthetic",
                          "--dao-bitness", selected, "--native-smoke"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=240)
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=360)
         if result.returncode != 0:
             report.update(status="Failed", reason=field + ":ExecutionFailed")
             return report
@@ -110,7 +112,7 @@ def main():
         return 2
     print(json.dumps(report, sort_keys=True))
     if report["status"] == "NotQualified":
-        print("NOT QUALIFIED: no installed DAO engine found; synthetic DAO execution not performed.")
+        print("NOT QUALIFIED: " + report["reason"] + "; synthetic DAO execution not performed.")
     return 2 if report["status"] == "Failed" else 0
 
 

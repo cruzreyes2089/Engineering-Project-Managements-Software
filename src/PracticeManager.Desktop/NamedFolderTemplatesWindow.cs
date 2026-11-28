@@ -34,15 +34,15 @@ internal sealed class NamedFolderTemplatesWindow:Window
   Closed+=(_,_)=>{name.Clear();paths.Clear();choices.ItemsSource=null;};Reload();
  }
  void NewDraft(IReadOnlyList<string> p){choices.SelectedItem=null;Draft("",p,0);name.Focus();}
- void Draft(string n,IReadOnlyList<string> p,long rev){expected=rev;name.Text=n;paths.Text=string.Join(Environment.NewLine,p);status.Text=choices.SelectedItem is NamedFolderChoice c&&c.Revision==0?"Suggested preset. Copy it to create your own template.":"Template editor — no physical folders changed.";UpdateActions();}
+ void Draft(string n,IReadOnlyList<string> p,long rev){name.IsReadOnly=paths.IsReadOnly=choices.SelectedItem is NamedFolderChoice c0&&c0.Revision==0;expected=rev;name.Text=n;paths.Text=string.Join(Environment.NewLine,p);status.Text=choices.SelectedItem is NamedFolderChoice c&&c.Revision==0?"Suggested preset. Copy it to create your own template.":"Template editor — no physical folders changed.";UpdateActions();}
  void UpdateActions(){var c=choices.SelectedItem as NamedFolderChoice;var unchanged=c!=null&&name.Text==(c.Revision==0?"":c.Name)&&paths.Text==string.Join(Environment.NewLine,c.Paths);prefer.IsEnabled=preferenceRevision.HasValue&&unchanged;save.IsEnabled=preferenceRevision.HasValue&&!string.IsNullOrWhiteSpace(name.Text)&&!string.IsNullOrWhiteSpace(paths.Text)&&!(c?.Revision==0); }
  void Reload()
  {
   loading=true;preferenceRevision=null;preferredStatus.Text="";choices.ItemsSource=null;Draft("",Array.Empty<string>(),0);
-  try{choices.ItemsSource=service.ReadNamedFolderChoices();var pref=service.ReadPreferredFolderTemplate();preferenceRevision=pref.Revision;
+  try{var available=service.ReadNamedFolderChoices();var pref=service.ReadPreferredFolderTemplate();choices.ItemsSource=available;preferenceRevision=pref.Revision;
    var chosen=(choices.ItemsSource as IEnumerable<NamedFolderChoice>)?.FirstOrDefault(x=>x.Revision==pref.TemplateRevision);
    preferredStatus.Text=pref.Available?"Preferred: "+chosen?.Name:pref.TemplateRevision.HasValue?"Preferred template changed; review and set again.":"No preferred template set.";}
-  catch(Exception){status.Text="Template list unavailable.";}finally{loading=false;UpdateActions();}
+  catch(Exception){choices.ItemsSource=null;preferenceRevision=null;status.Text="Template list unavailable.";}finally{loading=false;UpdateActions();}
  }
  void ChangePreference(bool clear)
  {

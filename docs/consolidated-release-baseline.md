@@ -1,0 +1,7 @@
+# Consolidated release baseline
+
+Verified revision be8638692e19faee785fa1026621708a97d96d66, Windows run 46088375720: 2304 native checks, 103 Python tests, zero desktop build warnings/errors, static self-contained deployment passed. Integrated workflow, recovery and upgrade regressions included. DAO engine absent; Windows metadata handle rename exclusion not qualified. No installer or release acceptance implied.
+
+This follow-up batches snapshot publication only after all required employee and reviewer reads succeed, guarded review selection events, read-only suggested preset, complete template loading before publication, accounting history refresh and redaction after denied/failed hold request, explicit missing-shell distinction in DAO qualification and sufficient bounded runner time. Verified actual CRM and historical runner completion labels match wrapper; no label change necessary. Added missing-shell regression. Exact CI pending.
+
+Remaining gates: independent security review of exact artifact and dependencies, clean isolated Windows desktop acceptance and installation/uninstallation, actual legacy mapping and qualified DAO engine, approved legal content, authoritative external accounting qualification, and owner-approved release scope. Do not count source regression as desktop or actual accounting acceptance. No distribution, main merge, schema change, automatic posting or security-hold bypass.

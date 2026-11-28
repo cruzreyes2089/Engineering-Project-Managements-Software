@@ -58,7 +58,7 @@ internal sealed class WorkEntriesWindow:Window
  }
  void ClearOwn(){entries.ItemsSource=attendance.ItemsSource=overhead.ItemsSource=null;if(clockIn!=null)clockIn.IsEnabled=false;if(clockOut!=null)clockOut.IsEnabled=false;}
  void Run(Action a){try{a();}catch(UnauthorizedAccessException){ClearOwn();status.Text="Access denied or no active employee link.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){ClearOwn();status.Text="Operation failed. Refresh before retrying.";}}
- void Refresh(){ClearOwn();var a=WorkWindowFields.Day(start);var b=WorkWindowFields.Day(end);entries.ItemsSource=service.ReadMySubmissions(a,b);attendance.ItemsSource=service.ReadMyAttendance(a,b);overhead.ItemsSource=service.ReadMyOverheadTime(a,b);var open=service.ReadMyOpenAttendance()!=null;if(clockIn!=null)clockIn.IsEnabled=!open;if(clockOut!=null)clockOut.IsEnabled=open;status.Text=open?"Attendance session open.":"Not clocked in.";}
+ void Refresh(){ClearOwn();var a=WorkWindowFields.Day(start);var b=WorkWindowFields.Day(end);var projectRows=service.ReadMySubmissions(a,b);var attendanceRows=service.ReadMyAttendance(a,b);var overheadRows=service.ReadMyOverheadTime(a,b);var open=service.ReadMyOpenAttendance()!=null;entries.ItemsSource=projectRows;attendance.ItemsSource=attendanceRows;overhead.ItemsSource=overheadRows;if(clockIn!=null)clockIn.IsEnabled=!open;if(clockOut!=null)clockOut.IsEnabled=open;status.Text=open?"Attendance session open.":"Not clocked in.";}
  void ReplaceOverhead()
  {
   if(overhead.SelectedItem is not OwnOverheadTime x||(x.ReviewState!="Rejected"&&x.ReviewState!="Invalidated")||x.ReplacementId.HasValue)throw new ArgumentException("Select an unreplaced rejected or invalidated overhead record.");
@@ -173,7 +173,7 @@ internal sealed class WorkReviewWindow:Window
    else if(Equals(tab.Header,"Non-project time")&&ReviewGrant()&&NonProjectRecord() is OverheadReviewRow o)
     selectedInfo.Text=$"Record #{o.Id} | Replaces: {o.ReplacesId?.ToString()??"—"} | Replacement: {o.ReplacementId?.ToString()??"—"}";
   }
-  reviews.SelectionChanged+=(_,_)=>Details();overheadReviews.SelectionChanged+=(_,_)=>Details();billing.SelectionChanged+=(_,_)=>Details();tabs.SelectionChanged+=(_,_)=>Details();
+  reviews.SelectionChanged+=(_,_)=>Run(Details);overheadReviews.SelectionChanged+=(_,_)=>Run(Details);billing.SelectionChanged+=(_,_)=>Run(Details);tabs.SelectionChanged+=(_,_)=>Run(Details);
   pending.Checked+=(_,_)=>Run(Refresh);pending.Unchecked+=(_,_)=>Run(Refresh);
   root.Children.Add(tabs);Content=root;Run(Refresh);
  }
@@ -183,8 +183,10 @@ internal sealed class WorkReviewWindow:Window
  void Refresh()
  {
   Clear();var a=WorkWindowFields.Day(start);var b=WorkWindowFields.Day(end);var counts=new List<string>();
-  if(service.Can("Work.Review")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")){var project=service.ReadWorkReview(a,b,pending.IsChecked==true);var nonProject=service.ReadOverheadReview(a,b,pending.IsChecked==true);reviews.ItemsSource=project;overheadReviews.ItemsSource=nonProject;counts.Add(project.Count+" project records");counts.Add(nonProject.Count+" non-project records");}
-  if(service.Can("Billing.Classify")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")){var records=service.ReadBillingWork(a,b,pending.IsChecked==true);billing.ItemsSource=records;counts.Add(records.Count+" billing records");}
+  IReadOnlyList<WorkReviewRow>? project=null;IReadOnlyList<OverheadReviewRow>? nonProject=null;IReadOnlyList<WorkBillingRow>? records=null;
+  if(service.Can("Work.Review")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")){project=service.ReadWorkReview(a,b,pending.IsChecked==true);nonProject=service.ReadOverheadReview(a,b,pending.IsChecked==true);counts.Add(project.Count+" project records");counts.Add(nonProject.Count+" non-project records");}
+  if(service.Can("Billing.Classify")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")){records=service.ReadBillingWork(a,b,pending.IsChecked==true);counts.Add(records.Count+" billing records");}
+  reviews.ItemsSource=project;overheadReviews.ItemsSource=nonProject;billing.ItemsSource=records;
   loaded=true;status.Text=counts.Count==0?"No review access.":string.Join(" · ",counts);UpdateActions();
  }
  bool ConfirmOwner(bool applicable)=>applicable&&service.Can("Administration.Manage")&&service.ReadOwnerApprovalPolicy().Enabled&&MessageBox.Show(this,"If this is your own submission, explicitly invoke the single-owner exception using the justification just entered? Otherwise choose No for ordinary independent review.","Owner exception",MessageBoxButton.YesNo,MessageBoxImage.Warning)==MessageBoxResult.Yes;

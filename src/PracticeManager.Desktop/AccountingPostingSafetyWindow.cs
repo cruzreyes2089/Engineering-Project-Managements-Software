@@ -23,7 +23,7 @@ internal sealed class AccountingPostingSafetyWindow:Window
   panel.Children.Add(new TextBlock{Text="Synthetic attempt history (offline only)",FontWeight=FontWeights.SemiBold});
   panel.Children.Add(attemptReport);
   var history=new Button{Content="Inspect transaction history (read only)",Margin=new Thickness(0,8,0,8),Padding=new Thickness(8)};
-  history.Click+=(_,_)=>new AccountingWireHistoryWindow(service){Owner=this}.ShowDialog();
+  history.Click+=(_,_)=>{try{new AccountingWireHistoryWindow(service){Owner=this}.ShowDialog();}catch(UnauthorizedAccessException){MessageBox.Show(this,"Access denied.");}catch(Exception){MessageBox.Show(this,"History unavailable.");}finally{Refresh();}};
   panel.Children.Add(history);
   panel.Children.Add(new TextBlock{Text="Declare a hold only if a clone, restore or suspected identity change has occurred. This is sticky; there is no reset in this version. Read-only inspection remains available.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)});
   reason.ItemsSource=Enum.GetValues<LifecycleHoldReason>();reason.SelectedIndex=-1;
@@ -52,7 +52,7 @@ internal sealed class AccountingPostingSafetyWindow:Window
   if(reason.SelectedItem is not LifecycleHoldReason value)return;
   if(MessageBox.Show(this,"Confirm that this local accounting journal must be quarantined. No reset is available in this development version. This does not alter Manager records.","Declare accounting lifecycle hold",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
   try{service.DeclareAccountingLifecycleHold(value);Refresh();}
-  catch(UnauthorizedAccessException){report.Text="Access denied.";declare.IsEnabled=reason.IsEnabled=false;}
-  catch(Exception){report.Text="Hold request failed; no success assumed.";declare.IsEnabled=reason.IsEnabled=false;}
+  catch(UnauthorizedAccessException){report.Text="Access denied.";wireReport.Text=attemptReport.Text="";declare.IsEnabled=reason.IsEnabled=false;}
+  catch(Exception){report.Text="Hold request failed; no success assumed.";wireReport.Text=attemptReport.Text="";declare.IsEnabled=reason.IsEnabled=false;}
  }
 }

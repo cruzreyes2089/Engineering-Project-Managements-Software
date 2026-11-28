@@ -57,6 +57,14 @@ class InstalledDaoTests(unittest.TestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertFalse(result["historicalPassed"])
 
+    def test_missing_shell_not_misreported_as_missing_engine(self):
+        for _, shell in self.shells:
+            shell.unlink()
+        result = self.run_fixture()
+        self.assertEqual(result["status"], "NotQualified")
+        self.assertEqual(result["reason"], "NoUsablePowerShell")
+        self.assertEqual(self.calls, [])
+
     def test_32_bit_engine_selected_when_only_one_registered(self):
         self.probes = [3, 0]
         result = self.run_fixture()
