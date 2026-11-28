@@ -5,9 +5,23 @@ namespace PracticeManager.Persistence;
 // Local development edition. No caller-supplied user identity or role; recheck active grants in every transaction.
 public sealed partial class LocalPractice
 {
+ readonly ProductionStorageBoundary? productionFixtureLayout; readonly string? productionFixtureIdentity;
  readonly string connectionString; readonly bool budgetAcceptance; readonly bool documentAcceptance; long? userId; DateTimeOffset expires; long sessionGeneration; long sessionCredentialRevision; long sessionStarted; long sessionLastActivity;
  static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage","Accounting.Customers.Map","Accounting.Identity.Manage","Accounting.Directory.Sync","Accounting.Posting.Rehearse","Accounting.Posting.RehearseApprove","Accounting.WireDraft.Prepare","Accounting.WireDraft.Approve","Accounting.WireDraft.Rehearse","Engagements.View","Engagements.Edit","Engagements.Issue","Engagements.Accept","Projects.View","Agreements.Record","Agreements.View","Projects.Authorize","Projects.Setup","Administration.Manage","Employees.View","Employees.Edit","Projects.Plan","Work.Own","Work.Review","Billing.Classify","Documents.View","Documents.Record","Documents.Restricted","QA.View","QA.Edit","QA.Close","Scope.Authorize","Billing.Rates","Billing.Invoices.View","Billing.Invoices.Edit","Billing.Invoices.Approve","Billing.Invoices.Export","Reports.Operations","Reports.Financial","Administration.RecoveryCopy","Compliance.View","Compliance.Record","Compliance.Policy","Engagements.Export","Administration.LegacyCrmImport","Projects.Closeout","Work.Correct","HistoricalProjects.View","Administration.HistoricalProjectImport"];
  public LocalPractice(string path):this(path,false){}
+ // Existing-only fixture entry point. Not reachable from desktop startup.
+ internal static LocalPractice OpenProductionFixture(ProductionStorageBoundary layout,string expectedIdentity)
+ {
+  if(ProductionWorkspaceIdentityCandidate.VerifyExisting(layout)!=expectedIdentity)
+   throw new ArgumentException("Unexpected production fixture identity.");
+  return new LocalPractice(layout,expectedIdentity);
+ }
+ private LocalPractice(ProductionStorageBoundary layout,string expectedIdentity)
+ {
+  productionFixtureLayout=layout;productionFixtureIdentity=expectedIdentity;
+  connectionString=new SqliteConnectionStringBuilder{DataSource=layout.DatabasePath,ForeignKeys=true,DefaultTimeout=10,Pooling=false,Mode=SqliteOpenMode.ReadWrite}.ToString();
+  using var c=Open();
+ }
  // The desktop calls this only for a resolver-identified new default DEV
  // directory. Reserve the database name exclusively before SQLite opens it.
  public static LocalPractice InitializeDefaultDevelopmentWorkspace(string localAppData,DevelopmentWorkspace workspace)
@@ -653,6 +667,7 @@ public sealed partial class LocalPractice
  }
  SqliteConnection Open()
  {
+  if(productionFixtureLayout!=null)ProductionWorkspaceIdentityCandidate.VerifyMarkerAndLayout(productionFixtureLayout,productionFixtureIdentity!);
   var c=new SqliteConnection(connectionString);
   try
   {
@@ -662,6 +677,9 @@ public sealed partial class LocalPractice
    if(Convert.ToInt64(Scalar(c,null,"PRAGMA foreign_keys"))!=1||
       Scalar(c,null,"PRAGMA trusted_schema") is not long trusted||trusted!=0)
     throw new InvalidOperationException("Required SQLite connection safeguards unavailable.");
+   if(productionFixtureLayout!=null)ProductionWorkspaceIdentityCandidate.VerifyConnectionIdentity(c,null,productionFixtureIdentity!);
+   else if(Convert.ToInt64(Scalar(c,null,"PRAGMA application_id"))==0x43524350)
+    throw new InvalidOperationException("Production identity candidate cannot be opened by the development application.");
    return c;
   }
   catch{c.Dispose();throw;}
