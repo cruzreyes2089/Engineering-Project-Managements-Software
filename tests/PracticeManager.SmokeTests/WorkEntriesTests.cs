@@ -17,6 +17,9 @@ internal static class WorkEntriesTests
   var day=DateOnly.FromDateTime(DateTime.Today);var utc=DateOnly.FromDateTime(DateTime.UtcNow);check(worker.ReadMyAttendance(utc,utc).Single().ClockOut!=null,"attendance history retained");
   var originalAttendance=worker.ReadMyAttendance(utc,utc).Single();
   check(admin.ReadAttendanceReview(utc,utc).Single().Id==open.Id&&admin.ReadAttendanceCorrections(open.Id).Count==0,"manager sees raw attendance without invented corrections");
+  check(admin.ReadProjectReportAccess()==(true,true),"administrator report navigation matches report access");
+  check(!worker.ReadProjectReportAccess().Financial,"ordinary employee financial report navigation restricted");
+  Denied(()=>worker.ReadProjectFinancialReport(long.MaxValue,day,day),"ordinary employee financial report service remains restricted");
   Denied(()=>worker.ReadAttendanceReview(utc,utc),"ordinary employee cannot view attendance of others");
   Denied(()=>worker.CorrectAttendance(open.Id,null,originalAttendance.ClockIn.AddMinutes(-10),originalAttendance.ClockOut!.Value,"Unauthorized",true),"employee cannot correct attendance");
   Invalid(()=>admin.CorrectAttendance(open.Id,null,originalAttendance.ClockIn,originalAttendance.ClockIn.AddSeconds(-1),"Reverse interval",true),"reversed attendance rejected");
