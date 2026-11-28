@@ -1,3 +1,7 @@
+using System.IO;
+using System.Text;
+using System.Security.Cryptography;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
 using PracticeManager.Core;
@@ -19,7 +23,7 @@ internal sealed class EmployeeTimeReportWindow:Window
   var filters=new WrapPanel();
   void Field(string label,Control control){var p=new StackPanel{Margin=new Thickness(4)};p.Children.Add(new TextBlock{Text=label});p.Children.Add(control);filters.Children.Add(p);}
   Field("Employee",employee);Field("Project",project);Field("From (inclusive)",start);Field("To (inclusive)",end);Field("Review status",state);
-  WorkWindowFields.Button(filters,"Generate",Refresh);WorkWindowFields.Button(filters,"Clear filters",Reset);
+  WorkWindowFields.Button(filters,"Generate",Refresh);WorkWindowFields.Button(filters,"Export fresh CSV",Export);WorkWindowFields.Button(filters,"Clear filters",Reset);
   head.Children.Add(filters);head.Children.Add(summary);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   WorkWindowFields.Columns(grid,("Employee no.","EmployeeNumber"),("Employee","Employee"),("Work date","WorkDate"),("Source","Source"),("Project","ProjectNumber"),("Task / category","TaskOrCategory"),("Hours","Hours"),("Minutes","Minutes"),("Status","Status"),("Record ID","SubmissionId"));
   root.Children.Add(grid);Content=root;
@@ -34,12 +38,34 @@ internal sealed class EmployeeTimeReportWindow:Window
  }
  void Clear(){grid.ItemsSource=null;summary.Text="Generate report for the selected filters.";}
  void Reset(){employee.SelectedIndex=0;project.SelectedIndex=0;state.SelectedIndex=0;start.SelectedDate=DateTime.Today.AddDays(-30);end.SelectedDate=DateTime.Today;Clear();}
+ EmployeeTimeFilter CurrentFilter()
+ {
+  if(employee.SelectedItem is not Choice e||project.SelectedItem is not Choice p||state.SelectedItem is not string s)throw new ArgumentException("Select report filters.");
+  return new(e.Id,p.Id,WorkWindowFields.Day(start),WorkWindowFields.Day(end),s);
+ }
+ void Export()
+ {
+  try{
+   var filter=CurrentFilter();
+   if(MessageBox.Show(this,"Export a fresh report for the selected filters? It may differ from the displayed snapshot. Save confidential employee information only in protected local storage.","Employee time export",MessageBoxButton.OKCancel,MessageBoxImage.Warning)!=MessageBoxResult.OK)return;
+   var picker=new SaveFileDialog{Title="Save confidential employee time report",FileName="CRC-employee-time.csv",DefaultExt=".csv",Filter="CSV file (*.csv)|*.csv",AddExtension=true,OverwritePrompt=true};
+   if(picker.ShowDialog(this)!=true)return;
+   if(CurrentFilter()!=filter)throw new ArgumentException("Report filters changed. Review and retry.");
+   if(!string.Equals(Path.GetExtension(picker.FileName),".csv",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Keep the .csv extension.");
+   _=LocalStoragePath.FilePath(picker.FileName,mustExist:false,mustBeNew:true,rejectSidecars:true);
+   var bytes=Encoding.UTF8.GetBytes(service.PrepareEmployeeTimeReportCsv(filter));
+   try{VerifiedDocumentFile.Save(picker.FileName,".csv",bytes,Convert.ToHexString(SHA256.HashData(bytes)));}
+   finally{CryptographicOperations.ZeroMemory(bytes);}
+   Clear();summary.Text="Fresh confidential CSV saved. Generate to display current report.";
+  }catch(UnauthorizedAccessException){Clear();employee.ItemsSource=null;project.ItemsSource=null;summary.Text="Access denied.";}
+  catch(ArgumentException ex){summary.Text=ex.Message;}
+  catch(Exception){summary.Text="Export unavailable; no successful file publication assumed.";}
+ }
  void Refresh()
  {
   Clear();
   try{
-   if(employee.SelectedItem is not Choice e||project.SelectedItem is not Choice p||state.SelectedItem is not string s)throw new ArgumentException("Select report filters.");
-   var r=service.ReadEmployeeTimeReport(new(e.Id,p.Id,WorkWindowFields.Day(start),WorkWindowFields.Day(end),s));
+   var r=service.ReadEmployeeTimeReport(CurrentFilter());
    grid.ItemsSource=r.Rows;
    summary.Text=$"{r.Filter.Start:yyyy-MM-dd} – {r.Filter.End:yyyy-MM-dd} | {r.Rows.Count} records | Approved {r.ApprovedMinutes/60m:0.00} h (project {r.ApprovedProjectMinutes/60m:0.00}; overhead {r.ApprovedOverheadMinutes/60m:0.00}) | Pending {r.PendingMinutes/60m:0.00} h | Rejected {r.RejectedMinutes/60m:0.00} h | Invalidated {r.InvalidatedMinutes/60m:0.00} h";
   }catch(UnauthorizedAccessException){grid.ItemsSource=null;employee.ItemsSource=null;project.ItemsSource=null;summary.Text="Access denied.";}
