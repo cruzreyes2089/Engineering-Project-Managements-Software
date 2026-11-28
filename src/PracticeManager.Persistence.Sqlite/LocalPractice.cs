@@ -684,7 +684,7 @@ public sealed partial class LocalPractice
     ProductionWorkspaceIdentityCandidate.VerifyConnectionIdentity(c,null,productionFixtureIdentity!);
     ProductionWorkspaceIdentityCandidate.VerifyConfiguredRoots(c,null,productionFixtureLayout);
    }
-   else if(Convert.ToInt64(Scalar(c,null,"PRAGMA application_id"))==0x43524350)
+   else if(Convert.ToInt64(Scalar(c,null,"PRAGMA application_id")) is ProductionWorkspaceIdentityCandidate.ApplicationId or ProductionWorkspaceIdentityCandidate.RecoveryApplicationId)
     throw new InvalidOperationException("Production identity candidate cannot be opened by the development application.");
    return c;
   }
