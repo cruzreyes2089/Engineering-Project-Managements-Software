@@ -8,11 +8,15 @@ public static class LocalStoragePath
  static readonly string[] Sidecars=["-wal","-shm","-journal"];
  static readonly Regex Reserved=new(@"^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$",RegexOptions.IgnoreCase|RegexOptions.CultureInvariant);
  public static bool IsReservedWindowsName(string component)=>Reserved.IsMatch(component.Split('.')[0].TrimEnd(' '));
- public static string Normalize(string path)
+ public static string Normalize(string path)=>NormalizeCore(path,true);
+ // Stored offline destination syntax only. Never use as authorization to
+ // access a filesystem; the actual backup operation must use DirectoryPath.
+ internal static string NormalizeStoredDestination(string path)=>NormalizeCore(path,false);
+ static string NormalizeCore(string path,bool requireFixedDrive)
  {
   if(string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path))throw new ArgumentException("Use a fully qualified local storage path.");
   var root=Path.GetPathRoot(path)??throw new ArgumentException("Local storage root required.");
-  if(OperatingSystem.IsWindows()&&(root.Length!=3||root[1]!=':'||!char.IsAsciiLetter(root[0])||new DriveInfo(root).DriveType!=DriveType.Fixed))
+  if(OperatingSystem.IsWindows()&&(root.Length!=3||root[1]!=':'||!char.IsAsciiLetter(root[0])||(requireFixedDrive&&new DriveInfo(root).DriveType!=DriveType.Fixed)))
    throw new ArgumentException("Use a local fixed drive; network and device paths are not supported.");
   foreach(var part in path[root.Length..].Split(new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar},StringSplitOptions.RemoveEmptyEntries))
    if(part is "." or ".."||part.EndsWith(' ')||part.EndsWith('.')||part.Contains(':')||IsReservedWindowsName(part)||part.IndexOfAny(Path.GetInvalidFileNameChars())>=0)
