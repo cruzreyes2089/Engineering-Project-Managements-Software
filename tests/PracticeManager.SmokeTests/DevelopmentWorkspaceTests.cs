@@ -76,7 +76,15 @@ internal static class DevelopmentWorkspaceTests
     check(rejected,label);
     check(before.SequenceEqual(folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm()),"startup refusal leaves existing directory ACL unchanged");
    }
-   finally{folder.SetAccessControl(original);}
+   finally
+   {
+    // A descriptor returned from GetAccessControl is unmodified. Explicitly
+    // mark the saved access section dirty before persisting the fixture reset.
+    var restored=new DirectorySecurity();
+    restored.SetSecurityDescriptorBinaryForm(original.GetSecurityDescriptorBinaryForm(),AccessControlSections.Access);
+    folder.SetAccessControl(restored);
+    check(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(path),"synthetic fixture restores the original restricted directory ACL");
+   }
   }
   RefuseBroadDirectory(Path.GetDirectoryName(normal.DatabasePath)!,()=>DevelopmentWorkspace.Resolve(root,Array.Empty<string>()),"development startup refuses broadened directory permissions");
   RefuseBroadDirectory(session,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"reopen refuses broadened acceptance session permissions");
