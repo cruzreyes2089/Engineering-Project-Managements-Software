@@ -14,6 +14,9 @@ internal static class ProjectEvidenceTests
   var p=Project("First");var other=Project("Other");var bytes="Synthetic document"u8.ToArray();var key=Guid.NewGuid();
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","../report.txt",bytes),"document traversal rejected");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","CON.txt",bytes),"reserved name rejected");
+  foreach(var name in new[]{"CONIN$.txt","conout$.pdf","NUL .dwg","COM¹ .txt","LPT2 .pdf"})
+   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports",name,bytes),"document register rejects reserved device alias "+name);
+  check(s.ReadProjectDocuments(p.Id,false).Count==0,"rejected filenames leave document register unchanged");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","program.exe",bytes),"executable document rejected");
   var id=s.RegisterProjectDocument(p.Id,key,null,"Production","Reports","report.txt",bytes);
   check(s.RegisterProjectDocument(p.Id,key,null,"Production","Reports","report.txt",bytes)==id,"document idempotent by operation and hash");
