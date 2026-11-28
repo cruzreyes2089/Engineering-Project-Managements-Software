@@ -9,6 +9,7 @@ public static class InstalledVersionSelectionCandidate
  const string ActiveName="active-version.txt";
  const string IntentName="activation-pending.txt";
  const string RemovalIntent="uninstall-pending.txt";
+ const string InstallIntent="install-pending.txt";
  static bool Exists(string path)
  {
   try{_=File.GetAttributes(path);return true;}
@@ -35,7 +36,7 @@ public static class InstalledVersionSelectionCandidate
  }
  static void NoPending(InstalledProgramBoundary boundary)
  {
-  if(Exists(Path.Combine(boundary.ProgramRoot,IntentName))||Exists(Path.Combine(boundary.ProgramRoot,RemovalIntent)))
+  if(Exists(Path.Combine(boundary.ProgramRoot,IntentName))||Exists(Path.Combine(boundary.ProgramRoot,RemovalIntent))||Exists(Path.Combine(boundary.ProgramRoot,InstallIntent)))
    throw new ArgumentException("Interrupted program selection requires review. No automatic rollback.");
  }
  static string? Current(InstalledProgramBoundary boundary)
@@ -114,10 +115,79 @@ public static class InstalledVersionSelectionCandidate
   File.Delete(Path.Combine(boundary.ProgramRoot,RemovalIntent));
   return payload.Files.Count;
  }
+ // Combined code-only install candidate, not a release authorization.
+ // The input is an independently reviewed, isolated extraction directory;
+ // this method is not called by desktop or NSIS while the hold is active.
+ public static void StageAndSelectReviewedPayload(InstalledProgramBoundary boundary,string? expectedPrevious,
+  string candidate,string extractedDirectory,byte[] inventoryBytes)
+ {
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  var previous=Current(boundary);
+  if(previous!=expectedPrevious||candidate==previous)throw new ArgumentException("Program selection changed.");
+  if(previous!=null)InstalledPayloadVerification.Verify(boundary,previous);
+  var target=boundary.VersionDirectory(candidate);
+  var source=LocalStoragePath.DirectoryPath(extractedDirectory);
+  if(ProjectFolderPolicy.Overlaps(source,boundary.ProgramRoot))
+   throw new ArgumentException("Use separate isolated extraction directory.");
+  var raw=inventoryBytes.ToArray();
+  var payload=InstalledPayloadVerification.ReviewTree(source,raw,candidate);
+  var versions=LocalStoragePath.DirectoryPath(boundary.VersionsRoot);
+  var manifests=LocalStoragePath.DirectoryPath(Path.Combine(boundary.ProgramRoot,"manifests"));
+  if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(versions)||!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(manifests))
+   throw new ArgumentException("Program storage permissions require review.");
+  var manifestPath=LocalStoragePath.FilePath(Path.Combine(manifests,candidate+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  if(Exists(target))throw new ArgumentException("Version already exists; no replacement permitted.");
+  WriteNew(boundary,InstallIntent,candidate);
+  WorkspaceConfidentiality.EnsureWorkspaceDirectory(target);
+  if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(target)||Directory.EnumerateFileSystemEntries(target).Any())
+   throw new ArgumentException("New version directory requires review.");
+  string Resolve(string directory,string name)=>Path.Combine(directory,name.Replace('/',Path.DirectorySeparatorChar));
+  foreach(var dir in payload.Subdirectories.Reverse())
+  {
+   var path=Resolve(target,dir);
+   if(Exists(path))throw new ArgumentException("Unexpected staging directory.");
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(path);
+   if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(path))throw new ArgumentException("Staging permissions require review.");
+  }
+  foreach(var file in payload.Files)
+  {
+   var input=LocalStoragePath.FilePath(Resolve(source,file.Key),mustExist:true,rejectSidecars:true);
+   var output=LocalStoragePath.FilePath(Resolve(target,file.Key),mustExist:false,mustBeNew:true,rejectSidecars:true);
+   if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(Path.GetDirectoryName(output)!))throw new ArgumentException("Staging permissions require review.");
+   using(var from=new FileStream(input,FileMode.Open,FileAccess.Read,FileShare.Read))
+   using(var to=new FileStream(output,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+   {
+    if(from.Length!=file.Value.Bytes)throw new ArgumentException("Source file changed.");
+    var buffer=new byte[65536];long count=0;int n;
+    while((n=from.Read(buffer,0,buffer.Length))!=0)
+    {
+     count+=n;if(count>file.Value.Bytes)throw new ArgumentException("Source file changed.");
+     to.Write(buffer,0,n);
+    }
+    if(count!=file.Value.Bytes)throw new ArgumentException("Source file changed.");
+    to.Flush(true);
+   }
+   if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(output))throw new ArgumentException("Staged file permissions require review.");
+  }
+  using(var stream=new FileStream(manifestPath,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+  {stream.Write(raw);stream.Flush(true);}
+  InstalledPayloadVerification.Verify(boundary,candidate);
+  if(Read(boundary,InstallIntent)!=candidate)throw new ArgumentException("Installation intent changed.");
+  SelectUnderLease(boundary,expectedPrevious,candidate);
+  if(Current(boundary)!=candidate||Read(boundary,InstallIntent)!=candidate)throw new InvalidOperationException("Installation requires review.");
+  File.Delete(Path.Combine(boundary.ProgramRoot,InstallIntent));
+  // A failure at any later step retains evidence; never automatically delete
+  // staged files, restore the old pointer, or alter business data.
+ }
  public static void SelectReviewedVersion(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate)
  {
   using var lease=boundary.AcquireExistingLease();
   NoPending(boundary);
+  SelectUnderLease(boundary,expectedPrevious,candidate);
+ }
+ static void SelectUnderLease(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate)
+ {
   var previous=Current(boundary);
   if(previous!=expectedPrevious||candidate==previous)throw new ArgumentException("Program selection changed or is already selected.");
   if(previous!=null)InstalledPayloadVerification.Verify(boundary,previous);
