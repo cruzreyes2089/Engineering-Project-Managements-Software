@@ -34,13 +34,18 @@ internal static class InvoiceDraftTests
   Invalid(()=>s.CreateInvoiceDraft(input with{OperationKey=Guid.NewGuid()}),"allocated sources unavailable");
   check(s.ReadInvoiceCandidates(project,day).Count==0,"allocated sources hidden from candidate queue");
   Invalid(()=>s.DecideInvoiceDraft(project,draft,"wrong",true,"Reviewed"),"wrong payload rejected");
+  Invalid(()=>s.InvoiceApprovalRequiresOwnerConfirmation(project,draft,"wrong"),"invoice approval preflight verifies exact payload");
+  Denied(()=>worker.InvoiceApprovalRequiresOwnerConfirmation(project,draft,detail.Summary.PayloadHash),"invoice approval preflight requires current approval and view grants");
+  Denied(()=>s.InvoiceApprovalRequiresOwnerConfirmation(project,draft,detail.Summary.PayloadHash),"invoice approval preflight refuses disabled self approval");
   check(s.DecideInvoiceDraft(project,draft,detail.Summary.PayloadHash,false,"Recreate")=="Cancelled","unsent draft cancellation retained");
   check(s.ReadInvoiceCandidates(project,day).Count==2,"cancelled unsent draft releases work allocation");
   var next=s.CreateInvoiceDraft(input with{OperationKey=Guid.NewGuid()});var nextDetail=s.ReadInvoiceDraft(project,next);
   Denied(()=>s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft",true),"invoice self approval disabled by default");
   s.SetOwnerApprovalPolicy(true,null,"Synthetic single-owner authorization");
+  check(s.InvoiceApprovalRequiresOwnerConfirmation(project,next,nextDetail.Summary.PayloadHash),"only eligible draft creator needs owner confirmation");
   Denied(()=>s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft"),"invoice self approval needs explicit confirmation");
   check(s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,true,"Approved internal draft",true)=="Approved","draft approved under explicit owner exception without posting");
+  Invalid(()=>s.InvoiceApprovalRequiresOwnerConfirmation(project,next,nextDetail.Summary.PayloadHash),"approval preflight refuses already decided draft");
   check(s.DecideInvoiceDraft(project,next,nextDetail.Summary.PayloadHash,false,"Cancel")=="AlreadyApproved","approved draft cannot silently cancel");
   check(s.ReadOwnerDecisionEvidence().Single().Kind=="Invoice approval"&&s.ReadOwnerDecisionEvidence().Single().PolicyEventId.HasValue,"invoice exception evidence visible");
   Invalid(()=>s.CreateInvoiceDraft(new(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Over cap",1m)},Array.Empty<long>())),"fixed component contractual cap enforced");
@@ -261,5 +266,16 @@ internal static class InvoiceDraftTests
   Invalid(()=>reviewer.ReleaseApprovedInvoiceHold(project,next,hold.EventId,nextDetail.Summary.PayloadHash,"Evidence","Old hold",true,true),"old event cannot release renewed hold");
   Invalid(()=>s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash),"renewed hold blocks exports");
   foreach(var sql in new[]{$"UPDATE invoice_hold_events SET reason='Changed' WHERE event_id={released.EventId}",$"DELETE FROM invoice_hold_events WHERE event_id={renewed.EventId}",$"INSERT INTO invoice_hold_events(draft_id,payload_hash,kind,prior_event_id,reason,evidence_reference,actor_id,recorded_utc) VALUES({next},'{nextDetail.Summary.PayloadHash}','Release',{hold.EventId},'Stale','Evidence',{reviewActor},'synthetic')",$"INSERT INTO invoice_hold_events(draft_id,payload_hash,kind,prior_event_id,reason,evidence_reference,actor_id,recorded_utc) VALUES({next},'{nextDetail.Summary.PayloadHash}','Release',{renewed.EventId},'Self','Evidence',1,'synthetic')",$"INSERT INTO approved_invoice_holds(draft_id,payload_hash,reason,actor_id,recorded_utc) VALUES({next},'{nextDetail.Summary.PayloadHash}','Legacy bypass',1,'synthetic')"}){try{CorrectionSql(sql);throw new Exception("FAIL: hold history SQL guard");}catch(SqliteException){check(true,"database preserves event lineage and rejects stale, self or legacy bypass");}}
+  var independentProposal=s.CreateProposal(new(client,"Independent approval fixture","Site","Scope",25m));
+  var independentHash=ConflictReviewTests.Issue(s,independentProposal,1);
+  var independentProject=s.RecordProposalDecision(independentProposal,independentHash,true,"Synthetic").ProjectId!.Value;
+  var independentAgreement=s.RecordSignedAgreement(independentProject,independentHash,"signed.pdf","%PDF-1.7\nSynthetic\n%%EOF"u8.ToArray(),"Reviewed",true);
+  ConflictReviewTests.Clear(s,independentProject);s.AuthorizeProjectStart(independentProject,independentHash,independentAgreement.Id,independentAgreement.PdfHash,true,"Synthetic");
+  s.RecordBillingPolicy(new(independentProject,"FixedFee",25m,25m,false,"Synthetic agreement"));
+  var independentDraft=s.CreateInvoiceDraft(new(Guid.NewGuid(),independentProject,day,day.AddDays(30),new[]{new FixedFeeInput("Milestone",25m)},Array.Empty<long>()));
+  var independentDetail=s.ReadInvoiceDraft(independentProject,independentDraft);
+  check(!reviewer.InvoiceApprovalRequiresOwnerConfirmation(independentProject,independentDraft,independentDetail.Summary.PayloadHash),"independent reviewer needs no owner prompt");
+  check(reviewer.DecideInvoiceDraft(independentProject,independentDraft,independentDetail.Summary.PayloadHash,true,"Independent approval")== "Approved","independent approval works without owner exception");
+
  }
 }
