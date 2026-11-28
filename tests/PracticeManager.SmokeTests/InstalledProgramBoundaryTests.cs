@@ -195,12 +195,22 @@ internal static class InstalledProgramBoundaryTests
      File.AppendAllText(shortcutPath,"unexpected");
      Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedRegistration(fresh,registry,shortcutFolder,receipt),"modified shortcut refuses registration ownership");
      File.WriteAllBytes(shortcutPath,shortcutBytes); // disposable fixture only
-     WindowsRegistrationCandidate.RemoveOwnedKey(registry,receipt);
+     Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(fresh,extracted.Digest),"registered payload cannot bypass registration removal");
+     Refuse(()=>InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest),"registered upgrade blocked until coordinated replacement");
+     File.AppendAllText(shortcutPath,"modified shortcut");
+     Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedRegisteredInstallation(fresh,extracted.Digest,registry,shortcutFolder),"modified shortcut blocks coordinated removal");
+     check(File.Exists(receiptPath)&&InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest,"failed removal preserves registration and active selection");
+     File.WriteAllBytes(shortcutPath,shortcutBytes);
+     using(fresh.AcquireExistingLease())
+     {
+      try{InstalledVersionSelectionCandidate.RemoveReviewedRegisteredInstallation(fresh,extracted.Digest,registry,shortcutFolder);throw new Exception("FAIL: removal acquired competing lease");}
+      catch(IOException){check(true,"registered removal refuses competing lease");}
+     }
+     check(InstalledVersionSelectionCandidate.RemoveReviewedRegisteredInstallation(fresh,extracted.Digest,registry,shortcutFolder)==17,"coordinated removal removes exact payload");
      using(var removed=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
       check(removed==null,"exact owned registry key removed nonrecursively");
-     File.WriteAllText(shortcutPath,"modified shortcut");
-     // A mismatching shortcut is never adopted as owned.
-     Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedKey(registry,receipt),"missing registry key refuses ownership");
+     check(!File.Exists(shortcutPath)&&!File.Exists(receiptPath)&&Directory.EnumerateFiles(fresh.ProgramRoot,"unregistered-*.json").Count()==1,"owned shortcut removed and receipt retained");
+     check(InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==null&&File.Exists(uninstaller)&&File.ReadAllText(sentinel)=="must survive removal","registered removal preserves uninstaller and project data without fallback");
     }
     finally
     {
