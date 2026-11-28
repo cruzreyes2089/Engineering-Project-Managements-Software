@@ -29,10 +29,17 @@ public sealed partial class LocalPractice
  {
   using var q=Command(c,t,DocumentProjection+" WHERE d.project_id=$p AND d.id=$i",("$p",project),("$i",id));using var r=q.ExecuteReader();return r.Read()?DocumentRow(r):null;
  }
- public IReadOnlyList<ProjectDocument> ReadProjectDocuments(long project,bool currentOnly=true)
+ public IReadOnlyList<ProjectDocument> ReadProjectDocuments(long project,bool currentOnly=true,string search="",string category="All")
  {
   using var c=Open();using var t=c.BeginTransaction();RequireDocuments(c,t,false);ProjectRow(c,t,project);var restricted=CanInTransaction(c,t,"Documents.Restricted");
-  using var q=Command(c,t,DocumentProjection+" WHERE d.project_id=$p AND ($r=1 OR d.classification='Production') AND ($current=0 OR NOT EXISTS(SELECT 1 FROM project_documents n WHERE n.supersedes_id=d.id)) ORDER BY d.id DESC LIMIT 501",("$p",project),("$r",restricted?1:0),("$current",currentOnly?1:0));using var r=q.ExecuteReader();var rows=new List<ProjectDocument>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Document register exceeds 500 rows; show current versions or refine the project.");rows.Add(DocumentRow(r));}return rows.AsReadOnly();
+  if(category!="All"&&!DocumentCategories.Contains(category))throw new ArgumentException("Select a valid document category.");
+  var term=Validation.Text(search,150,"Document search");
+  using var q=Command(c,t,DocumentProjection+" WHERE d.project_id=$p AND ($r=1 OR d.classification='Production') AND ($current=0 OR NOT EXISTS(SELECT 1 FROM project_documents n WHERE n.supersedes_id=d.id)) AND ($category='All' OR d.category=$category) AND ($search='' OR instr(lower(d.file_name),lower($search))>0) ORDER BY d.id DESC LIMIT 501",("$p",project),("$r",restricted?1:0),("$current",currentOnly?1:0),("$category",category),("$search",term));using var r=q.ExecuteReader();var rows=new List<ProjectDocument>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Document register exceeds 500 rows; show current versions or refine the search.");rows.Add(DocumentRow(r));}return rows.AsReadOnly();
+ }
+ public bool CanRegisterProjectDocuments(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);
+  try{RequireDocuments(c,t,true);ProjectRow(c,t,project);return true;}catch(UnauthorizedAccessException){return false;}
  }
  public long RegisterProjectDocument(long project,Guid operation,long? supersedes,string classification,string category,string name,byte[] bytes)
  {
