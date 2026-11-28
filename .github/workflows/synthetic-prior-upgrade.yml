@@ -1,0 +1,53 @@
+name: Synthetic prior-version upgrade
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/PracticeManager.UpgradeBoundary/**'
+      - 'tests/PracticeManager.SmokeTests/SyntheticCrmNativeTests.cs'
+      - '.github/workflows/synthetic-prior-upgrade.yml'
+permissions:
+  contents: read
+jobs:
+  prior-upgrade:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          path: candidate
+          persist-credentials: false
+      - name: Checkout pinned schema-46 source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: 'df2cdf61c0ab02b200e34cdfdead304e96e74b2c'
+          path: prior
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Generate with prior source and verify with candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $prior = Join-Path $env:GITHUB_WORKSPACE 'prior'
+          $candidate = Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $actual = (git -C $prior rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne 'df2cdf61c0ab02b200e34cdfdead304e96e74b2c') { throw 'Wrong prior source' }
+          $candidateRevision = (git -C $candidate rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate revision unavailable' }
+          Write-Host "Pinned prior: $actual; candidate checkout: $candidateRevision"
+          $fixture = Join-Path $env:RUNNER_TEMP ('crc-synthetic-upgrade-' + [guid]::NewGuid().ToString('N'))
+          $harness = 'tests/PracticeManager.UpgradeBoundary'
+          New-Item -ItemType Directory -Path $fixture | Out-Null
+          try {
+            Copy-Item -LiteralPath (Join-Path $candidate $harness) -Destination (Join-Path $prior $harness) -Recurse
+            dotnet run --project (Join-Path $prior "$harness/PracticeManager.UpgradeBoundary.csproj") -c Release -- generate $fixture
+            if ($LASTEXITCODE -ne 0) { throw 'Prior fixture generation failed' }
+            dotnet run --project (Join-Path $candidate "$harness/PracticeManager.UpgradeBoundary.csproj") -c Release -- verify $fixture
+            if ($LASTEXITCODE -ne 0) { throw 'Candidate upgrade verification failed' }
+          } finally {
+            Remove-Item -LiteralPath $fixture -Recurse -Force
+          }
