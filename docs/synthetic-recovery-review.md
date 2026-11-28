@@ -1,0 +1,7 @@
+# Synthetic recovery review (source only)
+
+Schema 9 approval baseline: exact revision 4f81e562db3a42ffe12282901058466e3ba5198b, Windows CI run 45763922024, 15 Python + 449 C# checks (464), zero compiler warnings/errors, no executable distribution.
+
+Adds a pure offline evidence classifier: stable operation-derived proposed reference; complete bounded two-sweep detail observations across invoice/receipt/payment types; matching enrolled marker, independently verified evidence assertion, distinct external GUIDs, exact kind, expected fingerprint and known external identity when available. Duplicate/cross-kind references, ambiguous or changing details and conflicting identities are blocked. Reference matching is case-sensitive for confirmation and case-insensitive for collision detection. A payment register reference is insufficient.
+
+A match is **for review only**; an empty result is not proof of non-posting. No assessment permits retry, hold release, journal mutation or live approval. A caller's evidence booleans do not verify authenticity; this is a normalized synthetic test contract, not an actual acquisition or independently durable recovery store. The proposed reference format has not been validated for Manager acceptance. Future live intent must bind all writable fields (including receipt receiving bank and provider-specific metadata) independently of the legacy rehearsal fingerprint. No network calls, schema changes or UI wiring. Existing security hold remains.
