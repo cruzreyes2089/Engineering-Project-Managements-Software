@@ -9,7 +9,17 @@ namespace PracticeManager.Persistence;
 internal static class ProductionWorkspaceIdentityCandidate
 {
  const string MarkerPrefix="CRC-PRACTICE-PRODUCTION-V1:";
- const int ApplicationId=0x43524350; // CRCP
+ internal const int ApplicationId=0x43524350; // CRCP
+ internal const int RecoveryApplicationId=0x43524352; // CRCR
+ // Recovery copies retain origin identity but never qualify as a live workspace.
+ internal static void VerifyRecoveryIdentity(SqliteConnection c,SqliteTransaction? tx,string expected)
+ {
+  if(Convert.ToInt64(Scalar(c,tx,"PRAGMA application_id"))!=RecoveryApplicationId||
+     Convert.ToInt64(Scalar(c,tx,"PRAGMA user_version"))!=BaseSchema||
+     Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM production_workspace_identity"))!=1||
+     Scalar(c,tx,"SELECT workspace_id FROM production_workspace_identity WHERE singleton=1") is not string actual||actual!=expected)
+   throw new ArgumentException("Recovery copy belongs to a different workspace or format.");
+ }
  const int BaseSchema=47;
  static string Marker(Guid id)=>MarkerPrefix+id.ToString("N");
  static string ReadMarker(ProductionStorageBoundary layout)=>ReadMarkerFile(layout.IdentityMarkerPath);
