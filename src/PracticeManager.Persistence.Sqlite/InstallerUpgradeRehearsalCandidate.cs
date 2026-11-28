@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
@@ -24,6 +25,12 @@ internal static class InstallerUpgradeRehearsalCandidate
   using var input=new FileStream(source,FileMode.Open,FileAccess.Read,FileShare.Read);
   var length=input.Length;
   Require(length is >=512 and <=4L*1024*1024*1024&&Hash(input)==expectedSourceHash);
+  input.Position=0;
+  var header=new byte[100];input.ReadExactly(header);
+  Require(header.AsSpan(0,16).SequenceEqual("SQLite format 3\0"u8)&&
+   BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(68,4))==0);
+  // The generic rehearsal never adopts an identity-marked live or recovery
+  // database. Those require an explicitly reviewed workspace-bound route.
   input.Position=0;
   var folder=Path.Combine(parent,"crc-upgrade-rehearsal-"+Guid.NewGuid().ToString("N"));
   Require(!File.Exists(folder)&&!Directory.Exists(folder));
