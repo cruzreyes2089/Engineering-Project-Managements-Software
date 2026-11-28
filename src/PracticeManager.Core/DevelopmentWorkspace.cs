@@ -16,6 +16,20 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   if(OperatingSystem.IsWindows()&&!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(full))throw new ArgumentException("Workspace directory permissions require review. No existing permissions were changed and no database was opened.");
   return full;
  }
+ public DevelopmentWorkspace RevalidateExisting(string localAppData)
+ {
+  var root=LocalStoragePath.DirectoryPath(localAppData);
+  DevelopmentWorkspace current;
+  if(IsAcceptance){
+   var mode=IsDocumentAcceptance?"--document-acceptance-session":IsBudgetAcceptance?"--budget-acceptance-session":"--acceptance-session";
+   current=Resolve(root,new[]{mode,AcceptanceId!});
+  }else{
+   var dev=ProtectedDirectory(Path.Combine(root,"CRC Practice Manager DEV"),false);
+   current=new(LocalStoragePath.FilePath(Path.Combine(dev,"practice-dev.db"),mustExist:true),null);
+  }
+  if(current!=this)throw new ArgumentException("Workspace identity changed. No fallback database opened.");
+  return current;
+ }
  public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments)
  {
   if(string.IsNullOrWhiteSpace(localAppData)||!Path.IsPathFullyQualified(localAppData))throw new ArgumentException("Trusted local application data folder required.");
