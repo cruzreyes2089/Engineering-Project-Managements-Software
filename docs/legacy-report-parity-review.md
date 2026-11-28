@@ -1,0 +1,13 @@
+# Legacy report reconciliation — initial source-based increment
+
+The previous requirements register refers to eight exported report capabilities, but recovered prior report installer, PRE-6E acceptance/filter documentation and SOP identify five named reports. Do not assert complete eight-report parity until the remaining specifications are recovered. No original business records, private source artifacts or report contents copied into this repository.
+
+| Legacy capability | Current treatment | Outstanding |
+|---|---|---|
+| Printable Invoice | internal invoice review/draft generation | actual issued invoice identity and authoritative posting; current/overdue/paid/void filters cannot be simulated from drafts |
+| Project Summary | project operations and all-date closeout review | project summary filter parity and export presentation |
+| Accounts Receivable Aging | synthetic due-date/issue previews | authoritative Manager balances and current-state reconciliation, client/status filters |
+| Employee Time | new read-only detail report | desktop acceptance, presentation/export parity |
+| Project Financial / Profitability | restricted date-range operational cost and all-date effort/direct/overhead scenarios | cumulative accounting reconciliation and source-backed revenue/settlement; no actual profit inferred |
+
+Employee report accepts optional employee and project, required inclusive bounded date range (maximum 366 days, rather than unbounded blank legacy dates), and All/Approved/Submitted/Rejected/Invalidated status. Includes project and overhead time when no project selected, project-only otherwise. Current review states only, not historical as-of; historical invalidated/rejected facts are never included in approved minutes. Employee number/name, project number, task/category, work date, stable source-qualified ID, minutes/hours and state. No compensation, billability, expenses, attendance or narrative work notes. Project name and detailed activity text omitted in this increment rather than add sensitive/unverified content. Requires current Reports.Operations, Work.Review, Employees.View, Projects.View and Clients.View. Results limited to 5000 records, fail closed rather than truncate; all totals derived from same rows. UI resets filters to bounded recent range, clears stale results upon changes/failure. Tests reconcile current native fixture totals, filter intersection, date boundary, invalidated time and unauthorized access. No report export yet. Manager remains authoritative for AR/revenue and no accounting writes. New native qualification pending.
