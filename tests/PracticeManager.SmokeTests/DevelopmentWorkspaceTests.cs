@@ -9,7 +9,19 @@ internal static class DevelopmentWorkspaceTests
  {
   var root=Path.Combine(parent,"workspace-tests");Directory.CreateDirectory(root);
   void Invalid(Action a,string name){try{a();}catch(ArgumentException){check(true,name);return;}throw new Exception("FAIL: "+name);}
-  var normal=DevelopmentWorkspace.Resolve(root,Array.Empty<string>());
+  var normal=DevelopmentWorkspace.Resolve(root,Array.Empty<string>(),out var freshDefault);
+  check(freshDefault,"new default directory explicitly identified for initialization");
+  Invalid(()=>DevelopmentWorkspace.Resolve(root,Array.Empty<string>()),"existing empty development directory is a recovery case");
+  var startupRoot=Path.Combine(root,"first-start");Directory.CreateDirectory(startupRoot);
+  var initial=DevelopmentWorkspace.Resolve(startupRoot,Array.Empty<string>(),out var freshInitial);
+  var firstService=LocalPractice.InitializeDefaultDevelopmentWorkspace(startupRoot,initial);
+  check(freshInitial&&!firstService.IsInitialized(),"first start exclusively reserves and initializes the new store");
+  var reopened=DevelopmentWorkspace.Resolve(startupRoot,Array.Empty<string>(),out var freshAgain);
+  check(!freshAgain&&reopened==initial&&!LocalPractice.ReopenDevelopmentWorkspace(startupRoot,reopened).IsInitialized(),"subsequent startup opens existing schema without fresh creation");
+  Invalid(()=>LocalPractice.InitializeDefaultDevelopmentWorkspace(startupRoot,initial),"first-start initializer refuses existing store");
+  File.Delete(initial.DatabasePath);
+  Invalid(()=>DevelopmentWorkspace.Resolve(startupRoot,Array.Empty<string>()),"cold startup refuses missing database in existing workspace");
+  check(!File.Exists(initial.DatabasePath),"missing database not recreated by resolver");
   check(!normal.IsAcceptance&&normal.DatabasePath==Path.Combine(root,"CRC Practice Manager DEV","practice-dev.db"),"default development workspace unchanged");
   Directory.CreateDirectory(Path.GetDirectoryName(normal.DatabasePath)!);File.WriteAllText(normal.DatabasePath,"synthetic protected default");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--unknown"}),"unknown startup arguments fail closed");
