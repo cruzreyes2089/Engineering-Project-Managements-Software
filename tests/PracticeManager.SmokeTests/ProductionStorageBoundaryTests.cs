@@ -158,6 +158,38 @@ internal static class ProductionStorageBoundaryTests
     command.Parameters[0].Value=backup;command.ExecuteNonQuery();
    }
    check(LocalPractice.ReopenProductionFixture(workflowProfile,workflowId).IsInitialized(),"restored fixture settings permit reopen");
+   // Work only on a closed synthetic copy of the initialized fixture.
+   var identityReviewRoot=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"identity-review"));
+   var identityReviewPath=Path.Combine(identityReviewRoot,"copy.db");
+   var identitySourceBytes=File.ReadAllBytes(workflow.DatabasePath);
+   File.Copy(workflow.DatabasePath,identityReviewPath,false);
+   using(var identityDb=new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{DataSource=identityReviewPath,Pooling=false,ForeignKeys=true}.ToString()))
+   {
+    identityDb.Open();using var command=identityDb.CreateCommand();
+    command.CommandText="PRAGMA trusted_schema=OFF";command.ExecuteNonQuery();
+    using var identityTx=identityDb.BeginTransaction(deferred:false);
+    command.Transaction=identityTx;
+    ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,47,false);
+    check(true,"schema 47 identity and retained roots qualify for isolated migration review");
+    _=EffortBudgetMigrationCandidate.Apply(identityDb,identityTx);
+    ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,48,false);
+    check(true,"schema 48 migration identity and budget evidence preserved");
+    _=DocumentRegisterMigrationCandidate.Apply(identityDb,identityTx);
+    ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,49,false);
+    check(true,"schema 49 migration identity and document evidence preserved");
+    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,48,false),"migration identity refuses wrong expected schema");
+    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,Guid.NewGuid().ToString("N"),workflow,49,false),"migration identity refuses foreign workspace");
+    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,overrideLayout,49,false),"migration identity refuses changed retained roots");
+    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyConnectionIdentity(identityDb,identityTx,workflowId),"ordinary startup gate still refuses schema 49");
+    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,49,true),"live identity cannot qualify as recovery identity");
+    command.CommandText="PRAGMA application_id="+ProductionWorkspaceIdentityCandidate.RecoveryApplicationId;command.ExecuteNonQuery();
+    ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,49,true);
+    check(true,"explicit schema 49 recovery identity review preserves workspace binding");
+    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyMigrationIdentity(identityDb,identityTx,workflowId,workflow,49,false),"recovery identity cannot qualify as live workspace");
+    identityTx.Rollback();
+   }
+   check(identitySourceBytes.SequenceEqual(File.ReadAllBytes(workflow.DatabasePath)),"identity migration review leaves original fixture bytes unchanged");
+
    File.Delete(workflow.DatabasePath);
    Refuse(()=>service.IsInitialized(),"missing database not recreated by fixture service");
    check(!File.Exists(workflow.DatabasePath),"fixture service preserves missing database state");
