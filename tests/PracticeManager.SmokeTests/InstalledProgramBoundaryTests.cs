@@ -195,12 +195,33 @@ internal static class InstalledProgramBoundaryTests
      File.AppendAllText(shortcutPath,"unexpected");
      Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedRegistration(fresh,registry,shortcutFolder,receipt),"modified shortcut refuses registration ownership");
      File.WriteAllBytes(shortcutPath,shortcutBytes); // disposable fixture only
-     WindowsRegistrationCandidate.RemoveOwnedKey(registry,receipt);
+     Refuse(()=>InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest),"registered installation refuses uncoordinated upgrade");
+     Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(fresh,extracted.Digest),"registered installation refuses uncoordinated removal");
+     File.AppendAllText(shortcutPath,"unexpected");
+     Refuse(()=>InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest,registry,shortcutFolder),"modified shortcut blocks registered upgrade");
+     check(InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest&&!Directory.Exists(fresh.VersionDirectory(upgrade.Digest)),"registration refusal leaves selection and candidate unchanged");
+     File.WriteAllBytes(shortcutPath,shortcutBytes); // disposable fixture only
+     InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest,registry,shortcutFolder);
+     var upgraded=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(File.ReadAllBytes(receiptPath))??throw new Exception("Missing upgraded receipt");
+     WindowsRegistrationCandidate.VerifyOwnedRegistration(fresh,registry,shortcutFolder,upgraded);
+     check(upgraded.Version==upgrade.Digest&&InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==upgrade.Digest,"registered upgrade selects new payload and verifies registration");
+     check(Directory.Exists(fresh.VersionDirectory(extracted.Digest))&&Directory.EnumerateFiles(fresh.ProgramRoot,"registration-history-*.json").Count()==1,"registered upgrade retains prior payload and registration receipt");
+     var upgradedShortcutBytes=File.ReadAllBytes(shortcutPath);
+     File.AppendAllText(shortcutPath,"unexpected");
+     Refuse(()=>InstalledVersionSelectionCandidate.RemoveRegisteredInstallation(fresh,upgrade.Digest,registry,shortcutFolder),"modified shortcut blocks registered removal");
+     check(File.Exists(shortcutPath)&&InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==upgrade.Digest,"refused removal preserves registered program");
+     // Recover only our disposable fixture's known exact shortcut bytes.
+     // Capture valid bytes before tampering instead of accepting any new hash.
+     using(var key=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
+      check(key!=null,"refused removal leaves registry intact");
+     File.WriteAllBytes(shortcutPath,upgradedShortcutBytes); // disposable fixture only
+     check(InstalledVersionSelectionCandidate.RemoveRegisteredInstallation(fresh,upgrade.Digest,registry,shortcutFolder)==17,"registered uninstall removes exact active payload");
      using(var removed=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
-      check(removed==null,"exact owned registry key removed nonrecursively");
-     File.WriteAllText(shortcutPath,"modified shortcut");
-     // A mismatching shortcut is never adopted as owned.
-     Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedKey(registry,receipt),"missing registry key refuses ownership");
+      check(removed==null&&!File.Exists(shortcutPath)&&!File.Exists(receiptPath),"registered uninstall removes only owned Windows entries");
+     check(InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==null&&Directory.Exists(fresh.VersionDirectory(extracted.Digest))&&File.Exists(uninstaller),"registered removal retains earlier version and uninstaller evidence");
+     check(Directory.EnumerateFiles(fresh.ProgramRoot,"registration-history-*.json").Count()==2,"registered removal retains receipt history");
+     Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedKey(registry,upgraded),"missing registry key refuses ownership");
+
     }
     finally
     {
