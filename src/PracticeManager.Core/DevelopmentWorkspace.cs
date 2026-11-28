@@ -10,13 +10,19 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
  public bool IsAcceptance=>AcceptanceId!=null;
  public bool IsBudgetAcceptance{get;init;}
  public bool IsDocumentAcceptance{get;init;}
+ static string ProtectedDirectory(string path,bool create)
+ {
+  var full=create?WorkspaceConfidentiality.EnsureWorkspaceDirectory(path):LocalStoragePath.DirectoryPath(path);
+  if(OperatingSystem.IsWindows()&&!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(full))throw new ArgumentException("Workspace directory permissions require review. No existing permissions were changed and no database was opened.");
+  return full;
+ }
  public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments)
  {
   if(string.IsNullOrWhiteSpace(localAppData)||!Path.IsPathFullyQualified(localAppData))throw new ArgumentException("Trusted local application data folder required.");
   var root=LocalStoragePath.DirectoryPath(localAppData);
   if(arguments.Count==0)
   {
-   var dev=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"CRC Practice Manager DEV"));
+   var dev=ProtectedDirectory(Path.Combine(root,"CRC Practice Manager DEV"),true);
    return new(LocalStoragePath.FilePath(Path.Combine(dev,"practice-dev.db"),mustExist:false),null);
   }
   var budget=arguments.Count>0&&arguments[0] is "--budget-acceptance-new" or "--budget-acceptance-session";
@@ -32,15 +38,15 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   var db=Path.Combine(folder,document?"practice-document-acceptance.db":budget?"practice-budget-acceptance.db":DatabaseName);
   if(create)
   {
-   WorkspaceConfidentiality.EnsureWorkspaceDirectory(acceptanceRoot);
+   ProtectedDirectory(acceptanceRoot,true);
    if(Directory.Exists(folder)||File.Exists(folder))throw new ArgumentException("Acceptance session already exists; no existing workspace opened.");
-   WorkspaceConfidentiality.EnsureWorkspaceDirectory(folder);
+   ProtectedDirectory(folder,true);
    using(var stream=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.None)){var bytes=Encoding.ASCII.GetBytes(id);stream.Write(bytes);stream.Flush(true);}
    LocalStoragePath.FilePath(db,mustExist:false,mustBeNew:true,rejectSidecars:true);
   }
   else
   {
-   LocalStoragePath.DirectoryPath(folder);LocalStoragePath.FilePath(marker,mustExist:true);LocalStoragePath.FilePath(db,mustExist:true);
+   ProtectedDirectory(acceptanceRoot,false);ProtectedDirectory(folder,false);LocalStoragePath.FilePath(marker,mustExist:true);LocalStoragePath.FilePath(db,mustExist:true);
    using var stream=new FileStream(marker,FileMode.Open,FileAccess.Read,FileShare.Read);
    if(stream.Length!=32)throw new ArgumentException("Acceptance session marker mismatch.");
    var bytes=new byte[32];stream.ReadExactly(bytes);
