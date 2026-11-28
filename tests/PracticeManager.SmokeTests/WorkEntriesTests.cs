@@ -253,6 +253,8 @@ internal static class WorkEntriesTests
   worker.AdvanceMyTask(task,2,"Completed");
   var completedCloseout=admin.ReadProjectCloseoutReview(project);check(completedCloseout.OpenTasks==0&&completedCloseout.PendingTimeSubmissions==0&&completedCloseout.PendingExpenseSubmissions==1,"closeout retains pending replacement expense after task completion and excludes overhead");
   var cost=admin.ReadFirmLaborCost(day,day);check(cost.ApprovedMinutes==225&&cost.MissingRateMinutes==225&&cost.CompleteCost==null,"missing labor rates do not imply zero cost");
+  var missingProjectCost=admin.ReadProjectFinancialReport(project,day,day);
+  check(missingProjectCost.ApprovedMinutes==90&&missingProjectCost.MissingCostRates>0&&missingProjectCost.EstimatedLaborCost==null&&missingProjectCost.TotalOperationalCost==null,"project missing rate cannot imply zero cost");
   Denied(()=>worker.ReadFirmLaborCost(day,day),"employee cannot see estimated firm labor cost");
   admin.RecordEmployeeRate(new(employee,day.AddDays(-1),180m,35m));
   admin.RecordEmployeeRate(new(employee,day.AddDays(1),180m,99m));
@@ -261,6 +263,11 @@ internal static class WorkEntriesTests
   cost=admin.ReadFirmLaborCost(day,day);
   check(cost.CompleteCost==131.25m&&cost.MissingRateRecords==0&&cost.ApprovedMinutes==mix.ApprovedMinutes,"total firm cost includes owner and overhead");
   check(cost.Rows.Single(x=>x.Category=="Overhead: Marketing").CompleteCost==70m&&cost.Rows.Single(x=>x.Category=="Project billable").CompleteCost==17.50m,"overhead and billable cost segregated");
+  var reconciledProjectCost=admin.ReadProjectFinancialReport(project,day,day);
+  var operationalTotals=admin.ReadProjectOperations(project,day,day);
+  check(reconciledProjectCost.ApprovedMinutes==operationalTotals.ApprovedMinutes&&reconciledProjectCost.ApprovedMinutes==allTimeDetail.ApprovedProjectMinutes&&reconciledProjectCost.ApprovedMinutes==reconciledProjectCost.BillableMinutes+reconciledProjectCost.NonbillableMinutes+reconciledProjectCost.UnclassifiedMinutes,"project financial, operations and employee approved minutes reconcile");
+  check(reconciledProjectCost.EstimatedLaborCost==52.50m&&reconciledProjectCost.EstimatedLaborCost==cost.Rows.Where(x=>x.Category.StartsWith("Project ",StringComparison.Ordinal)).Sum(x=>x.KnownCost)&&reconciledProjectCost.MissingCostRates==0,"project labor cost reconciles to firm project categories without overhead");
+  check(operationalTotals.SubmittedMinutes==operationalTotals.ApprovedMinutes+operationalTotals.PendingMinutes+operationalTotals.RejectedMinutes+operationalTotals.InvalidatedMinutes,"project submission states reconcile without double counting");
   check(admin.ReadProjectLifecycle(project).Count==0,"existing active project has no invented closeout history");
   Denied(()=>worker.RecordProjectLifecycle(project,null,true,"Synthetic unauthorized",true),"employee cannot close project");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending expense",true),"unreviewed project expense blocks closeout");
