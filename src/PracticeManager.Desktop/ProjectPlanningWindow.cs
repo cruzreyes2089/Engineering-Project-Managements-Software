@@ -11,25 +11,44 @@ internal sealed class ProjectPlanningWindow:Window
  readonly DataGrid phases=new(){IsReadOnly=true,AutoGenerateColumns=false,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly DataGrid tasks=new(){IsReadOnly=true,AutoGenerateColumns=false,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
+ readonly Dictionary<string,Button> actions=new();string? planningState;
  public ProjectPlanningWindow(LocalPractice service,long project)
  {
   this.service=service;this.project=project;Title="Project phases and tasks";Width=1000;Height=670;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text="Project planning",FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Planning is allowed while Pending; employees may start work only after explicit project authorization. Estimate is original total task hours, not allocated daily capacity. Cancelled and discontinued assignments remain visible for history and are excluded from operational estimate totals.",TextWrapping=TextWrapping.Wrap});head.Children.Add(status);
-  var buttons=new WrapPanel();void Add(string label,Action a){var b=new Button{Content=label,Margin=new Thickness(2)};b.Click+=(_,_)=>Run(a);buttons.Children.Add(b);}
+  var buttons=new WrapPanel();void Add(string label,Action a){var b=new Button{Content=label,Margin=new Thickness(2)};b.Click+=(_,_)=>Run(a);buttons.Children.Add(b);actions.Add(label,b);}
   Add("New phase",()=>EditPhase(null));Add("Edit phase",()=>EditPhase(phases.SelectedItem as ProjectPhase??throw new ArgumentException("Select phase.")));Add("New task",()=>EditTask(null));Add("Edit planned task",()=>EditTask(tasks.SelectedItem as ProjectTask??throw new ArgumentException("Select task.")));Add("Cancel planned task",CancelTask);Add("Cancellation evidence",ViewCancellation);Add("Discontinue started task",DiscontinueTask);Add("Discontinuation evidence",ViewDiscontinuation);Add("Refresh",Refresh);head.Children.Add(buttons);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   void Col(DataGrid g,string title,string prop)=>g.Columns.Add(new DataGridTextColumn{Header=title,Binding=new Binding(prop),Width=DataGridLength.Auto});
   foreach(var (label,prop) in new[]{("Phase","Name"),("Start","Start"),("End","End")})Col(phases,label,prop);
   foreach(var (label,prop) in new[]{("Task","Title"),("Phase","Phase"),("Employee","Employee"),("Start","Start"),("End","End"),("Estimated hours","EstimatedHours"),("Scope status","ScopeState"),("Conflict screening","ConflictStatus"),("State","State"),("Stopped on","StoppedOn")})Col(tasks,label,prop);
-  var split=new Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition{Height=new GridLength(2,GridUnitType.Star)});Grid.SetRow(phases,0);Grid.SetRow(tasks,1);split.Children.Add(phases);split.Children.Add(tasks);root.Children.Add(split);Content=root;Refresh();
+  var split=new Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition{Height=new GridLength(2,GridUnitType.Star)});Grid.SetRow(phases,0);Grid.SetRow(tasks,1);split.Children.Add(phases);split.Children.Add(tasks);root.Children.Add(split);Content=root;phases.SelectionChanged+=(_,_)=>UpdateActions();tasks.SelectionChanged+=(_,_)=>UpdateActions();Run(Refresh);
  }
- void Run(Action a){try{a();}catch(UnauthorizedAccessException){status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
- void Refresh(){phases.ItemsSource=null;tasks.ItemsSource=null;phases.ItemsSource=service.ReadProjectPhases(project);tasks.ItemsSource=service.ReadProjectTasks(project);status.Text="";}
+ void ClearPlanning(){planningState=null;phases.ItemsSource=null;tasks.ItemsSource=null;UpdateActions();}
+ void UpdateActions()
+ {
+  var editable=planningState is "Pending" or "Active";var selected=tasks.SelectedItem as ProjectTask;
+  actions["New phase"].IsEnabled=editable;
+  actions["Edit phase"].IsEnabled=editable&&phases.SelectedItem is ProjectPhase;
+  actions["New task"].IsEnabled=editable&&phases.Items.Count>0;
+  actions["Edit planned task"].IsEnabled=editable&&selected?.State=="Planned";
+  actions["Cancel planned task"].IsEnabled=editable&&selected?.State=="Planned";
+  actions["Discontinue started task"].IsEnabled=planningState=="Active"&&selected?.State=="InProgress";
+  actions["Cancellation evidence"].IsEnabled=planningState!=null&&selected?.State=="Cancelled";
+  actions["Discontinuation evidence"].IsEnabled=planningState!=null&&selected?.State=="Discontinued";
+ }
+ void Run(Action a){try{a();}catch(UnauthorizedAccessException){ClearPlanning();status.Text="Access denied.";}catch(ArgumentException e){ClearPlanning();status.Text=e.Message+" Refresh to continue.";}catch(Exception){ClearPlanning();status.Text="Operation failed. Refresh before retrying.";}}
+ void Refresh()
+ {
+  ClearPlanning();var snapshot=service.ReadProjectPlanningSnapshot(project);
+  phases.ItemsSource=snapshot.Phases;tasks.ItemsSource=snapshot.Tasks;planningState=snapshot.State;UpdateActions();
+  status.Text=planningState=="OperationalClosed"?"Project closed. Planning is read-only; history remains available.":"Select a phase or task to see available actions.";
+ }
  TextBox Field(StackPanel p,string label,string value){p.Children.Add(new TextBlock{Text=label});var b=new TextBox{Text=value,MaxLength=200};p.Children.Add(b);return b;}
  DatePicker DateField(StackPanel p,string label,DateOnly day){p.Children.Add(new TextBlock{Text=label});var d=new DatePicker{SelectedDate=day.ToDateTime(TimeOnly.MinValue)};p.Children.Add(d);return d;}
  static DateOnly Day(DatePicker d)=>d.SelectedDate.HasValue?DateOnly.FromDateTime(d.SelectedDate.Value):throw new ArgumentException("Select a date.");
  void Editor(string title,StackPanel panel,Action save)
  {
-  var w=new Window{Owner=this,Title=title,Width=500,Height=500,WindowStartupLocation=WindowStartupLocation.CenterOwner};var b=new Button{Content="Save"};panel.Children.Add(b);w.Content=new ScrollViewer{Content=panel};b.Click+=(_,_)=>{try{save();w.DialogResult=true;}catch(ArgumentException e){MessageBox.Show(w,e.Message);}catch(Exception){MessageBox.Show(w,"Save failed. Refresh before retrying.");}};if(w.ShowDialog()==true)Refresh();
+  var w=new Window{Owner=this,Title=title,Width=500,Height=500,WindowStartupLocation=WindowStartupLocation.CenterOwner};var b=new Button{Content="Save"};panel.Children.Add(b);w.Content=new ScrollViewer{Content=panel};b.Click+=(_,_)=>{try{save();w.DialogResult=true;}catch(UnauthorizedAccessException){w.DialogResult=false;ClearPlanning();status.Text="Access denied.";}catch(ArgumentException e){MessageBox.Show(w,e.Message);}catch(Exception){MessageBox.Show(w,"Save failed. Refresh before retrying.");}};if(w.ShowDialog()==true)Refresh();
  }
  void CancelTask()
  {
