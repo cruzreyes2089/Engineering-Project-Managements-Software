@@ -41,13 +41,17 @@ internal sealed class EngagementWindow:Window
   var plan=new Button{Content="Plan phases and tasks",Margin=new Thickness(2)};plan.IsEnabled=service.Can("Projects.Plan")&&service.Can("Employees.View");
   plan.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectPlanningWindow(service,p.Id){Owner=this}.ShowDialog();});
   actions.Children.Add(plan);
-  var documents=new Button{Content="Documents",Margin=new Thickness(2),IsEnabled=service.Can("Documents.View")};
-  documents.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectDocumentsWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(documents);
+  var documents=new Button{Content="Document register (optional)",Margin=new Thickness(2),IsEnabled=false};
+  documents.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectDocumentsWindow(service,p.Id){Owner=this}.ShowDialog();});
+  var folderTemplate=new Button{Content="Folder template",Margin=new Thickness(2)};folderTemplate.Click+=(_,_)=>Run(()=>new ProjectFolderTemplateWindow(){Owner=this}.ShowDialog());actions.Children.Add(folderTemplate);
   var quality=new Button{Content="QA/QC and scope",Margin=new Thickness(2),IsEnabled=service.Can("QA.View")};
   quality.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectQualityWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(quality);
   void UpdateProjectActions(){var selected=projects.SelectedItem is PendingProject;openProject.IsEnabled=selected;plan.IsEnabled=selected&&service.Can("Projects.Plan")&&service.Can("Employees.View");documents.IsEnabled=selected&&service.Can("Documents.View");quality.IsEnabled=selected&&service.Can("QA.View");}
   projects.SelectionChanged+=(_,_)=>Run(UpdateProjectActions);UpdateProjectActions();
-  DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
+  var projectTools=new StackPanel();projectTools.Children.Add(actions);
+  if(service.Can("Documents.View")&&service.Can("Projects.View")&&service.Can("Clients.View")){var optional=new StackPanel();optional.Children.Add(new TextBlock{Text="Use only if a project needs formal file and revision tracking. Ordinary project files stay in your project folders.",TextWrapping=TextWrapping.Wrap});optional.Children.Add(documents);if(service.IsDocumentAcceptance&&service.Can("Administration.Manage"))WorkWindowFields.Button(optional,"Send Outs history (test)",()=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new TransmittalAcceptanceWindow(service,p.Id){Owner=this}.ShowDialog();}));projectTools.Children.Add(new Expander{Header="Optional document management",Content=optional,IsExpanded=false});}
+  if(service.IsDocumentAcceptance&&service.Can("Administration.Manage")&&service.Can("Documents.View"))WorkWindowFields.Button(actions,"Folder setup (test)",()=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new DocumentFolderAcceptanceWindow(service,p.Id){Owner=this}.ShowDialog();}));
+  DockPanel.SetDock(projectTools,Dock.Top);projectPanel.Children.Add(projectTools);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
   root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh(false);projectState.SelectionChanged+=(_,_)=>Refresh(false);proposals.SelectionChanged+=(_,_)=>Run(UpdateButtons);Refresh(false);
  }
  ProposalSummary Selected()=>proposals.SelectedItem as ProposalSummary??throw new ArgumentException("Select a proposal.");
