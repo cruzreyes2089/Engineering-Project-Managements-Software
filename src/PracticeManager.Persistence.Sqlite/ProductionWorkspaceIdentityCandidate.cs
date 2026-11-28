@@ -26,7 +26,7 @@ internal static class ProductionWorkspaceIdentityCandidate
  static SqliteConnection Connection(string path,SqliteOpenMode mode)
  {
   var c=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Mode=mode,Pooling=false,ForeignKeys=true,DefaultTimeout=10}.ToString());
-  try{c.Open();return c;}catch{c.Dispose();throw;}
+  try{c.Open();using var q=c.CreateCommand();q.CommandText="PRAGMA trusted_schema=OFF";q.ExecuteNonQuery();if(Convert.ToInt64(Scalar(c,null,"PRAGMA trusted_schema"))!=0||Convert.ToInt64(Scalar(c,null,"PRAGMA foreign_keys"))!=1)throw new InvalidOperationException("Required SQLite safeguards unavailable.");return c;}catch{c.Dispose();throw;}
  }
  static object? Scalar(SqliteConnection c,SqliteTransaction? tx,string sql)
  {
@@ -38,6 +38,20 @@ internal static class ProductionWorkspaceIdentityCandidate
   if(identity!=null)command.Parameters.AddWithValue("$id",identity);
   command.ExecuteNonQuery();
  }
+ internal static void VerifyMarkerAndLayout(ProductionStorageBoundary layout,string expected)
+ {
+  layout.VerifyExistingPrivateDataLayout();
+  if(ReadMarker(layout)!=expected)throw new ArgumentException("Production workspace marker changed.");
+ }
+ internal static void VerifyConnectionIdentity(SqliteConnection c,SqliteTransaction? tx,string expected)
+ {
+  if(Convert.ToInt64(Scalar(c,tx,"PRAGMA application_id"))!=ApplicationId||
+     Convert.ToInt64(Scalar(c,tx,"PRAGMA user_version"))!=BaseSchema||
+     Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='production_workspace_identity'"))!=1||
+     Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM production_workspace_identity"))!=1||
+     Scalar(c,tx,"SELECT workspace_id FROM production_workspace_identity WHERE singleton=1") is not string actual||actual!=expected)
+   throw new ArgumentException("Production database identity or schema changed.");
+ }
  internal static string VerifyExisting(ProductionStorageBoundary layout)
  {
   layout.VerifyExistingPrivateDataLayout();
@@ -46,13 +60,7 @@ internal static class ProductionWorkspaceIdentityCandidate
   LocalStoragePath.FilePath(layout.DatabasePath,mustExist:true,rejectSidecars:true);
   using var c=Connection(layout.DatabasePath,SqliteOpenMode.ReadOnly);
   using var tx=c.BeginTransaction(deferred:true);
-  if(Convert.ToInt64(Scalar(c,tx,"PRAGMA application_id"))!=ApplicationId||
-     Convert.ToInt64(Scalar(c,tx,"PRAGMA user_version"))!=BaseSchema)
-   throw new ArgumentException("Production database format or schema requires separate review.");
-  if(Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='production_workspace_identity'"))!=1||
-     Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM production_workspace_identity"))!=1||
-     Scalar(c,tx,"SELECT workspace_id FROM production_workspace_identity WHERE singleton=1") is not string actual||actual!=id)
-   throw new ArgumentException("Production marker and database identity do not match.");
+  VerifyConnectionIdentity(c,tx,id);
   tx.Commit();
   layout.VerifyExistingPrivateDataLayout();
   if(ReadMarker(layout)!=id)throw new ArgumentException("Production workspace identity changed during review.");
