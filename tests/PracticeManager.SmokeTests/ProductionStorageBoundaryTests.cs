@@ -106,6 +106,45 @@ internal static class ProductionStorageBoundaryTests
    File.WriteAllText(Path.Combine(made.ProjectDirectory,".crc-project-identity"),"wrong identity");
    Refuse(()=>ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000002",optional),"altered project identity stops setup");
    check(File.ReadAllText(drawing)=="retain drawing","identity failure leaves existing files unchanged");
+   var workflowProfile=Directory.CreateDirectory(Path.Combine(root,"workflow-profile")).FullName;
+   var workflowProjects=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"workflow-projects"));
+   var workflow=ProductionStorageBoundary.Review(workflowProfile,workflowProjects,backup);
+   var workflowId=ProductionWorkspaceIdentityCandidate.InitializeNewFixture(workflow);
+   Refuse(()=>LocalPractice.OpenProductionFixture(workflow,Guid.NewGuid().ToString("N")),"fixture service rejects wrong workspace identity");
+   var service=LocalPractice.OpenProductionFixture(workflow,workflowId);
+   const string pw="Synthetic-production-fixture-passphrase-001";
+   check(!service.IsInitialized(),"new verified fixture service opens empty base schema");
+   service.Bootstrap("Synthetic production workflow","admin",pw,"CL");
+   check(service.Login("admin",pw),"fixture service authenticates owner");
+   var client=service.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
+   var proposal=service.CreateProposal(new(client,"Synthetic","Site","Scope",100m));
+   var issued=ConflictReviewTests.Issue(service,proposal,1);
+   var projectId=service.RecordProposalDecision(proposal,issued,true,"Synthetic").ProjectId!.Value;
+   var setup=service.SetupProductionFixtureFolders(projectId,ProjectFolderTemplate.Defaults);
+   check(setup.Created==9&&Path.GetFileName(setup.ProjectDirectory)=="PRJ-000001","authenticated project setup derives number from accepted project");
+   check(service.SetupProductionFixtureFolders(projectId,ProjectFolderTemplate.Defaults).Existing==9,"authorized retry preserves existing folders");
+   Refuse(()=>service.SetupProductionFixtureFolders(long.MaxValue,ProjectFolderTemplate.Defaults),"unknown project cannot create folders");
+   using(var sql=new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{DataSource=workflow.DatabasePath,Pooling=false}.ToString()))
+   {
+    sql.Open();using var command=sql.CreateCommand();
+    command.CommandText="SELECT count(*) FROM audit_events WHERE action='ProductionFixtureFolderSetupCompleted'";
+    check(Convert.ToInt64(command.ExecuteScalar())==2,"successful project setup records completion audit");
+    command.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Projects.Setup'";
+    command.ExecuteNonQuery();
+   }
+   try{service.SetupProductionFixtureFolders(projectId,ProjectFolderTemplate.Defaults);throw new Exception("FAIL: revoked setup grant accepted");}
+   catch(UnauthorizedAccessException){check(true,"revoked setup grant refuses folder operation");}
+   service.Logout();
+   try{service.SetupProductionFixtureFolders(projectId,ProjectFolderTemplate.Defaults);throw new Exception("FAIL: unauthenticated setup");}
+   catch(UnauthorizedAccessException){check(true,"logged out user cannot create folders");}
+   var savedMarker=File.ReadAllText(workflow.IdentityMarkerPath);
+   File.WriteAllText(workflow.IdentityMarkerPath,"CRC-PRACTICE-PRODUCTION-V1:"+Guid.NewGuid().ToString("N"));
+   Refuse(()=>service.IsInitialized(),"subsequent connection refuses changed workspace marker");
+   File.WriteAllText(workflow.IdentityMarkerPath,savedMarker);
+   check(LocalPractice.OpenProductionFixture(workflow,workflowId).IsInitialized(),"existing initialized fixture reopens without migration");
+   File.Delete(workflow.DatabasePath);
+   Refuse(()=>service.IsInitialized(),"missing database not recreated by fixture service");
+   check(!File.Exists(workflow.DatabasePath),"fixture service preserves missing database state");
   }
  }
 }
