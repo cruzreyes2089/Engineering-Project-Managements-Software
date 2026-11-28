@@ -254,6 +254,18 @@ internal static class InstalledProgramBoundaryTests
    check(stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime).Inventory==extracted.Digest,"sealed handoff binds exact reviewed release evidence");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence with {Commit=new string('d',40)},handoffTime),"handoff refuses different source revision");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime.AddMinutes(2)),"handoff refuses expired release evidence");
+   using(var heldArtifact=new InstallerExecutableAuthenticity.ArtifactLease(reservedHelper,envelopeHelperHash))
+   {
+    heldArtifact.ReviewBytes();
+    check(true,"artifact lease verifies exact bytes and open handle permissions");
+    try{using var writer=new FileStream(reservedHelper,FileMode.Open,FileAccess.Write,FileShare.ReadWrite);throw new Exception("FAIL: held artifact accepted writer");}
+    catch(IOException){check(true,"held artifact denies competing write open");}
+    try{File.Move(reservedHelper,reservedHelper+".moved");throw new Exception("FAIL: held artifact accepted rename");}
+    catch(IOException){check(true,"held artifact denies competing rename");}
+    heldArtifact.ReviewBytes();
+    check(true,"artifact identity remains intact under held read lease");
+   }
+   check(File.Exists(reservedHelper),"artifact lease disposal retains original file");
    Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,envelopeHelperHash,"not-a-pin"),"executable review rejects invalid publisher pin");
    Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,expectedDigest,expectedDigest),"executable review rejects incorrect artifact bytes");
    Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,envelopeHelperHash,expectedDigest),"Windows trust refuses unsigned synthetic artifact");
