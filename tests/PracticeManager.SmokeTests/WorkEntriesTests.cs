@@ -8,6 +8,14 @@ internal static class WorkEntriesTests
   var admin=new LocalPractice(path);admin.Bootstrap("Synthetic Time Firm","admin",pw,"CL");check(admin.Login("admin",pw),"work entries admin login");
   void Invalid(Action a,string label){try{a();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Denied(Action a,string label){try{a();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
+  check(WorkDuration.Parse("1:30")==90&&WorkDuration.Format(90)=="1:30","hours and minutes entry preserves exact duration");
+  check(WorkDuration.Parse("0:01")==1&&WorkDuration.Parse("24:00")==1440,"duration entry accepts minute and daily boundary");
+  foreach(var invalidDuration in new[]{"0:00","1:60","24:01","-1:30","1.5","1:3"})Invalid(()=>WorkDuration.Parse(invalidDuration),"invalid duration rejected");
+  var hintDay=new DateOnly(2026,1,1);
+  var hint=new ProjectTask(1,1,"PRJ-1","Active",1,"Design",1,"Employee","Drawings",hintDay,hintDay,60,"Planned",1,ConflictStatus:"Clear");
+  check(hint.CanStart&&!hint.CanComplete&&hint.WorkEntryLabel=="PRJ-1 / Design / Drawings","task actions and entry label retain project context");
+  check(!(hint with{ConflictStatus="Hold"}).CanStart&&!(hint with{ProjectState="Pending"}).CanStart&&!(hint with{ScopeState="Proposed"}).CanStart,"task start hint excludes held and unauthorized work");
+  check((hint with{State="InProgress",ConflictStatus="Hold"}).CanComplete&&!(hint with{State="InProgress",ProjectState="OperationalClosed"}).CanComplete,"completion hint matches active project service semantics");
   var role=admin.ReadStaffRoles().Single(r=>r.Name=="Engineer");admin.SetStaffGrant(role.Id,"Work.Own",true,false);
   var user=admin.CreateStaffAccount("worker",role.Id,"Synthetic-worker-temp-0001");var employee=admin.CreateEmployee(new("Synthetic","Worker","","",true),user);
   var worker=new LocalPractice(path);check(worker.ChangeRequiredPassword("worker","Synthetic-worker-temp-0001","Synthetic-worker-password-0001")&&worker.Login("worker","Synthetic-worker-password-0001"),"work entries employee login");
