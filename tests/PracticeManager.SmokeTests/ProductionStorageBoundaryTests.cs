@@ -243,7 +243,7 @@ internal static class ProductionStorageBoundaryTests
    var recoveryWorkspace=ProductionWorkspaceIdentityCandidate.VerifyExisting(reviewLayout);
    var recoveryTime=DateTimeOffset.FromUnixTimeSeconds(1900000000);
    var recoveryBinding=new InstallerWorkspaceRecoveryReview.Binding(recoveryWorkspace,new string('a',40),new string('b',64),new string('c',64),
-    47,49,backupReceipt.Sha256,backupReceipt.Bytes,1899999900,1900000100);
+    47,49,backupReceipt.Sha256,backupReceipt.Bytes,1899999900,1900000100,new string('d',64),new string('e',64),new string('f',64));
    using(var recoverySigner=System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
    {
     var recoveryPublicKey=recoverySigner.ExportSubjectPublicKeyInfo();
@@ -251,6 +251,17 @@ internal static class ProductionStorageBoundaryTests
     byte[] SignRecovery(InstallerWorkspaceRecoveryReview.Binding binding)=>recoverySigner.SignData(InstallerWorkspaceRecoveryReview.CanonicalBytes(binding),
      System.Security.Cryptography.HashAlgorithmName.SHA256,System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
     var recoverySignature=SignRecovery(recoveryBinding);
+    var upgradeRelease=new InstallerReleaseEvidence.Evidence(
+     new(InstallerCoordinatorCandidate.Operation.Upgrade,recoveryBinding.Inventory,recoveryBinding.PreviousInventory,recoveryBinding.UninstallerSha256),
+     recoveryBinding.Commit,recoveryBinding.PackageSha256,recoveryBinding.CoordinatorSha256,1899999800,1900000200);
+    check(InstallerWorkspaceRecoveryReview.ReviewForRelease(recoveryBinding,recoverySignature,recoveryPublicKey,recoveryPin,upgradeRelease,recoveryWorkspace,49,reviewLayout,backupReceipt.Path,restore.Path,recoveryTime)==recoveryBinding,"workspace recovery is bound to exact reviewed upgrade artifacts");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifyReleaseBinding(recoveryBinding,upgradeRelease with {PackageSha256=new string('0',64)},recoveryTime),"workspace recovery rejects substituted package digest");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifyReleaseBinding(recoveryBinding,upgradeRelease with {CoordinatorSha256=new string('0',64)},recoveryTime),"workspace recovery rejects substituted coordinator digest");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifyReleaseBinding(recoveryBinding,upgradeRelease with {Plan=upgradeRelease.Plan with {UninstallerSha256=new string('0',64)}},recoveryTime),"workspace recovery rejects substituted helper digest");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifyReleaseBinding(recoveryBinding,upgradeRelease with {ExpiresUnix=1900000050},recoveryTime),"workspace recovery cannot outlive release approval");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifyReleaseBinding(recoveryBinding,upgradeRelease with {Plan=new(InstallerCoordinatorCandidate.Operation.Fresh,recoveryBinding.Inventory,null,recoveryBinding.UninstallerSha256)},recoveryTime),"workspace recovery rejects fresh installation scope");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifySignature(recoveryBinding with {PackageSha256=new string('0',64)},recoverySignature,recoveryPublicKey,recoveryPin,recoveryTime),"recovery signature authenticates package digest");
+
     InstallerWorkspaceRecoveryReview.Binding ReviewRecovery(InstallerWorkspaceRecoveryReview.Binding binding,byte[] signature,string workspace,string commit,string prior,string next,int schema,string source,string copy,DateTimeOffset time,string pin)
      =>InstallerWorkspaceRecoveryReview.Review(binding,signature,recoveryPublicKey,pin,workspace,commit,prior,next,schema,reviewLayout,source,copy,time);
     check(ReviewRecovery(recoveryBinding,recoverySignature,recoveryWorkspace,recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin)==recoveryBinding,"signed workspace recovery review verifies exact isolated backup and restore");
