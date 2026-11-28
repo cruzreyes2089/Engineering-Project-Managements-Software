@@ -10,6 +10,7 @@ internal sealed class ProjectLifecycleWindow:Window
  readonly Button close=new(){Content="Record operational closure"},reopen=new(){Content="Explicitly reopen project"};
  readonly DataGrid history=WorkWindowFields.Grid();
  long? expected;bool loaded;
+ long? draftEvent;string? draftState;bool draftBound;
  public ProjectLifecycleWindow(LocalPractice service,long project)
  {
   this.service=service;this.project=project;Title="Operational project lifecycle — development";Width=820;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
@@ -24,23 +25,29 @@ internal sealed class ProjectLifecycleWindow:Window
  }
  void Refresh(bool clearReason=false)
  {
-  loaded=false;expected=null;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";if(clearReason)note.Clear();
+  loaded=false;expected=null;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";if(clearReason)ClearDraft();
   try{
    var review=service.ReadProjectLifecycleReview(project);var r=review.Snapshot;var events=review.History;history.ItemsSource=events;expected=events.FirstOrDefault()?.Id;
+   var discarded=draftBound&&(draftEvent!=expected||draftState!=r.ProjectState);
+   if(discarded)ClearDraft();
+   draftEvent=expected;draftState=r.ProjectState;draftBound=true;
    summary.Text=$"{r.ProjectNumber} — {r.ProjectState}\nSetup: {r.SetupState}; conflict: {r.ConflictStatus}\nOutstanding tasks: {r.OpenTasks}; QA: {r.OpenQualityItems}; scope: {r.PendingScopeDecisions}\nPending time: {r.PendingTimeSubmissions}; expenses: {r.PendingExpenseSubmissions}";
    close.IsEnabled=r.CanRequestClose;reopen.IsEnabled=r.CanRequestReopen;loaded=true;
    status.Text=r.ProjectState=="Active"&&!r.CanRequestClose?string.Join("\n",r.ClosureBlockers()):
     r.ProjectState=="OperationalClosed"&&!r.CanRequestReopen?"Resolve current conflict clearance before requesting reopening.":
     "Current operational snapshot. Service rechecks authorization and evidence before recording.";
-  }catch(UnauthorizedAccessException){note.Clear();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Lifecycle unavailable.";}
+   if(discarded)status.Text="Project lifecycle changed. Previous decision reason cleared; review the current state.\n"+status.Text;
+  }catch(UnauthorizedAccessException){ClearDraft();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Lifecycle unavailable.";}
  }
+ void ClearDraft(){note.Clear();draftBound=false;draftEvent=null;draftState=null;}
  void Record(bool closing)
  {
   if(!loaded||!(closing?close.IsEnabled:reopen.IsEnabled))return;
   if(string.IsNullOrWhiteSpace(note.Text)){status.Text="Enter the decision evidence or reason before confirming.";note.Focus();return;}
+  var confirmedEvent=expected;var confirmedNote=note.Text;
   var question=closing?"Record operational closure? This does not settle invoices or release contractual obligations.":"Explicitly reopen this project for operational work subject to current controls?";
   if(MessageBox.Show(this,question,"Confirm lifecycle decision",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-  try{var result=service.RecordProjectLifecycle(project,expected,closing,note.Text,true);Refresh(true);if(loaded)status.Text="Recorded: "+result.State;else status.Text="Decision recorded; current review unavailable. Refresh before further action.";}
+  try{var result=service.RecordProjectLifecycle(project,confirmedEvent,closing,confirmedNote,true);Refresh(true);if(loaded)status.Text="Recorded: "+result.State;else status.Text="Decision recorded; current review unavailable. Refresh before further action.";}
   catch(UnauthorizedAccessException){Refresh(true);loaded=false;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;loaded=false;close.IsEnabled=reopen.IsEnabled=false;}catch(Exception){loaded=false;close.IsEnabled=reopen.IsEnabled=false;status.Text="Decision unavailable. Refresh before retrying.";}
  }
 }
