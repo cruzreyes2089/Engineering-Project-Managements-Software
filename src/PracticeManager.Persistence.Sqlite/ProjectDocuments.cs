@@ -11,8 +11,7 @@ public sealed partial class LocalPractice
  {
   var n=Validation.Text(name,180,"File name",true);
   if(n!=name||n.Any(ch=>char.IsControl(ch)||ch is '/' or '\\' or ':' or '<' or '>' or '"' or '|' or '?' or '*')||n.EndsWith('.')||n.StartsWith('.'))throw new ArgumentException("Use a plain document file name without a path.");
-  var stem=n.Split('.')[0].Trim().ToUpperInvariant();
-  if(stem is "CON" or "PRN" or "AUX" or "NUL"||stem.Length==4&&(stem.StartsWith("COM")||stem.StartsWith("LPT"))&&(stem[3] is >= '1' and <= '9' or '¹' or '²' or '³'))throw new ArgumentException("Reserved file name.");
+  if(LocalStoragePath.IsReservedWindowsName(n))throw new ArgumentException("Reserved file name.");
   if(!DocumentExtensions.Contains(Path.GetExtension(n),StringComparer.OrdinalIgnoreCase))throw new ArgumentException("Unsupported document type. Executables, macros and archives are not accepted.");
   return n;
  }
