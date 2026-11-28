@@ -26,6 +26,19 @@ internal static class DevelopmentWorkspaceTests
   var resumed=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!});
   check(resumed==one&&new LocalPractice(resumed.DatabasePath).IsInitialized(),"exact acceptance session may be reopened");
   check(one.RevalidateExisting(root)==one&&normal.RevalidateExisting(root)==normal,"session renewal resolves same existing workspace");
+  var existingOnly=LocalPractice.ReopenDevelopmentWorkspace(root,one);
+  check(existingOnly.IsInitialized(),"ordinary acceptance renewal opens current initialized store");
+  var unfinished=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"});
+  File.WriteAllBytes(unfinished.DatabasePath,Array.Empty<byte>());
+  try{LocalPractice.ReopenDevelopmentWorkspace(root,unfinished);throw new Exception("FAIL: empty existing database reopened");}
+  catch(InvalidOperationException){check(new FileInfo(unfinished.DatabasePath).Length==0,"existing-only renewal refuses empty database without initializing it");}
+  var missingStore=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"});
+  var missingService=new LocalPractice(missingStore.DatabasePath);
+  File.Delete(missingStore.DatabasePath);
+  try{missingService.IsInitialized();throw new Exception("FAIL: missing database silently recreated");}
+  catch(Microsoft.Data.Sqlite.SqliteException){check(!File.Exists(missingStore.DatabasePath),"subsequent connection refuses to recreate missing database");}
+  Invalid(()=>LocalPractice.ReopenDevelopmentWorkspace(root,missingStore),"existing-only renewal refuses missing database");
+
   Invalid(()=>two.RevalidateExisting(root),"session renewal cannot create missing acceptance database");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",Guid.NewGuid().ToString("N")}),"unknown acceptance session cannot initialize silently");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!.ToUpperInvariant()}),"noncanonical session identifier rejected");
