@@ -26,7 +26,7 @@ public sealed partial class LocalPractice
  public IReadOnlyList<ProposalSummary> SearchProposals(string search="")
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Engagements.View");Require(c,t,"Clients.View");
-  using var q=Command(c,t,@"SELECT p.id,p.proposal_no,p.client_id,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,p.title,p.site,p.scope,p.fee_cents,p.revision,p.state,p.snapshot_hash FROM proposals p JOIN clients c ON c.id=p.client_id WHERE $s='' OR instr(lower(p.proposal_no||' '||p.title||' '||c.company_name||' '||c.first_name||' '||c.last_name),lower($s))>0 ORDER BY p.id DESC LIMIT 501",("$s",Validation.Text(search,150,"Search")));
+  using var q=Command(c,t,@"SELECT p.id,p.proposal_no,p.client_id,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,p.title,p.site,p.scope,p.fee_cents,p.revision,p.state,p.snapshot_hash FROM proposals p JOIN clients c ON c.id=p.client_id WHERE $s='' OR instr(lower(p.proposal_no||' '||p.title||' '||p.site||' '||c.company_name||' '||c.first_name||' '||c.last_name),lower($s))>0 ORDER BY p.id DESC LIMIT 501",("$s",Validation.Text(search,150,"Search")));
   using var r=q.ExecuteReader();var rows=new List<ProposalSummary>();
   while(r.Read()){
    if(rows.Count==500)throw new ArgumentException("More than 500 proposals match. Narrow the search.");
@@ -101,10 +101,11 @@ public sealed partial class LocalPractice
   t.Commit();return new("Accepted",project,number);
  }
  // Historical method name retained for compatibility; register now includes both Pending and Active projects.
- public IReadOnlyList<PendingProject> SearchPendingProjects(string search="")
+ public IReadOnlyList<PendingProject> SearchPendingProjects(string search="",string state="All")
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Projects.View");Require(c,t,"Clients.View");
-  using var q=Command(c,t,@"SELECT p.id,p.project_no,s.id,s.title,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,s.site,(SELECT v.state FROM project_operational_state v WHERE v.project_id=p.id),p.setup_state,CASE WHEN EXISTS(SELECT 1 FROM project_conflict_cleared cr WHERE cr.project_id=p.id) THEN 'Clear' WHEN EXISTS(SELECT 1 FROM project_conflict_current cr WHERE cr.project_id=p.id) THEN 'Hold' ELSE 'NotReviewed' END FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id JOIN clients c ON c.id=s.client_id WHERE $s='' OR instr(lower(p.project_no||' '||s.title||' '||c.company_name||' '||c.first_name||' '||c.last_name),lower($s))>0 ORDER BY p.id DESC LIMIT 501",("$s",Validation.Text(search,150,"Search")));
+  if(state is not ("All" or "Pending" or "Active" or "OperationalClosed"))throw new ArgumentException("Select a valid project status.");
+  using var q=Command(c,t,@"SELECT p.id,p.project_no,s.id,s.title,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,s.site,(SELECT v.state FROM project_operational_state v WHERE v.project_id=p.id),p.setup_state,CASE WHEN EXISTS(SELECT 1 FROM project_conflict_cleared cr WHERE cr.project_id=p.id) THEN 'Clear' WHEN EXISTS(SELECT 1 FROM project_conflict_current cr WHERE cr.project_id=p.id) THEN 'Hold' ELSE 'NotReviewed' END FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id JOIN clients c ON c.id=s.client_id WHERE ($state='All' OR (SELECT v.state FROM project_operational_state v WHERE v.project_id=p.id)=$state) AND ($s='' OR instr(lower(p.project_no||' '||s.title||' '||s.site||' '||c.company_name||' '||c.first_name||' '||c.last_name),lower($s))>0) ORDER BY p.id DESC LIMIT 501",("$s",Validation.Text(search,150,"Search")),("$state",state));
   using var r=q.ExecuteReader();var rows=new List<PendingProject>();while(r.Read()){
    if(rows.Count==500)throw new ArgumentException("More than 500 projects match. Narrow the search.");
    rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8)));
