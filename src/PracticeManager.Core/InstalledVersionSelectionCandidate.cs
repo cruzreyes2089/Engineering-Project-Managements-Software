@@ -100,6 +100,39 @@ public static class InstalledVersionSelectionCandidate
   using var lease=boundary.AcquireExistingLease();
   NoPending(boundary);
   if(Current(boundary)!=expectedActive)throw new ArgumentException("Active program selection changed.");
+  if(Exists(Path.Combine(boundary.ProgramRoot,"registration-receipt.json")))
+   throw new ArgumentException("Registered installation requires coordinated removal.");
+  return RemoveActiveUnderLease(boundary,expectedActive,null);
+ }
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ internal static int RemoveReviewedRegisteredInstallation(InstalledProgramBoundary boundary,string expectedActive,
+  Microsoft.Win32.RegistryKey parent,string shortcutDirectory)
+ {
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  if(Current(boundary)!=expectedActive)throw new ArgumentException("Active program selection changed.");
+  var receiptPath=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"registration-receipt.json"),mustExist:true,rejectSidecars:true);
+  if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(receiptPath))throw new ArgumentException("Registration receipt permissions require review.");
+  byte[] raw;
+  using(var stream=new FileStream(receiptPath,FileMode.Open,FileAccess.Read,FileShare.Read))
+  {
+   if(stream.Length<=0||stream.Length>65536)throw new ArgumentException("Registration receipt invalid.");
+   raw=new byte[(int)stream.Length];stream.ReadExactly(raw);
+  }
+  var receipt=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(raw)
+   ??throw new ArgumentException("Registration receipt invalid.");
+  if(receipt.Version!=expectedActive)throw new ArgumentException("Registration version changed.");
+  WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+  return RemoveActiveUnderLease(boundary,expectedActive,()=>{
+   WindowsRegistrationCandidate.RemoveOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+   if(!File.ReadAllBytes(receiptPath).SequenceEqual(raw))throw new ArgumentException("Registration receipt changed.");
+   var retained=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"unregistered-"+Guid.NewGuid().ToString("N")+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+   File.Move(receiptPath,retained,false);
+   if(!File.ReadAllBytes(retained).SequenceEqual(raw))throw new ArgumentException("Registration receipt retention requires review.");
+  });
+ }
+ static int RemoveActiveUnderLease(InstalledProgramBoundary boundary,string expectedActive,Action? removeRegistration)
+ {
   var payload=InstalledPayloadVerification.Review(boundary,expectedActive);
   string Resolve(string relative)=>Path.Combine(payload.Directory,relative.Replace('/',Path.DirectorySeparatorChar));
   void CheckDirectory(string path)
@@ -126,6 +159,7 @@ public static class InstalledVersionSelectionCandidate
   File.Move(Path.Combine(boundary.ProgramRoot,ActiveName),retained,false);
   if(Read(boundary,Path.GetFileName(retained))!=expectedActive||Current(boundary)!=null)
    throw new InvalidOperationException("Program removal outcome requires review.");
+  removeRegistration?.Invoke();
   // No recursive deletion, wildcards, directory adoption or fallback. If a
   // deletion fails, keep the pending record and all remaining files.
   foreach(var file in payload.Files)
@@ -149,6 +183,8 @@ public static class InstalledVersionSelectionCandidate
   using var lease=boundary.AcquireExistingLease();
   NoPending(boundary);
   var previous=Current(boundary);
+  if(Exists(Path.Combine(boundary.ProgramRoot,"registration-receipt.json")))
+   throw new ArgumentException("Registered upgrade requires coordinated replacement.");
   if(previous!=expectedPrevious||candidate==previous)throw new ArgumentException("Program selection changed.");
   if(previous!=null)InstalledPayloadVerification.Verify(boundary,previous);
   var target=boundary.VersionDirectory(candidate);
