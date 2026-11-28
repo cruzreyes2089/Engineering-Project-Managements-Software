@@ -52,6 +52,13 @@ public static class InstalledPayloadVerification
    Require(stream.Length is >0 and <=MaxManifest);
    raw=new byte[(int)stream.Length];stream.ReadExactly(raw);
   }
+  return ReviewTree(version,raw,expectedDigest);
+ }
+ // Shared exact-tree verifier for an isolated source and installed destination.
+ internal static VerifiedPayload ReviewTree(string version,byte[] raw,string expectedDigest)
+ {
+  version=LocalStoragePath.DirectoryPath(version);
+  Require(raw.Length is >0 and <=MaxManifest&&Digest(expectedDigest));
   Require(Convert.ToHexString(SHA256.HashData(raw)).ToLowerInvariant()==expectedDigest);
   using var json=JsonDocument.Parse(raw,new JsonDocumentOptions{MaxDepth=16});
   var root=json.RootElement;
