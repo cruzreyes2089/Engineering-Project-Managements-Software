@@ -1,0 +1,9 @@
+# Milestone 04C — v0.4.2 connection diagnostic
+
+Prerequisite: Manager.io Desktop running with a disposable synthetic business. Owner confirmed HTTP 200 and parseable JSON from GET /api2/customers in version 26.11.11 using X-API-KEY. No schema inference, live financial data or accounting posting.
+
+Open Accounting connection while signed in as the local development Administrator. Enter the exact endpoint displayed in Manager (literal IPv4 loopback HTTP address with explicit port and /api2), copy the test business secret and click Paste secret, then Test connection. The current clipboard is cleared where possible; clipboard history remains separate. The secret field clears on testing/closing. No endpoint or token is persisted; no records imported. Managed memory cannot be guaranteed zeroized; this is a diagnostic, not a credential vault. Only the JSON container shape and HTTP status are reported.
+
+Temporary authorization: current active Administrator role only, checked before and after the request. No database migration or changes to existing CRM grants. Dedicated accounting permissions, encrypted credential storage, provider mapping, token scope/revocation tests, audit records and production threat review are deferred. Exact localhost service identity is not cryptographically authenticated by HTTP; keep the synthetic environment local and verify the displayed endpoint. No redirects/proxy/cookies; 15-second deadline; 1 MB response limit. Invalid endpoints and token errors return sanitized outcomes.
+
+Automated loopback fixture tests and role checks; owner must verify the real Manager API, masked paste, wrong/revoked token, Manager closed, endpoint changes, cancellation and no persisted secrets. No API response body printed. Do not use real books. Build and UI acceptance remain pending at commit creation.
