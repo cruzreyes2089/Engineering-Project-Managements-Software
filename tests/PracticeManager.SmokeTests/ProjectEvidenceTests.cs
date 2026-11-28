@@ -24,6 +24,9 @@ internal static class ProjectEvidenceTests
   var old=s.ReadProjectDocuments(p.Id).Single();
   var successor=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),id,"Production","Reports","report.txt","Revision"u8.ToArray());
   check(s.ReadProjectDocuments(p.Id).Single().Id==successor&&s.ReadProjectDocuments(p.Id,false).Count==2,"current document and history separate");
+  check(s.ReadProjectDocuments(p.Id,true,"REPORT","Reports").Single().Id==successor&&s.ReadProjectDocuments(p.Id,false,"report","Reports").Count==2,"document search intersects category and current version filter");
+  check(s.ReadProjectDocuments(p.Id,false,"report","Drawings").Count==0&&s.ReadProjectDocuments(other.Id,false,"report").Count==0,"document search remains category and project scoped");
+  Invalid(()=>s.ReadProjectDocuments(p.Id,false,"","Unknown"),"document search rejects invalid category");
   Invalid(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),id,"Production","Reports","report.txt",bytes),"stale version cannot branch");
   Invalid(()=>s.RegisterProjectDocument(other.Id,Guid.NewGuid(),successor,"Production","Reports","report.txt",bytes),"cross-project version denied");
   var restricted=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","agreement.txt",bytes);
@@ -32,6 +35,12 @@ internal static class ProjectEvidenceTests
   Denied(()=>s.RetrieveProjectDocument(other.Id,id,old.Hash),"cross-project retrieval denied");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'");
   check(s.ReadProjectDocuments(p.Id,false).All(x=>x.Id!=restricted),"restricted document omitted from list");
+  check(s.ReadProjectDocuments(p.Id,false,"agreement","Contracts").Count==0,"document search cannot reveal restricted match");
+  check(s.CanRegisterProjectDocuments(p.Id),"document registration preflight allows production writer");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code=\u0027Documents.Record\u0027");
+  check(!s.CanRegisterProjectDocuments(p.Id)&&s.ReadProjectDocuments(p.Id).Count==1,"read-only user can list but cannot register documents");
+  Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Reports","denied.txt",bytes),"registration service denies revoked write grant");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code=\u0027Documents.Record\u0027");
   Denied(()=>s.RetrieveProjectDocument(p.Id,restricted,rd.Hash),"restricted document direct retrieval denied");
   Denied(()=>s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Restricted","Contracts","secret.txt",bytes),"restricted write denied");
   Invalid(()=>s.RecordProjectLifecycle(p.Id,null,true,"Synthetic pending closure",true),"pending project cannot close");
