@@ -38,6 +38,40 @@ internal static class DocumentAcceptanceStartupTests
   var record=s.PrepareAcceptanceTransmittal(Guid.NewGuid(),intent,"Synthetic preparation","Reviewed",true);
   var report=s.ReadAcceptanceDocumentManagementReport(project);
   check(report.ProductionVersions==1&&report.CurrentProductionVersions==1&&report.Preparations==1&&report.Issues==0&&report.EverDelivered==0&&report.HasRegisteredFolder&&report.FolderUsesCurrentConfiguration,"document report distinguishes preparation and folder configuration");
+  // Revoke individual live grants without changing the session, then restore the synthetic fixture.
+  void Grant(string grant,bool enabled)
+  {
+   using var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=workspace.DatabasePath,Pooling=false}.ToString());
+   db.Open();using var q=db.CreateCommand();
+   q.CommandText="UPDATE role_permissions SET allowed=$a WHERE role_id=1 AND permission_code=$g";
+   q.Parameters.AddWithValue("$a",enabled?1:0);q.Parameters.AddWithValue("$g",grant);
+   if(q.ExecuteNonQuery()!=1)throw new InvalidOperationException("Expected synthetic grant row.");
+  }
+  void Denied(Action action,string label)
+  {try{action();}catch(UnauthorizedAccessException){check(true,label);return;}throw new Exception("FAIL: "+label);}
+  void WithRevoked(string grant,Action action)
+  {Grant(grant,false);try{action();}finally{Grant(grant,true);}}
+  WithRevoked("Documents.View",()=>{
+   Denied(()=>s.ReviewAcceptanceProjectFolders(project),"folder history requires current document view grant");
+   Denied(()=>s.ReviewAcceptanceTransmittals(project),"transmittal history requires current document view grant");
+   Denied(()=>s.ReadAcceptanceDocumentManagementReport(project),"document report requires current document view grant");
+  });
+  WithRevoked("Documents.Record",()=>{
+   Denied(()=>s.PrepareAcceptanceTransmittal(Guid.NewGuid(),intent,"Synthetic preparation","Reviewed",true),"transmittal preparation requires current record grant");
+   Denied(()=>s.SaveAcceptanceTransmittalEvent(project,record.Id,Guid.NewGuid(),record.History[0].Event.Hash,"IssueRecorded","Synthetic issue","Reviewed",true),"issue recording requires current record grant");
+   Denied(()=>s.CreateAcceptanceFolders(project,folder.Hash,cfg.Hash,selected,reconciled.PlanHash,true),"folder creation requires current record grant");
+   check(s.ReviewAcceptanceTransmittals(project).Single().History.Count==1,"read-only authorization retains original transmittal without new events");
+  });
+  WithRevoked("Administration.Manage",()=>{
+   Denied(()=>s.ReviewAcceptanceFolderConfigurations(),"folder configuration requires current administrative grant");
+   Denied(()=>s.ReviewAcceptanceProjectFolders(project),"folder register requires current administrative grant");
+   Denied(()=>s.ReviewAcceptanceTransmittals(project),"transmittal register requires current administrative grant");
+  });
+  WithRevoked("Reports.Operations",()=>{
+   Denied(()=>s.ReadAcceptanceDocumentManagementReport(project),"document report requires current operations grant");
+   check(s.ReviewAcceptanceTransmittals(project).Single().History.Count==1,"report grant is separate from document register read");
+  });
+  check(s.ReadAcceptanceDocumentManagementReport(project).Preparations==1,"restored grants preserve original preparation");
   var issued=s.SaveAcceptanceTransmittalEvent(project,record.Id,Guid.NewGuid(),record.History[0].Event.Hash,"IssueRecorded","Synthetic issue","Reviewed",true);
   var delivered=s.SaveAcceptanceTransmittalEvent(project,record.Id,Guid.NewGuid(),issued.Event.Hash,"DeliveryRecorded","Synthetic delivery","Reviewed",true);
   s.SaveAcceptanceTransmittalEvent(project,record.Id,Guid.NewGuid(),delivered.Event.Hash,"Withdrawn","Synthetic withdrawal","Reviewed",true);
