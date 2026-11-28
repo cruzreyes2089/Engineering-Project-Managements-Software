@@ -40,6 +40,8 @@ public sealed partial class LocalPractice
    long clients,projects,documents,historicalProjects;
    using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=staging,Mode=SqliteOpenMode.ReadOnly,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString())){
     db.Open();Exec(db,null,"PRAGMA trusted_schema=OFF; PRAGMA query_only=ON");
+    if(Convert.ToInt64(Scalar(db,null,"PRAGMA foreign_keys"))!=1||Scalar(db,null,"PRAGMA trusted_schema") is not long trusted||trusted!=0||Convert.ToInt64(Scalar(db,null,"PRAGMA query_only"))!=1)
+     throw new InvalidOperationException("Required restore connection safeguards unavailable.");
     if(Convert.ToInt64(Scalar(db,null,"PRAGMA user_version"))!=schema)throw new ArgumentException("Recovery schema must match the active schema; a different version requires reviewed migration.");
     using(var q=Command(db,null,"PRAGMA integrity_check"))using(var r=q.ExecuteReader()){if(!r.Read()||r.GetString(0)!="ok"||r.Read())throw new InvalidOperationException("Recovery database integrity failed.");}
     using(var q=Command(db,null,"PRAGMA foreign_key_check"))using(var r=q.ExecuteReader()){if(r.Read())throw new InvalidOperationException("Recovery database foreign-key check failed.");}
@@ -55,7 +57,7 @@ public sealed partial class LocalPractice
     if(generation!=sessionGeneration||RequireAdministration(active,t)!=actor)throw new UnauthorizedAccessException();
     Require(active,t,"Administration.RecoveryCopy");if(Convert.ToInt64(Scalar(active,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Active recovery schema changed.");Audit(active,t,actor,"IsolatedRestorePrepared","Firm",1);t.Commit();
    }
-   stage.Publish();
+   stage.Publish(bytes,hash);
    return new(target,hash,bytes,clients,projects,documents){HistoricalProjects=historicalProjects};
  }
 }
