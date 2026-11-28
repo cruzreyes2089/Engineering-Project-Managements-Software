@@ -3,6 +3,12 @@ using PracticeManager.Core;
 namespace PracticeManager.Persistence;
 public sealed partial class LocalPractice
 {
+ private static decimal ReportLaborCost(long minutes,long cents)
+ {
+  if(minutes is <1 or >1440)throw new InvalidOperationException("Invalid approved minutes.");
+  if(cents<0||cents>100000000)throw new InvalidOperationException("Invalid recorded cost rate.");
+  return decimal.Round(minutes*cents/60m,0,MidpointRounding.AwayFromZero)/100m;
+ }
  public bool CanReadFirmLaborCost()=>CanReadFirmTimeMix()&&Can("Billing.Rates");
  public FirmLaborCost ReadFirmLaborCost(DateOnly start,DateOnly end)
  {
@@ -20,8 +26,7 @@ public sealed partial class LocalPractice
    var row=rows.TryGetValue(cat,out var found)?found:new FirmLaborCostRow(cat,0,0,0,0);
    if(r.IsDBNull(2))row=row with{ApprovedMinutes=row.ApprovedMinutes+minutes,MissingRateMinutes=row.MissingRateMinutes+minutes,MissingRateRecords=row.MissingRateRecords+1};
    else{
-    var cents=r.GetInt64(2);if(cents<0||cents>100000000)throw new InvalidOperationException("Invalid recorded cost rate.");
-    var cost=decimal.Round(minutes*cents/60m,0,MidpointRounding.AwayFromZero)/100m;
+    var cost=ReportLaborCost(minutes,r.GetInt64(2));
     row=row with{ApprovedMinutes=row.ApprovedMinutes+minutes,KnownCost=row.KnownCost+cost};
    }
    rows[cat]=row;
