@@ -8,6 +8,14 @@ internal static class UpgradeRehearsalTests
   var root=Path.GetDirectoryName(legacyPath)!;
   string Hash(string path){using var stream=File.OpenRead(path);return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();}
   void Invalid(Action a,string name){try{a();}catch(ArgumentException){check(true,name);return;}throw new Exception("FAIL: "+name);}
+  // A separate populated source exercises preservation of real field shapes
+  // without changing the original v1 fixture used by later smoke tests.
+  var populated=Path.Combine(root,"upgrade-populated-v1.db");File.Copy(legacyPath,populated);
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=populated,Pooling=false}.ToString())){
+   db.Open();using var q=db.CreateCommand();q.CommandText="UPDATE clients SET notes='Synthetic notes',email='synthetic@example.invalid',phone='8055550100',address1='Synthetic address',city='Synthetic city' WHERE id=1; INSERT INTO contacts(client_id,first_name,last_name,title,email,phone,is_primary) VALUES(1,'Synthetic','Contact','Designer','contact@example.invalid','8055550101',1)";q.ExecuteNonQuery();
+  }
+  var populatedHash=Hash(populated);var populatedResult=UpgradeRehearsal.Run(populated,populatedHash,true);
+  check(populatedResult.Clients==1&&populatedResult.Contacts==1&&populatedResult.Users==2&&populatedResult.SourceUnchanged&&Hash(populated)==populatedHash,"populated upgrade rehearsal preserves client/contact field fingerprints and source bytes");
   var hash=Hash(legacyPath);
   Invalid(()=>UpgradeRehearsal.Run(legacyPath,hash,false),"upgrade rehearsal requires explicit trusted closed copy confirmation");
   Invalid(()=>UpgradeRehearsal.Run(legacyPath,new string('0',64),true),"upgrade rehearsal requires exact source hash");

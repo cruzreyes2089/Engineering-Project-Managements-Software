@@ -44,6 +44,9 @@ public static class UpgradeRehearsal
   var firms=Scan("SELECT id,name,client_prefix FROM firms ORDER BY id");if(firms!=1)throw new ArgumentException("Initialized single firm required.");
   var clients=Scan("SELECT id,client_no FROM clients ORDER BY id");
   var contacts=Scan("SELECT id,client_id FROM contacts ORDER BY id");
+  // Stable original business fields, including data rather than only identifiers.
+  Scan("SELECT id,client_type,company_name,first_name,last_name,email,phone,address1,address2,city,state,zip,notes,status,created_at FROM clients ORDER BY id");
+  Scan("SELECT id,first_name,last_name,title,email,phone,is_primary FROM contacts ORDER BY id");
   var users=Scan("SELECT id,username,normalized_username,role_id,active FROM users ORDER BY id");
   Scan("SELECT id,actor_id,action,entity,entity_id,occurred_at FROM audit_events ORDER BY id");
   return new(version,clients,contacts,users,Convert.ToHexString(h.GetHashAndReset()));

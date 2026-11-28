@@ -13,7 +13,7 @@ internal static class IntegratedPracticeWorkflowTests
   var engineer=admin.ReadStaffRoles().Single(x=>x.Name=="Engineer");
   var reviewerRole=admin.ReadStaffRoles().First(x=>x.Name!="Engineer"&&x.Name!="Administrator");
   admin.SetStaffGrant(engineer.Id,"Work.Own",true,false);
-  foreach(var grant in new[]{"Work.Review","Billing.Classify","Billing.Invoices.View","Billing.Invoices.Approve","Projects.View","Clients.View"})
+  foreach(var grant in new[]{"Work.Review","Billing.Classify","Billing.Invoices.View","Billing.Invoices.Approve","Projects.View","Clients.View","Employees.View"})
    admin.SetStaffGrant(reviewerRole.Id,grant,true,false);
   var workerAccount=admin.CreateStaffAccount("integrated-worker",engineer.Id,"Synthetic-integrated-worker-temp");
   admin.CreateStaffAccount("integrated-reviewer",reviewerRole.Id,"Synthetic-integrated-reviewer-temp");

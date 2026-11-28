@@ -104,7 +104,7 @@ internal sealed class WorkReviewWindow:Window
   this.service=service;Title="Work approvals and billing";Width=1080;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="First approve actual work or expenses, then decide whether approved project work is billable. Independent review is required unless the founding-owner exception applies. No payments or invoices are created here.",TextWrapping=TextWrapping.Wrap});var filters=new WrapPanel();filters.Children.Add(new TextBlock{Text="From",Margin=new Thickness(4,8,4,0)});filters.Children.Add(start);filters.Children.Add(new TextBlock{Text="Through",Margin=new Thickness(4,8,4,0)});filters.Children.Add(end);filters.Children.Add(pending);WorkWindowFields.Button(filters,"Refresh",()=>Run(Refresh));if(service.Can("Work.Review")&&service.Can("Work.Correct"))WorkWindowFields.Button(filters,"Attendance corrections (UTC)",()=>Run(()=>new AttendanceCorrectionWindow(service){Owner=this}.ShowDialog()));head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   var tabs=new TabControl();
-  bool ReviewGrant()=>loaded&&service.Can("Work.Review")&&service.Can("Projects.View")&&service.Can("Clients.View");
+  bool ReviewGrant()=>loaded&&service.Can("Work.Review")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View");
   bool CorrectGrant()=>ReviewGrant()&&service.Can("Work.Correct");
   WorkReviewRow? ProjectRecord()=>reviews.SelectedItem as WorkReviewRow;
   OverheadReviewRow? NonProjectRecord()=>overheadReviews.SelectedItem as OverheadReviewRow;
@@ -149,8 +149,8 @@ internal sealed class WorkReviewWindow:Window
   }
   if(service.Can("Billing.Classify"))
    tabs.Items.Add(new TabItem{Header="Billing decisions",Content=Page(billing,
-    ("Billable",()=>Classify(true),()=>loaded&&service.Can("Billing.Classify")&&BillingRecord()?.Classification=="Unclassified"),
-    ("Nonbillable",()=>Classify(false),()=>loaded&&service.Can("Billing.Classify")&&BillingRecord()?.Classification=="Unclassified"))});
+    ("Billable",()=>Classify(true),()=>loaded&&service.Can("Billing.Classify")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")&&BillingRecord()?.Classification=="Unclassified"),
+    ("Nonbillable",()=>Classify(false),()=>loaded&&service.Can("Billing.Classify")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")&&BillingRecord()?.Classification=="Unclassified"))});
   DockPanel.SetDock(selectedInfo,Dock.Bottom);selectedInfo.Margin=new Thickness(0,8,0,0);root.Children.Add(selectedInfo);
   void Details()
   {
@@ -172,8 +172,8 @@ internal sealed class WorkReviewWindow:Window
  void Refresh()
  {
   Clear();var a=WorkWindowFields.Day(start);var b=WorkWindowFields.Day(end);var counts=new List<string>();
-  if(service.Can("Work.Review")){var project=service.ReadWorkReview(a,b,pending.IsChecked==true);var nonProject=service.ReadOverheadReview(a,b,pending.IsChecked==true);reviews.ItemsSource=project;overheadReviews.ItemsSource=nonProject;counts.Add(project.Count+" project records");counts.Add(nonProject.Count+" non-project records");}
-  if(service.Can("Billing.Classify")){var records=service.ReadBillingWork(a,b,pending.IsChecked==true);billing.ItemsSource=records;counts.Add(records.Count+" billing records");}
+  if(service.Can("Work.Review")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")){var project=service.ReadWorkReview(a,b,pending.IsChecked==true);var nonProject=service.ReadOverheadReview(a,b,pending.IsChecked==true);reviews.ItemsSource=project;overheadReviews.ItemsSource=nonProject;counts.Add(project.Count+" project records");counts.Add(nonProject.Count+" non-project records");}
+  if(service.Can("Billing.Classify")&&service.Can("Projects.View")&&service.Can("Clients.View")&&service.Can("Employees.View")){var records=service.ReadBillingWork(a,b,pending.IsChecked==true);billing.ItemsSource=records;counts.Add(records.Count+" billing records");}
   loaded=true;status.Text=counts.Count==0?"No review access.":string.Join(" · ",counts);UpdateActions();
  }
  bool ConfirmOwner(bool applicable)=>applicable&&service.Can("Administration.Manage")&&service.ReadOwnerApprovalPolicy().Enabled&&MessageBox.Show(this,"If this is your own submission, explicitly invoke the single-owner exception using the justification just entered? Otherwise choose No for ordinary independent review.","Owner exception",MessageBoxButton.YesNo,MessageBoxImage.Warning)==MessageBoxResult.Yes;
