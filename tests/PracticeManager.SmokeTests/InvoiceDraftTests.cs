@@ -25,6 +25,7 @@ internal static class InvoiceDraftTests
   Invalid(()=>s.RecordEmployeeRate(new(employee,day.AddDays(-2),190m,36m)),"backdated rate insertion rejected");
   Denied(()=>worker.ReadEmployeeRates(employee),"employee cannot see rate history");
   Denied(()=>worker.ReadInvoiceDrafts(project),"employee cannot see invoice register");
+  Denied(()=>worker.ReadAcceptedBillingFee(project),"accepted billing fee requires current billing view grant");
   check(s.ReadInvoiceCandidates(project,day).Single(x=>x.SourceId==time).Amount==183m,"time pricing exact to cents");
   var input=new InvoiceDraftInput(Guid.NewGuid(),project,day,day.AddDays(30),new[]{new FixedFeeInput("Milestone",100m)},new[]{time,expense});var draft=s.CreateInvoiceDraft(input);var detail=s.ReadInvoiceDraft(project,draft);
   check(detail.Summary.Total==295.34m&&detail.Lines.Count==3,"mixed billing draft total and line history");
