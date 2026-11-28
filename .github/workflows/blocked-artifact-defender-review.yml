@@ -1,0 +1,91 @@
+name: Independent Defender review of held archive
+on:
+  push:
+    branches: ['milestone-04c/accounting-connection']
+    paths: ['.github/workflows/blocked-artifact-defender-review.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  defender:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Verify independent scanner is available and current
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $status = Get-MpComputerStatus
+          if (-not $status.AntivirusEnabled -or -not $status.AMServiceEnabled -or -not $status.RealTimeProtectionEnabled) {
+            throw 'Defender unavailable or inactive; no independent scan result.'
+          }
+          Update-MpSignature -ErrorAction Stop
+          $status = Get-MpComputerStatus
+          $status | Select-Object AMProductVersion,AMEngineVersion,AntivirusSignatureVersion,AntivirusSignatureLastUpdated,AntivirusEnabled,RealTimeProtectionEnabled | Format-List
+          if (-not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled -or $null -eq $status.AntivirusSignatureLastUpdated -or ((Get-Date) - $status.AntivirusSignatureLastUpdated).TotalHours -gt 48) {
+            throw 'Current enabled Defender engine not verified.'
+          }
+      - name: Retrieve exact held archive for static analysis only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'crc-held-review'
+          if (Test-Path -LiteralPath $root) { throw 'Review directory already exists.' }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          $archive = Join-Path $root 'blocked.zip'
+          # Use a binary-safe file stream via HttpClient; never launch the archive.
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; 'X-GitHub-Api-Version' = '2022-11-28'; Accept = 'application/vnd.github+json' }
+          Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GH_REPO/actions/artifacts/15080514626/zip" -Headers $headers -OutFile $archive
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+          if ($hash -ine 'c5840d6dcc5944483ef8b6a254a635dbf247b0155069f814256bc6a8a5ec9a14') { throw 'Exact archive identity mismatch.' }
+          Write-Host "Verified archive SHA256: $hash"
+      - name: Static scan of exact archive and validated members
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'crc-held-review'
+          $archive = Join-Path $root 'blocked.zip'
+          $members = Join-Path $root 'members'
+          $scanner = Join-Path $env:ProgramFiles 'Windows Defender/MpCmdRun.exe'
+          $platform = Join-Path $env:ProgramData 'Microsoft/Windows Defender/Platform'
+          if (Test-Path -LiteralPath $platform) {
+            $latest = Get-ChildItem -LiteralPath $platform -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($latest -and (Test-Path -LiteralPath (Join-Path $latest.FullName 'MpCmdRun.exe'))) {
+              $scanner = Join-Path $latest.FullName 'MpCmdRun.exe'
+            }
+          }
+          if (-not (Test-Path -LiteralPath $scanner -PathType Leaf)) { throw 'Defender command-line scanner missing.' }
+          if ((Get-AuthenticodeSignature -LiteralPath $scanner).Status -ne 'Valid') { throw 'Scanner signature not verified.' }
+          $start = Get-Date
+          & $scanner -Scan -ScanType 3 -File $archive
+          if ($LASTEXITCODE -ne 0) { throw 'Archive scan did not complete successfully.' }
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine 'c5840d6dcc5944483ef8b6a254a635dbf247b0155069f814256bc6a8a5ec9a14') { throw 'Archive missing or changed after scanning.' }
+          python tools/security/archive_inventory.py $archive $members
+          if ($LASTEXITCODE -ne 0) { throw 'Safe inventory failed.' }
+          $before = @(Get-ChildItem -LiteralPath $members -File -Recurse | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash + ' ' + $_.FullName })
+          if ($before.Count -ne 409) { throw 'Unexpected member count.' }
+          & $scanner -Scan -ScanType 3 -File $members
+          if ($LASTEXITCODE -ne 0) { throw 'Member scan did not complete successfully.' }
+          $after = @(Get-ChildItem -LiteralPath $members -File -Recurse | Sort-Object FullName | ForEach-Object { (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash + ' ' + $_.FullName })
+          if (Compare-Object $before $after) { throw 'Members changed during review.' }
+          $log = 'Microsoft-Windows-Windows Defender/Operational'
+          $events = @(Get-WinEvent -FilterHashtable @{LogName=$log; StartTime=$start} -ErrorAction Stop)
+          if (@($events | Where-Object { $_.Id -in @(1116,1117,1118,1119,1002,1005) }).Count -gt 0) { throw 'Detection, remediation or interrupted scan event requires review.' }
+          if (@($events | Where-Object { $_.Id -eq 1001 }).Count -lt 2) { throw 'Scan completion events not independently verified.' }
+          Write-Host 'Defender scans completed, files unchanged, no matching detection events in this interval. Not a safety certification or release approval.'
+      - name: Remove private quarantine
+        if: always()
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'crc-held-review'
+          if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }

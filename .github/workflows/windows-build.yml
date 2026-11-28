@@ -1,0 +1,76 @@
+name: Windows build and test
+
+on:
+  push:
+    branches: [main, 'milestone-*/*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, node24
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5, node24
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6, node24
+        with:
+          python-version: '3.12'
+      - name: Parse legacy Access inventory script (no database access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/Inspect-LegacyAccessSchema.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Legacy inventory PowerShell syntax checked; Access DAO execution not qualified.'
+      - name: Parse legacy CRM snapshot candidate (no database access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/Export-LegacyCrmSnapshot.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'CRM snapshot syntax checked; DAO execution is not qualified.'
+      - name: Parse disposable DAO fixture generator (no database access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/migration/New-SyntheticLegacyCrmFixture.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Synthetic fixture syntax checked; actual DAO qualification is opt-in.'
+      - name: Parse due-date diagnostic (no Manager access)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/accounting/Inspect-SyntheticDueDates.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Due-date diagnostic syntax checked; actual API semantics require local acceptance.'
+      - name: Exercise due-date diagnostic with offline fixtures
+        shell: pwsh
+        run: ./tools/accounting/Inspect-SyntheticDueDates.ps1 -SelfTest
+      - name: SQLite schema tests
+        run: python -m unittest discover -s tests/schema -v
+      - name: Build, smoke test and publish
+        shell: pwsh
+        run: ./BUILD_AND_TEST.ps1 -Publish
+      - name: Review direct and transitive NuGet dependencies
+        shell: pwsh
+        run: ./tools/security/Review-Dependencies.ps1
+      - name: Inventory quarantined build (no distribution)
+        shell: pwsh
+        run: ./tools/security/Inventory-DevelopmentBuild.ps1
