@@ -38,6 +38,9 @@ public static class DocumentTransmittalReview
   "DeliveryRecorded"=>next=="Withdrawn",
   _=>false
  };
+ // A UI hint only; Append still verifies the entire history and expected predecessor.
+ public static IReadOnlyList<string> AvailableAttestations(string? state)
+  =>Array.AsReadOnly(new[]{"IssueRecorded","DeliveryRecorded","Withdrawn"}.Where(next=>Transition(state,next)).ToArray());
  public static void Verify(TransmittalIntent intent,IReadOnlyList<TransmittalEvent> history)
  {
   if(Prepare(intent.ProjectId,intent.Recipient,intent.Purpose,intent.Documents).ReviewHash!=intent.ReviewHash||history.Count>4)
