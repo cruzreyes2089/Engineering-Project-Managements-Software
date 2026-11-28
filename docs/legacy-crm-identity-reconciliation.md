@@ -1,0 +1,17 @@
+# Offline legacy CRM identity reconciliation
+
+The new read-only helper bridges metadata mapping preflight and native transfer preview. It compares a separately collected source identity census against the normalized CRM transfer. Both must be derived from a trusted, closed, unchanged local Access copy. The actual DAO census/extraction adapter is not yet qualified; do not manufacture the census from the transfer itself. This helper performs no Access query, no native import, no production database operation, and no financial migration.
+
+Keep all four input files in a private directory outside the repository. The existing inventory and mapping use their documented formats. The census root has exactly format (CRC-Access-CRM-Census-v1), sourceSha256 (lowercase source digest), inventorySha256, mappingSha256, transferSha256 (lowercase digests of exact file bytes), clients (array of original normalized legacy IDs), and contacts (array of objects with legacyId and legacyClientId only). Collect and retain the independent identity list before comparing with the converted transfer. Bind its review to the exact transfer bytes; never regenerate identity lists from converted data. Conversion must preserve original text identifier spelling and leading zeros; integer conversion must be reviewed independently. The census is confidential even though it contains no names or financial values.
+
+Run from the source checkout with Python 3.12:
+
+    python tools/migration/reconcile_crm_transfer.py PRIVATE_INVENTORY PRIVATE_MAPPING PRIVATE_CENSUS PRIVATE_TRANSFER
+
+The tool revalidates metadata mapping, binds exact file digests, rejects missing/replaced/duplicate IDs, orphan contacts, parent changes, malformed rows and multiple primary contacts. It compares identities independent of row order, preserving exact source spelling while rejecting case-insensitive duplicates. All four private inputs must be distinct paths outside the checkout. No IDs, names, raw input, or paths are emitted. Exit 0 means only that the supplied identity evidence reconciles; exit 2 means rejection. A private trusted environment is required; path checks are not a general data-loss prevention boundary. The tool cannot authenticate the census or the source digest, reconcile actual field values, qualify native parsing, or authorize import.
+
+After actual Access extraction qualification, separately review source counts, source-to-transfer field conversions and rejected rows, exact native preview hash, backup, and synthetic rollback/repeat-import evidence. Preserve original source and previous evidence. Actual source and field values, historical financial/project/staff data, and complete migration remain outstanding. No security hold change.
+
+## Verification
+
+Source/test revision ff3b4ce2f20b2cbafdfcd0b40c5896161e7aaa96. Independently copied files verified against exact Git blobs: reconcile_crm_transfer.py 1e403cd5671a6cc025fd909eb45ab27a5a823c5c, validate_crm_mapping.py 0486c79c26f37769200018e73f4b6f0fea46c252, test_crm_reconciliation.py 1a28701c06c350ba468f107e2247d38d4202ab64. Local Python unittest execution passed all eight tests. Three additional local CLI checks using synthetic JSON confirmed valid fixture, rejection after transfer byte change and rejection of orphaned source contact. No actual DAO, native import, Windows combined CI, or interactive desktop acceptance was executed in this verification.
