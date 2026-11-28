@@ -23,6 +23,23 @@ static class RecoveryCopyTests
   finally{Directory.Delete(blocked+"-journal");}
   try{s.CreateRecoveryCopy(Path.Combine(Path.GetDirectoryName(path)!,"bad:stream.db"));throw new Exception("ADS destination allowed");}
   catch(ArgumentException){check(true,"recovery rejects alternate stream destination");}
+  var publication=Path.Combine(Path.GetDirectoryName(path)!,"synthetic-publication.txt");
+  var publicationBytes="Synthetic publication"u8.ToArray();
+  var publicationHash=Convert.ToHexString(SHA256.HashData(publicationBytes));
+  void Refused(Action action,string label)
+  {try{action();}catch(InvalidOperationException){check(true,label);return;}throw new Exception("FAIL: "+label);}
+  using(var stage=new RecoveryStaging(publication))
+  {
+   File.WriteAllBytes(stage.FilePath,publicationBytes);
+   Refused(()=>stage.Publish(publicationBytes.Length+1,publicationHash),"publication refuses mismatched staged length");
+   Refused(()=>stage.Publish(publicationBytes.Length,new string('0',64)),"publication refuses mismatched staged hash");
+   check(!File.Exists(publication),"failed stage verification publishes no file");
+   stage.Publish(publicationBytes.Length,publicationHash);
+   check(File.ReadAllBytes(publication).SequenceEqual(publicationBytes),"verified publication retains exact bytes");
+  }
+  Refused(()=>RecoveryStaging.VerifyIdentity(publication,publicationBytes.Length,new string('0',64)),"destination verification rejects incorrect hash");
+  Refused(()=>RecoveryStaging.VerifyIdentity(publication,publicationBytes.Length+1,publicationHash),"destination verification rejects incorrect length");
+  check(File.ReadAllBytes(publication).SequenceEqual(publicationBytes),"failed destination verification does not delete published file");
   var result=s.CreateRecoveryCopy(target);
   if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(target),"published recovery copy has protected explicit file ACL");
   check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"successful backup removes private staging directory");
