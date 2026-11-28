@@ -1,0 +1,7 @@
+# v0.4.8 — account register and next synthetic evidence
+
+Owner v0.4.7 live result: all five diagnostic GET endpoints return 200; chartOfAccounts is an unpaginated array with key (UUID-shaped), name (String), code (Null in sample). Other arrays are empty. The account register uses that envelope, rejects duplicate or empty UUIDs, mismatched counts, invalid code/name types, and more than 10,000 rows; existing transport 1 MB bound remains. Code accepts null or string, not number. Display, filter, refresh and compare sets of UUIDs locally. No account mapping, classification or posting. Same name and repeated UUIDs are not business identity certification.
+
+Before identity enrollment, use Manager's synthetic business Settings > Custom Fields > Text Custom Fields to create one dedicated nonprinting single-line definition; if Business Details placement unavailable, choose Customers, leave values blank. Use a unique label locally, do not publish it. Run schema discovery again with this definition and synthetic invoice, receipt and payment records. Inspect actual fields before implementing the identity parser and financial readers. No automatic writes, no schema migration; preserve profile-scoped provisional links. Clones/restore require independent safeguards.
+
+Vendor guides: https://www.manager.io/guides/text-custom-field-form/ and https://manager.readme.io/reference/gettextcustomfields .
