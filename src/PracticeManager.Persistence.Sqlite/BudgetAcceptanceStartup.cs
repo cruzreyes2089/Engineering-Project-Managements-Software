@@ -21,7 +21,7 @@ public sealed partial class LocalPractice
    using(var reserve=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None)){}
   }
   if(!newlyCreated&&DevelopmentWorkspace.Resolve(localAppData,new[]{"--budget-acceptance-session",sessionId}).DatabasePath!=path)throw new ArgumentException("Acceptance workspace identity changed.");
-  return new LocalPractice(path,true,existingOnly:true);
+  return new LocalPractice(path,true,existingOnly:true,currentOnly:!newlyCreated);
  }
  static string ValidateBudgetId(string id)
  {
