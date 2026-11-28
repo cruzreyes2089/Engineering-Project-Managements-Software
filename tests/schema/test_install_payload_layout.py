@@ -145,6 +145,20 @@ class InstallPayloadByteTests(unittest.TestCase):
         self.assertIn(self.hash, source)
         self.assertEqual(source, m.render_nsis_payload_source(self.raw, self.hash, self.root))
 
+    def test_write_nsis_source_only_once_outside_payload(self):
+        destination = self.root.parent / "reviewed-payload.nsh"
+        expected = m.render_nsis_payload_source(self.raw, self.hash, self.root)
+        self.assertEqual(m.write_nsis_payload_source(self.raw, self.hash, self.root, destination), destination)
+        self.assertEqual(destination.read_text(encoding="utf-8"), expected)
+        with self.assertRaises(FileExistsError):
+            m.write_nsis_payload_source(self.raw, self.hash, self.root, destination)
+        self.assertEqual(destination.read_text(encoding="utf-8"), expected)
+        with self.assertRaises(ValueError):
+            m.write_nsis_payload_source(self.raw, self.hash, self.root, self.root / destination.name)
+        with self.assertRaises(ValueError):
+            m.write_nsis_payload_source(self.raw, self.hash, self.root, destination.with_suffix(".exe"))
+        self.assertFalse((self.root / destination.name).exists())
+
     def test_nsis_source_refuses_modified_or_extra_payload(self):
         path = self.root / "hostfxr.dll"
         old = path.read_bytes()
