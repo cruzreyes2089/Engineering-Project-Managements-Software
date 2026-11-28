@@ -1,5 +1,7 @@
 # Initial internal release — scope reconciliation and usability audit
 
+**Scope clarification — 2026-11-28:** Owner clarified that the intended product is free software for public commercial use. This document's internal-only scope is historical/planning context for controlled qualification, not a restriction on the ultimate public release. See [public release design](public-release-design.md) for the public distribution requirements. Existing gates, security hold, acceptance cases and explicitly approved Access migration deferral remain in force; no implicit approval of other feature exclusions.
+
 Status: development proposal, not a release approval. The owner has explicitly directed simple, straightforward, intuitive operation and optional formal document management. Other scope exclusions below are recommendations requiring owner approval; retain original requirements and all 56 acceptance IDs. No data, credentials or private security evidence in the public repository.
 
 ## Workflow rule

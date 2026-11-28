@@ -1,0 +1,33 @@
+# Free public-use release design — owner direction 2026-11-28
+
+The owner clarified that commercial software means software free for people to use in their businesses, not a paid product. The target is an openly distributed, professional Windows desktop application, including commercial use. Keep the current Apache-2.0 license; no change to its rights or terms. No paid unlocks, subscriptions, activation server, required vendor account or mandatory hosted database are proposed. This is product direction, not approval to distribute executable artifacts. A private owner-led qualification remains the first step. No other requirements are waived.
+
+## Product and installation
+
+1. First release architecture remains one local firm workspace per supported installation, single-user/local operation; role permissions remain required. No claim of safe simultaneous multi-PC access, network-shared SQLite, SaaS, or multiple isolated firms within one running workspace until separately qualified. Public use by many unrelated firms does not require a shared service. Each installation must be independent of CRC infrastructure.
+2. First-run firm configuration must use the operator's chosen legal/display name, address, numbering, logo and document preferences, not CRC defaults as mandatory business identity. Create clean workspace and initial administrator without shared/default passwords; private data stays separate from program installation and fixtures. Require backup/recovery guidance. No mandatory upload of records, telemetry, activation or analytics; audit actual network call sites before asserting privacy. Optional accounting adapter is explicitly configured and disabled by default; no production financial posting claim until G2. Preserve original functionality and scope decisions; only Access MIG-01/02/03 are approved deferred. Counsel-reviewed adaptable legal templates and jurisdiction limitations remain necessary.
+3. Prefer a signed, per-user Windows installer and clear Settings > Installed apps uninstaller. Keep program version directories and data separate, use reviewed fixed paths, safe upgrade staging and recovery, explicit failure behavior. Uninstall retains all business data; no silent destructive reset or downgrade. No admin rights for ordinary application use; no security overrides, driver/service or updater until qualified. Initially use manually initiated updates via the official release page, not background self-update. Production coordinator and NSIS hold remain enforced until their actual authorization and filesystem/registration/recovery design is implemented and qualified.
+4. Supply user guide, system requirements, clean install/upgrade/uninstall/recovery procedure, release notes with limitations and support route, accessible keyboard navigation, license and dependency notices, and separate synthetic demo fixture if qualified. Do not bundle real CRC records, credentials, operational templates containing private information, or API secrets. Verify dependency redistribution rights, including runtime licenses, generate SBOM and exact signed inventory. Preserve vendor signatures. Publish privacy statement only after auditing actual behavior; document optional third-party endpoints, data sharing, consent and independent terms.
+
+## Release pipeline (not enabled)
+
+Pinned reviewed source and toolchain -> regression/source/dependency review -> signed inner executables -> final payload inventory -> signed outer installer -> independent exact-artifact authorization record -> active Defender scan and artifact rehash -> isolated Windows installer/upgrade/recovery and desktop acceptance -> owner G8 release decision -> official versioned GitHub release with checksums, provenance, notices, user documentation. No artifact upload or publication from current held workflows. Signing is not a substitute for malware assessment. Resolve original browser warning under existing policy; never relabel/repackage or bypass. Release metadata and hashes must be bound to the exact approved binary, not just a source commit. See [code signing policy](code-signing-policy.md).
+
+## Supplemental public distribution acceptance (not run)
+
+These supplement, not replace, the 53 required existing acceptance scenarios (56 retained, three Access migration deferrals). Do not report them as passes based on source review.
+
+| ID | Required observation |
+|---|---|
+| PUB-01 | Clean install by ordinary Windows user, no unrelated dependencies, no warning bypass or local trust root, expected signed project publisher and version. |
+| PUB-02 | Two isolated fresh installations configure unrelated synthetic firms; no inherited CRC customer data, default secrets or cross-installation sharing. |
+| PUB-03 | Core client/project/time/document/draft/report/recovery workflow works offline without account, activation, feature paywall or cloud dependency. |
+| PUB-04 | Inspect network behavior; optional provider only after informed operator configuration; no undisclosed transmission, private records in logs or CI. |
+| PUB-05 | Signed release inventory/SBOM/licenses/attributions and source provenance match exact published bytes; independently verify download, reject tampered or unapproved package. |
+| PUB-06 | Legitimate publisher renewal and timestamped artifacts accepted only with valid trust and project authorization; reject wrong signer, other project, expired-invalid, revoked, tampered and downgrade cases. |
+| PUB-07 | Upgrade and uninstall/reinstall preserve records, access control and verified recovery; interrupted install or failed verification cannot activate partial update. |
+| PUB-08 | Public release notes, installation/support/privacy guidance, vulnerability-report channel, withdrawal and corrective release procedure verified; owner signs off on exact release. |
+
+## Current verified boundary
+
+Owner's local unsigned static desktop build at d11dc98dc767efb890c44881dfb44158c6c121ad: 409 files, manifest 8ffaf80c804b90bf64fddd47f264d803c6d6f6c47fd139e08923ac7c2436f7e7, no threats reported and matched post-scan inventory. This is not a signed package or public distribution approval. Qualification-tool correction a9d9c21c6bc5be89eb7bd62d6df43b901be26102: Windows run 46185820854 succeeded, 192 Python plus 2799 native checks, zero warnings/errors; synthetic upgrade 46185820980 succeeded; hosted Defender 46185820949 failed at active protection preflight. Retain prior evidence and exact revision binding. Product metadata changes require new candidate build and evidence; do not modify the existing local scan candidate. No physical installer, actual desktop acceptance, release authorization or signed publisher qualification claimed.

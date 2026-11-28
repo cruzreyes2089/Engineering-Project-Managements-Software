@@ -9,6 +9,10 @@ CRC Practice Manager is a developing open-source Windows desktop application for
 - Role-based authorization, audit history and conflict-of-interest controls.
 - Provider-independent accounting integrations, with Manager.io as the first candidate.
 
+## Free public-use product direction
+
+CRC Practice Manager is intended to be available at no charge, including for use in commercial engineering, architecture and professional-services businesses. The Apache-2.0 source license remains unchanged. No paid feature tier, license activation server, mandatory vendor account or cloud subscription is planned. Each firm must be able to configure its own identity, retain control of its local workspace and use core workflows without a network connection. Optional third-party services retain their own terms and prices. Public distribution is a future goal, not a statement of current release readiness. See the [public release design](docs/public-release-design.md) and [code signing policy](docs/code-signing-policy.md).
+
 ## Development status
 
 Development source; not production-ready. The native C#/.NET, WPF and SQLite application now includes CRM, proposals, project handoff, staff, scheduling, work submissions, approvals, document evidence, QA, additional-scope controls, internal invoice drafts, reports and recovery copies. Manager.io read-only integration and synthetic posting rehearsals are experimental; no production posting, duplicate AR ledger, or automatic replacement of a live database is enabled. Recovery copies can be verified and restored to a separate file; collections review is bounded to a synthetic fixture. See the stacked draft pull requests and exact-commit Windows CI for verification. Desktop acceptance, release security review and live provider qualification remain required.

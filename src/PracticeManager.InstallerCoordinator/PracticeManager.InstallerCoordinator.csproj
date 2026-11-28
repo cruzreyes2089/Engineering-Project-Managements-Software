@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
  <PropertyGroup>
   <OutputType>Exe</OutputType>
+  <Product>CRC Practice Manager</Product>
   <AssemblyName>CRC.InstallerCoordinator</AssemblyName>
   <UseAppHost>false</UseAppHost>
   <IsPublishable>false</IsPublishable>

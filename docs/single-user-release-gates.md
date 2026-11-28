@@ -1,5 +1,7 @@
 # Single-user release gate plan
 
+**Scope clarification — 2026-11-28:** Owner clarified that the intended product is free software for public commercial use. This document's internal-only scope is historical/planning context for controlled qualification, not a restriction on the ultimate public release. See [public release design](public-release-design.md) for the public distribution requirements. Existing gates, security hold, acceptance cases and explicitly approved Access migration deferral remain in force; no implicit approval of other feature exclusions.
+
 ## Baseline and release boundary
 
 Latest verified combined schema-47 candidate 35a56a22a58cec995fa78dfade07063b92fd4e48, Windows run 46037732194, 108 Python tests plus 1844 native checks, zero compiler warnings/errors. Actual prior-source synthetic upgrade run 46037732290 passed. The active schema-46 branch is unchanged; neither draft PR is merged. Subsequent installer static validation changes require their own CI evidence. This plan prioritizes a usable single-user engineering practice application. Commercial/network deployment, multi-firm licensing, and shared database operation are separate phases. No production authorization or security-hold change.
