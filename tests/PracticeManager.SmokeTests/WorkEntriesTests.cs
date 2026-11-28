@@ -263,6 +263,9 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending expense",true),"unreviewed project expense blocks closeout");
   var blockedLifecycle=admin.ReadProjectLifecycleReview(project);
   check(blockedLifecycle.Snapshot.HasUnresolvedOperationalItems&&!blockedLifecycle.Snapshot.CanRequestClose&&blockedLifecycle.History.Count==0,"lifecycle screen snapshot explains blocked closeout with matching history");
+  check(blockedLifecycle.Snapshot.ClosureBlockers().Contains("Review pending expense submissions (1)."),"closure blockers identify pending expenses");
+  var allBlocked=blockedLifecycle.Snapshot with{ProjectState="OperationalClosed",ConflictStatus="Hold",SetupState="Incomplete",OpenTasks=2,OpenQualityItems=3,PendingScopeDecisions=4,PendingTimeSubmissions=5,PendingExpenseSubmissions=6};
+  check(allBlocked.ClosureBlockers().SequenceEqual(new[]{"Project is not operationally active.","Resolve current conflict clearance.","Complete project setup.","Resolve open tasks (2).","Resolve QA/QC items (3).","Decide pending scope changes (4).","Review pending time submissions (5).","Review pending expense submissions (6)."}),"all individual closure blockers reported in stable order");
   Denied(()=>worker.ReadProjectLifecycleReview(project),"combined lifecycle review requires closeout and operations grants");
   var pendingExpense=worker.ReadMySubmissions(day,day).Single(x=>x.ReviewState=="Submitted"&&x.Kind=="Expense");
   check(admin.ReviewWork(pendingExpense.Id,true,"Synthetic verified expense")=="Approved","pending expense resolved before closure");
@@ -277,6 +280,7 @@ internal static class WorkEntriesTests
   admin.DecideScopeChange(project,scope,false,"Synthetic declined",false);
   var readyLifecycle=admin.ReadProjectLifecycleReview(project);
   check(readyLifecycle.Snapshot.CanRequestClose&&!readyLifecycle.Snapshot.CanRequestReopen&&readyLifecycle.History.Count==0,"resolved operational items enable close request only");
+  check(readyLifecycle.Snapshot.ClosureBlockers().Count==0,"ready closure has no displayed blockers");
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="CREATE TRIGGER test_lifecycle_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='OperationalClose' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END";q.ExecuteNonQuery();}
   try{admin.RecordProjectLifecycle(project,null,true,"Synthetic rollback",true);throw new Exception("FAIL: lifecycle audit rollback");}catch(SqliteException){check(admin.ReadProjectLifecycle(project).Count==0&&admin.ReadProjectCloseoutReview(project).ProjectState=="Active","lifecycle transition rolls back with failed audit");}
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="DROP TRIGGER test_lifecycle_audit_abort";q.ExecuteNonQuery();}
