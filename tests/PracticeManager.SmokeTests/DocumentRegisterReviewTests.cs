@@ -29,6 +29,13 @@ internal static class DocumentRegisterReviewTests
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("Drawings",true),new ProjectFolderTemplateItem("drawings",false)}),"folder template rejects case-alias duplicates");
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("../Secret",true)}),"folder template rejects traversal");
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("COM¹",true)}),"folder template rejects Windows device names");
+  foreach(var unsafeName in new[]{"CONIN$","conout$.pdf","NUL .dwg","COM¹ .txt","LPT2 .pdf"})
+  {
+   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem(unsafeName,true)}),"folder template rejects reserved device alias "+unsafeName);
+   Invalid(()=>ProjectFolderPolicy.ResolveReference(projectRoot,unsafeName),"project reference rejects reserved device alias "+unsafeName);
+   Invalid(()=>LocalStoragePath.Normalize(Path.Combine(projectRoot,unsafeName)),"storage path rejects reserved device alias "+unsafeName);
+  }
+  check(ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("CONFERENCE",true),new ProjectFolderTemplateItem("COM10",true)}).Count==2,"ordinary non-device names remain valid");
   Invalid(()=>ProjectFolderTemplate.Preview(new[]{new ProjectFolderTemplateItem("QA-QC",false)}),"empty selected template refused");
   check(!Directory.Exists(Path.Combine(projectRoot,"Architectural")),"template preview has no filesystem side effects");
 
