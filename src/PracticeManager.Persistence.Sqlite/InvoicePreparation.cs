@@ -88,12 +88,19 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction();RequireInvoices(c,t,"Billing.Invoices.View");ProjectRow(c,t,project);return BillingPolicyRow(c,t,project);
  }
+ private static long AcceptedBillingFeeCents(SqliteConnection c,SqliteTransaction t,long project)
+ =>Convert.ToInt64(Scalar(c,t,"SELECT s.fee_cents FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id WHERE p.id=$p",("$p",project)));
+ public decimal ReadAcceptedBillingFee(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);RequireInvoices(c,t,"Billing.Invoices.View");ProjectRow(c,t,project);
+  return AcceptedBillingFeeCents(c,t,project)/100m;
+ }
  public void RecordBillingPolicy(BillingPolicy policy)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,"Billing.Invoices.Edit");var project=ProjectRow(c,t,policy.ProjectId);
   if(project.State!="Active")throw new ArgumentException("Authorized active project required.");
   var limit=BillingCents(policy.FixedLimit);long? total=policy.TotalLimit.HasValue?BillingCents(policy.TotalLimit.Value):null;
-  var accepted=Convert.ToInt64(Scalar(c,t,"SELECT s.fee_cents FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id WHERE p.id=$p",("$p",policy.ProjectId)));
+  var accepted=AcceptedBillingFeeCents(c,t,policy.ProjectId);
   if(policy.Mode is not ("FixedFee" or "Hourly" or "Hybrid")||policy.Mode=="Hourly"&&limit!=0||policy.Mode=="FixedFee"&&limit!=accepted||policy.Mode=="Hybrid"&&limit>accepted||total.HasValue&&total.Value<limit)throw new ArgumentException("Billing mode or cap does not match the accepted proposal evidence.");
   if(BillingPolicyRow(c,t,policy.ProjectId)!=null)throw new ArgumentException("Billing policy already recorded; formal amendment workflow required.");
   var note=Validation.Text(policy.Evidence,1000,"Reviewed contract billing evidence",true);
@@ -145,8 +152,8 @@ public sealed partial class LocalPractice
   var policy=BillingPolicyRow(c,t,input.ProjectId)??throw new ArgumentException("Record billing policy first.");
   if(policy.Mode=="Hourly"&&fixedFees.Length>0)throw new ArgumentException("Hourly policy does not allow fixed fee lines.");
   var lines=fixedFees.Select(x=>new InvoiceDraftLine("FixedFee",null,x.Description,null,null,x.Amount)).ToList();
-  var available=BillingCandidates(c,t,input.ProjectId,input.InvoiceDate,policy).ToDictionary(x=>x.SourceId);
-  foreach(var source in sources){if(!available.TryGetValue(source,out var candidate)||candidate.Status!="Eligible"||!candidate.Amount.HasValue)throw new ArgumentException("Billing source unavailable or ineligible.");lines.Add(new(candidate.Kind,source,candidate.Description,candidate.Minutes,candidate.BillingRate,candidate.Amount.Value));}
+  if(sources.Length!=0){var available=BillingCandidates(c,t,input.ProjectId,input.InvoiceDate,policy).ToDictionary(x=>x.SourceId);
+   foreach(var source in sources){if(!available.TryGetValue(source,out var candidate)||candidate.Status!="Eligible"||!candidate.Amount.HasValue)throw new ArgumentException("Billing source unavailable or ineligible.");lines.Add(new(candidate.Kind,source,candidate.Description,candidate.Minutes,candidate.BillingRate,candidate.Amount.Value));}}
   if(lines.Count==0)throw new ArgumentException("Select at least one eligible line.");
   var total=BillingCents(lines.Sum(x=>x.Amount),true);var fixedAmount=BillingCents(fixedFees.Sum(x=>x.Amount));
   var oldFixed=Convert.ToInt64(Scalar(c,t,"SELECT coalesce(sum(l.amount_cents),0) FROM invoice_draft_lines l JOIN invoice_drafts d ON d.id=l.draft_id LEFT JOIN invoice_draft_decisions x ON x.draft_id=d.id WHERE d.project_id=$p AND l.line_type='FixedFee' AND coalesce(x.decision,'Draft')!='Cancelled'",("$p",input.ProjectId)));
