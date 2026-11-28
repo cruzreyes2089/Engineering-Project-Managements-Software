@@ -33,6 +33,7 @@ public partial class MainWindow : Window
  {
   Workspace.Visibility=Visibility.Collapsed;CrmPanel.Visibility=Visibility.Collapsed;
   ClientGrid.ItemsSource=null;ContactGrid.ItemsSource=null;Search.Clear();
+  LicenseReminderText.Text="";LicenseReminderPanel.Visibility=Visibility.Collapsed;
   ClientCount.Text="";ContactsHeading.Text="Select a client to view contacts";FirmLabel.Text="";
   Status.Text=AcceptanceStatus();Password.Clear();Confirm.Clear();Username.Clear();Firm.Clear();Prefix.Text="CL";
  }
@@ -79,7 +80,7 @@ public partial class MainWindow : Window
  void ShowLogin(){S.Logout();Workspace.Visibility=Visibility.Collapsed;SignOut.Visibility=Visibility.Collapsed;LoginPanel.Visibility=Visibility.Visible;setup=!S.IsInitialized();RequiredPasswordButton.Visibility=setup?Visibility.Collapsed:Visibility.Visible;SetupPanel.Visibility=ConfirmPanel.Visibility=setup?Visibility.Visible:Visibility.Collapsed;LoginHeading.Text=setup?"Set up your practice":"Sign in";LoginButton.Content=setup?"Create company":"Sign in";Password.Clear();Confirm.Clear();LoginMessage.Text="";Username.Focus();UpdateLoginAvailability();}
  void Login_Click(object sender,RoutedEventArgs e){if(authenticated||locking||lockFault||operationDepth!=0)return;try{if(renewService){var path=LocalStoragePath.FilePath(workspace!.DatabasePath,mustExist:true);service=workspace.IsDocumentAcceptance?LocalPractice.OpenDocumentAcceptance(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),workspace.AcceptanceId!,false):workspace.IsBudgetAcceptance?LocalPractice.OpenBudgetAcceptance(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),workspace.AcceptanceId!,false):new LocalPractice(path);renewService=false;}if(setup){if(Password.Password!=Confirm.Password)throw new ArgumentException("Passwords do not match.");S.Bootstrap(Firm.Text,Username.Text,Password.Password,Prefix.Text);setup=false;ShowLogin();LoginMessage.Text="Company created. Sign in with your new credentials.";return;}if(!S.Login(Username.Text,Password.Password)){LoginMessage.Text="Sign-in unsuccessful. Check credentials or try later.";return;}authenticated=true;accessStamp=S.ReadSessionAccessStamp();FirmLabel.Text=S.FirmName();CrmNav.IsEnabled=S.Can("Clients.View");AccountingNav.IsEnabled=S.CanTestAccountingConnection();EngagementNav.IsEnabled=S.Can("Engagements.View")||S.Can("Projects.View");StaffNav.IsEnabled=S.Can("Administration.Manage")||S.Can("Employees.View");WorkNav.IsEnabled=S.Can("Work.Own");ScheduleNav.IsEnabled=S.Can("Projects.Plan")&&S.Can("Projects.View")&&S.Can("Employees.View");TimeNav.IsEnabled=S.Can("Work.Own");ReviewNav.IsEnabled=S.Can("Work.Review")||S.Can("Billing.Classify");InvoiceNav.IsEnabled=S.Can("Billing.Invoices.View")||S.Can("Billing.Rates");var reportAccess=S.ReadProjectReportAccess();ReportsNav.IsEnabled=reportAccess.Operations||reportAccess.Financial;RecoveryNav.IsEnabled=S.Can("Administration.RecoveryCopy");RestoreNav.IsEnabled=S.Can("Administration.RecoveryCopy")&&S.Can("Administration.Manage");LegacyNav.IsEnabled=S.Can("Administration.LegacyCrmImport")&&S.Can("Administration.Manage");HistoricalNav.IsEnabled=S.Can("HistoricalProjects.View")&&S.Can("Clients.View");Dashboard();if(CheckSession()){LoginPanel.Visibility=Visibility.Collapsed;Workspace.Visibility=Visibility.Visible;SignOut.Visibility=Visibility.Visible;sessionGuard.Start();}}catch(ArgumentException ex){if(authenticated)LockSession("Sign-in setup failed. Sign in again.");else LoginMessage.Text=ex.Message;}catch(Exception){if(authenticated)LockSession("Sign-in setup failed. Sign in again.");else LoginMessage.Text="Operation failed. Check the local development database.";}finally{Password.Clear();Confirm.Clear();}}
  void SignOut_Click(object sender,RoutedEventArgs e)=>LockSession("Signed out.");
- void Dashboard(){DashboardPanel.Visibility=Visibility.Visible;CrmPanel.Visibility=Visibility.Collapsed;ClientCount.Text=S.Can("Clients.View")?S.SearchClients("").Count.ToString():"Restricted";Status.Text=AcceptanceStatus();}
+ void Dashboard(){DashboardPanel.Visibility=Visibility.Visible;CrmPanel.Visibility=Visibility.Collapsed;ClientCount.Text=S.Can("Clients.View")?S.SearchClients("").Count.ToString():"Restricted";Status.Text=AcceptanceStatus();RefreshLicenseReminders();}
  void Time_Click(object sender,RoutedEventArgs e)=>Run(()=>new WorkEntriesWindow(S){Owner=this}.ShowDialog());
  void Legacy_Click(object sender,RoutedEventArgs e)=>Run(()=>new LegacyCrmImportWindow(S){Owner=this}.ShowDialog());
  void Historical_Click(object sender,RoutedEventArgs e)=>Run(()=>new HistoricalProjectWindow(S,workspace?.IsAcceptance==true){Owner=this}.ShowDialog());
@@ -107,7 +108,19 @@ public partial class MainWindow : Window
  void Review_Click(object sender,RoutedEventArgs e)=>Run(()=>new WorkReviewWindow(S){Owner=this}.ShowDialog());
  void Work_Click(object sender,RoutedEventArgs e)=>Run(()=>new WorkScheduleWindow(S,true){Owner=this}.ShowDialog());
  void Schedule_Click(object sender,RoutedEventArgs e)=>Run(()=>new WorkScheduleWindow(S,false){Owner=this}.ShowDialog());
- void Staff_Click(object sender,RoutedEventArgs e)=>Run(()=>new StaffWindow(S){Owner=this}.ShowDialog());
+ void RefreshLicenseReminders()
+ {
+  LicenseReminderText.Text="";LicenseReminderPanel.Visibility=Visibility.Collapsed;
+  if(!authenticated)return;
+  try{
+   if(!S.Can("Employees.View"))return;
+   var counts=S.ReadLicenseReminderCounts(DateOnly.FromDateTime(DateTime.Today));
+   LicenseReminderText.Text=$"{counts.Expired} expired • {counts.DueToday} due today • {counts.Upcoming} due within the next 30 days. Recorded dates only; verify regulatory status separately.";
+   LicenseReminderPanel.Visibility=Visibility.Visible;
+  }catch(UnauthorizedAccessException){}catch(Exception){if(authenticated){LicenseReminderText.Text="License reminder unavailable. Review the license register.";LicenseReminderPanel.Visibility=Visibility.Visible;}}
+ }
+ void LicenseReminder_Click(object sender,RoutedEventArgs e)=>Run(()=>{if(!S.Can("Employees.View"))throw new UnauthorizedAccessException();new LicenseExpiryWindow(S){Owner=this}.ShowDialog();RefreshLicenseReminders();});
+ void Staff_Click(object sender,RoutedEventArgs e)=>Run(()=>{new StaffWindow(S){Owner=this}.ShowDialog();RefreshLicenseReminders();});
  void RequiredPassword_Click(object sender,RoutedEventArgs e)
  {
   if(setup||authenticated||locking||lockFault||operationDepth!=0)return;var w=new Window{Owner=this,Title="Change temporary password",Width=440,Height=290,WindowStartupLocation=WindowStartupLocation.CenterOwner};var p=new StackPanel{Margin=new Thickness(18)};p.Children.Add(new TextBlock{Text="Enter current temporary password on the sign-in screen first. Choose a different permanent password." ,TextWrapping=TextWrapping.Wrap});var next=new PasswordBox{MaxLength=256};var confirm=new PasswordBox{MaxLength=256};p.Children.Add(new TextBlock{Text="New password (14–256 characters)"});p.Children.Add(next);p.Children.Add(new TextBlock{Text="Confirm"});p.Children.Add(confirm);var b=new Button{Content="Change password"};p.Children.Add(b);w.Content=p;
