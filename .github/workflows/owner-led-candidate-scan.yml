@@ -3,6 +3,16 @@ on:
   push:
     branches: ['milestone-15/final-integration']
     paths: ['.github/workflows/owner-led-candidate-scan.yml']
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/owner-led-candidate-scan.yml'
+      - 'src/**'
+      - 'tools/security/**'
+      - 'tools/release/**'
+      - 'global.json'
+      - 'Directory.Build.*'
+      - 'Directory.Packages.props'
   workflow_dispatch:
 permissions:
   contents: read
