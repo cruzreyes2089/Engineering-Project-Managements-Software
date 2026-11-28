@@ -22,6 +22,21 @@ public sealed partial class LocalPractice
   using var q=Command(c,t,@"SELECT r.id,r.party_id,r.document_id,r.document_hash,r.decision,CASE WHEN x.id IS NULL THEN 'Historical' ELSE x.current_status END,r.note,r.reviewed_by,r.reviewed_utc FROM party_declaration_reviews r LEFT JOIN party_declaration_current x ON x.id=r.id WHERE r.party_id=$p ORDER BY r.id DESC LIMIT 501",("$p",party));using var r=q.ExecuteReader();var rows=new List<PartyDeclarationReview>();
   while(r.Read()){if(rows.Count==500)throw new ArgumentException("Declaration history exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetInt64(7),r.GetString(8)));}return rows.AsReadOnly();
  }
+ // A newly attached declaration is explicitly unverified, not a signed-document
+ // review. Hold the party and project in the same transaction as the attachment.
+ public long AttachPartyDeclaration(long project,long party,long? expectedReview,Guid operation,string name,byte[] pdf,bool confirmed)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireDeclaration(c,t,project,party,true);
+  if(!confirmed||pdf==null||!LooksLikePdf(pdf)||!name.EndsWith(".pdf",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Confirm attachment of a declaration PDF (maximum 10 MiB); separate review required.");
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_party_retirements WHERE party_id=$p",("$p",party)))!=0)throw new ArgumentException("Retired party cannot receive a declaration.");
+  var prior=Scalar(c,t,"SELECT id FROM party_declaration_current WHERE party_id=$p",("$p",party)) as long?;
+  if(prior!=expectedReview)throw new ArgumentException("Declaration review changed; refresh.");
+  var document=RegisterProjectDocumentCore(c,t,project,operation,null,"Restricted","Contracts",name,pdf);
+  var d=FindDocument(c,t,project,document)??throw new InvalidOperationException("Attached declaration unavailable.");
+  if(!d.IsCurrent)throw new ArgumentException("Current declaration PDF required.");
+  Exec(c,t,"INSERT INTO party_declaration_reviews(party_id,document_id,document_hash,decision,note,reviewed_by,reviewed_utc) VALUES($p,$d,$h,'Unverified',$n,$a,$u)",("$p",party),("$d",document),("$h",d.Hash),("$n","New declaration attached; signatures, identity and restrictions not yet reviewed."),("$a",actor),("$u",UtcNow()));
+  Audit(c,t,actor,"AttachUnverifiedPartyDeclaration","ProjectParty",party);t.Commit();return document;
+ }
  public long RecordPartyDeclaration(long project,long party,long? expectedReview,long document,string expectedHash,string decision,string note,bool confirmed)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireDeclaration(c,t,project,party,true);
