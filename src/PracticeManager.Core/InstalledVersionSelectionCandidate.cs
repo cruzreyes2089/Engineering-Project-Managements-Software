@@ -84,6 +84,70 @@ public static class InstalledVersionSelectionCandidate
    throw new ArgumentException("Registration outcome requires review.");
   File.Delete(Path.Combine(boundary.ProgramRoot,"registration-pending.txt"));
  }
+ static string ReceiptPath(InstalledProgramBoundary boundary)=>Path.Combine(boundary.ProgramRoot,"registration-receipt.json");
+ static void RequireUnregistered(InstalledProgramBoundary boundary)
+ {
+  if(Exists(ReceiptPath(boundary)))throw new ArgumentException("Use the registered installation lifecycle.");
+ }
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ static WindowsRegistrationCandidate.Registration ReadRegistration(InstalledProgramBoundary boundary,string version)
+ {
+  var path=LocalStoragePath.FilePath(ReceiptPath(boundary),mustExist:true,rejectSidecars:true);
+  if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(path))throw new ArgumentException("Registration receipt requires review.");
+  using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+  if(stream.Length is <=0 or >16384)throw new ArgumentException("Registration receipt requires review.");
+  var bytes=new byte[(int)stream.Length];stream.ReadExactly(bytes);
+  var receipt=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(bytes)??throw new ArgumentException("Registration receipt requires review.");
+  if(receipt.Version!=version||receipt.Identity!=boundary.VerifyInitializedLayout())throw new ArgumentException("Registration identity changed.");
+  return receipt;
+ }
+ static void ArchiveRegistration(InstalledProgramBoundary boundary)
+ {
+  var retained=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"registration-history-"+Guid.NewGuid().ToString("N")+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  File.Move(ReceiptPath(boundary),retained,false);
+ }
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ internal static void UpgradeRegisteredInstallation(InstalledProgramBoundary boundary,string expectedPrevious,string candidate,
+  string extractedDirectory,byte[] inventoryBytes,Microsoft.Win32.RegistryKey parent,string shortcutDirectory)
+ {
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  if(Current(boundary)!=expectedPrevious)throw new ArgumentException("Selected program changed.");
+  var receipt=ReadRegistration(boundary,expectedPrevious);
+  WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+  // Validate source before starting the transaction. Keep one outer pending
+  // record across code selection, registration replacement and readback.
+  _=InstalledPayloadVerification.ReviewTree(LocalStoragePath.DirectoryPath(extractedDirectory),inventoryBytes,candidate);
+  WriteNew(boundary,"registration-pending.txt",candidate);
+  StageUnderLease(boundary,expectedPrevious,candidate,extractedDirectory,inventoryBytes);
+  WindowsRegistrationCandidate.RemoveOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+  ArchiveRegistration(boundary);
+  var replacement=WindowsRegistrationCandidate.RegisterFresh(boundary,candidate,receipt.UninstallerHash,parent,shortcutDirectory);
+  var path=LocalStoragePath.FilePath(ReceiptPath(boundary),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  using(var stream=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+  {stream.Write(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(replacement));stream.Flush(true);}
+  if(ReadRegistration(boundary,candidate)!=replacement)throw new ArgumentException("Registration receipt changed.");
+  WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,replacement);
+  if(Current(boundary)!=candidate||Read(boundary,"registration-pending.txt")!=candidate)throw new ArgumentException("Upgrade registration requires review.");
+  File.Delete(Path.Combine(boundary.ProgramRoot,"registration-pending.txt"));
+ }
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ internal static int RemoveRegisteredInstallation(InstalledProgramBoundary boundary,string expectedActive,Microsoft.Win32.RegistryKey parent,string shortcutDirectory)
+ {
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  if(Current(boundary)!=expectedActive)throw new ArgumentException("Selected program changed.");
+  var receipt=ReadRegistration(boundary,expectedActive);
+  InstalledPayloadVerification.Verify(boundary,expectedActive);
+  WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+  WriteNew(boundary,"registration-pending.txt",expectedActive);
+  WindowsRegistrationCandidate.RemoveOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+  ArchiveRegistration(boundary);
+  var removed=RemoveUnderLease(boundary,expectedActive);
+  if(Current(boundary)!=null||Read(boundary,"registration-pending.txt")!=expectedActive)throw new ArgumentException("Removal registration requires review.");
+  File.Delete(Path.Combine(boundary.ProgramRoot,"registration-pending.txt"));
+  return removed;
+ }
  public static string? ReviewCurrent(InstalledProgramBoundary boundary)
  {
   using var lease=boundary.AcquireExistingLease();
@@ -99,6 +163,11 @@ public static class InstalledVersionSelectionCandidate
  {
   using var lease=boundary.AcquireExistingLease();
   NoPending(boundary);
+  RequireUnregistered(boundary);
+  return RemoveUnderLease(boundary,expectedActive);
+ }
+ static int RemoveUnderLease(InstalledProgramBoundary boundary,string expectedActive)
+ {
   if(Current(boundary)!=expectedActive)throw new ArgumentException("Active program selection changed.");
   var payload=InstalledPayloadVerification.Review(boundary,expectedActive);
   string Resolve(string relative)=>Path.Combine(payload.Directory,relative.Replace('/',Path.DirectorySeparatorChar));
@@ -148,6 +217,11 @@ public static class InstalledVersionSelectionCandidate
  {
   using var lease=boundary.AcquireExistingLease();
   NoPending(boundary);
+  RequireUnregistered(boundary);
+  StageUnderLease(boundary,expectedPrevious,candidate,extractedDirectory,inventoryBytes);
+ }
+ static void StageUnderLease(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
+ {
   var previous=Current(boundary);
   if(previous!=expectedPrevious||candidate==previous)throw new ArgumentException("Program selection changed.");
   if(previous!=null)InstalledPayloadVerification.Verify(boundary,previous);
@@ -209,6 +283,7 @@ public static class InstalledVersionSelectionCandidate
  {
   using var lease=boundary.AcquireExistingLease();
   NoPending(boundary);
+  RequireUnregistered(boundary);
   SelectUnderLease(boundary,expectedPrevious,candidate);
  }
  static void SelectUnderLease(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate)
