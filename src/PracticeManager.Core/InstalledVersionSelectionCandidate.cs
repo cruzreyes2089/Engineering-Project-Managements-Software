@@ -8,6 +8,7 @@ public static class InstalledVersionSelectionCandidate
 {
  const string ActiveName="active-version.txt";
  const string IntentName="activation-pending.txt";
+ const string RemovalIntent="uninstall-pending.txt";
  static bool Exists(string path)
  {
   try{_=File.GetAttributes(path);return true;}
@@ -34,7 +35,7 @@ public static class InstalledVersionSelectionCandidate
  }
  static void NoPending(InstalledProgramBoundary boundary)
  {
-  if(Exists(Path.Combine(boundary.ProgramRoot,IntentName)))
+  if(Exists(Path.Combine(boundary.ProgramRoot,IntentName))||Exists(Path.Combine(boundary.ProgramRoot,RemovalIntent)))
    throw new ArgumentException("Interrupted program selection requires review. No automatic rollback.");
  }
  static string? Current(InstalledProgramBoundary boundary)
@@ -46,6 +47,54 @@ public static class InstalledVersionSelectionCandidate
   var current=Current(boundary);
   if(current!=null)InstalledPayloadVerification.Verify(boundary,current);
   return current;
+ }
+ // Unwired code-only uninstall candidate. The future installer must obtain
+ // release approval and explicit user confirmation; never touches practice data.
+ // Retains previous versions, manifests, lease and selection history.
+ public static int RemoveReviewedActiveVersion(InstalledProgramBoundary boundary,string expectedActive)
+ {
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  if(Current(boundary)!=expectedActive)throw new ArgumentException("Active program selection changed.");
+  var payload=InstalledPayloadVerification.Review(boundary,expectedActive);
+  string Resolve(string relative)=>Path.Combine(payload.Directory,relative.Replace('/',Path.DirectorySeparatorChar));
+  void CheckDirectory(string path)
+  {
+   LocalStoragePath.DirectoryPath(path);
+   if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(path))throw new ArgumentException("Program directory permissions require review.");
+  }
+  void CheckFile(string relative,(long Bytes,string Hash) expected)
+  {
+   var path=LocalStoragePath.FilePath(Resolve(relative),mustExist:true,rejectSidecars:true);
+   if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(path))throw new ArgumentException("Program file permissions require review.");
+   using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+   if(stream.Length!=expected.Bytes||Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant()!=expected.Hash)
+    throw new ArgumentException("Program file changed; removal requires review.");
+  }
+  CheckDirectory(payload.Directory);
+  foreach(var dir in payload.Subdirectories)CheckDirectory(Resolve(dir));
+  foreach(var file in payload.Files)CheckFile(file.Key,file.Value);
+  WriteNew(boundary,RemovalIntent,expectedActive);
+  if(Current(boundary)!=expectedActive||Read(boundary,RemovalIntent)!=expectedActive)
+   throw new ArgumentException("Program removal selection changed.");
+  InstalledPayloadVerification.Verify(boundary,expectedActive);
+  var retained=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"uninstalled-"+Guid.NewGuid().ToString("N")+".txt"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  File.Move(Path.Combine(boundary.ProgramRoot,ActiveName),retained,false);
+  if(Read(boundary,Path.GetFileName(retained))!=expectedActive||Current(boundary)!=null)
+   throw new InvalidOperationException("Program removal outcome requires review.");
+  // No recursive deletion, wildcards, directory adoption or fallback. If a
+  // deletion fails, keep the pending record and all remaining files.
+  foreach(var file in payload.Files)
+  {
+   CheckFile(file.Key,file.Value);
+   File.Delete(Resolve(file.Key));
+  }
+  foreach(var dir in payload.Subdirectories){CheckDirectory(Resolve(dir));Directory.Delete(Resolve(dir),false);}
+  CheckDirectory(payload.Directory);Directory.Delete(payload.Directory,false);
+  if(Read(boundary,RemovalIntent)!=expectedActive||Current(boundary)!=null)
+   throw new InvalidOperationException("Program removal outcome requires review.");
+  File.Delete(Path.Combine(boundary.ProgramRoot,RemovalIntent));
+  return payload.Files.Count;
  }
  public static void SelectReviewedVersion(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate)
  {
