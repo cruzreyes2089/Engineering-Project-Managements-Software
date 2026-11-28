@@ -22,6 +22,10 @@ internal static class DocumentAcceptanceStartupTests
   var selected=cfg.Template.Where(x=>x.Name is "QA-QC" or "Reference Documents" or "Calculations").ToArray();
   var existing=Path.Combine(folder.DisplayPath,"Calculations");Directory.CreateDirectory(existing);
   var marker=Path.Combine(existing,"preserve.txt");File.WriteAllText(marker,"Synthetic existing content");
+  var collision=Path.Combine(folder.DisplayPath,"Reference Documents");File.WriteAllText(collision,"Synthetic collision");
+  try{s.SetupAcceptanceProjectFolders(project,cfg.Hash,folder.Hash,selected,true);throw new Exception("FAIL: setup collision");}
+  catch(ArgumentException){check(!Directory.Exists(Path.Combine(folder.DisplayPath,"QA-QC"))&&File.ReadAllText(collision)=="Synthetic collision"&&File.ReadAllText(marker)=="Synthetic existing content"&&s.ReviewAcceptanceProjectFolders(project).Single()==folder,"single-action setup refuses collision without creating selected children or altering prior reference");}
+  File.Delete(collision);
   var preview=s.PreviewAcceptanceFolderCreation(project,folder.Hash,cfg.Hash,selected);
   check(preview.Existing.SequenceEqual(new[]{"Calculations"})&&preview.Missing.Count==2,"acceptance creation previews missing and existing template folders");
   var created=s.CreateAcceptanceFolders(project,folder.Hash,cfg.Hash,selected,preview.PlanHash,true);
