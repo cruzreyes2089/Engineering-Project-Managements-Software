@@ -105,3 +105,20 @@ python tools/release/validate_acceptance_evidence.py PRIVATE_NEW_MANIFEST.json -
 ```
 
 Revalidate with the same options except `--initialize`. Do not overwrite v1 evidence or copy prior Pass statuses without exact-revision evidence. Structure validation never authorizes release.
+
+
+## Milestone 08 candidate-specific retest instructions
+
+Retain all 56 existing scenario IDs; the following are additional observations within their existing rows, not new or passed cases. The approved exact artifact and independent reviewer authorization are still prerequisites.
+
+| Existing ID | Added observation |
+|---|---|
+| SEC-03 | Open project reports with incomplete financial grants and with full grants; verify navigation and tabs agree with service denial. Revoke a grant with a report visible and verify session lock and removal of restricted display. |
+| SEC-05 | Start a delayed synthetic accounting diagnostic, sign out and sign in as the same actor; confirm prior-session response cannot appear. Test separately with the native loopback harness. |
+| PRJ-03 | On a pending, active and operationally closed project, select planned, started, cancelled and discontinued tasks; verify action enablement and historical evidence visibility. Change lifecycle in a second session and refresh. |
+| CRC-LC-01 | Enter closure reason and refresh unchanged state; verify reason remains. Close/reopen in a second session, refresh and verify stale reason cleared. Race two reopening attempts in the native harness. |
+| REP-01 | Reconcile approved project minutes with date-filtered employee detail and financial report; include overhead separately, missing rates, rejected and invalidated submissions, and held invoice drafts as a subset, not additional value. |
+| REL-01 | Require exact source checkout/tree, SDK and published runtime identities, inventory digest and entry-point hash for the approved package. Verify installer signature and independent authorization separately; runner-local inventory is not install evidence. |
+| REL-02 | Verify restricted staging ACL before raw writes, destination collision refusal, preservation of existing target, no live replacement, accounting hold, and no residual staging after normal completion. Exercise interrupted installation only in an independently approved isolated environment. |
+
+Do not execute or redistribute the original blocked archive. No installer or real desktop acceptance has been executed by this update. Record observed results privately against the exact approved candidate, not a predecessor's CI results.
