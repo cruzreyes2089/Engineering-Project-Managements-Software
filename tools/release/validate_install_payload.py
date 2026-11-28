@@ -195,6 +195,45 @@ def verify_payload(raw, expected_hash, root):
     report["payloadBytesMatchInventory"] = True
     return report
 
+
+def render_nsis_payload_source(raw, expected_hash, root):
+    """Generate only the NSIS extraction macro; never invoke the compiler.
+
+    The future installer must supply a newly reserved, verified private staging
+    directory in $CrcStageRoot and a trusted compile-time CRC_PAYLOAD_ROOT.
+    This macro alone is not a complete installer or a runtime hash verifier.
+    """
+    verify_payload(raw, expected_hash, root)
+    manifest = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys)
+    lines = [
+        "; Generated from exact verified inventory; not release authorization.",
+        "; Inventory SHA-256: " + expected_hash,
+        "!ifndef CRC_PAYLOAD_ROOT",
+        '  !error "Reviewed compile-time payload root required"',
+        "!endif",
+        "!macro CRC_ExtractReviewedPayload",
+        "  SetOverwrite off",
+    ]
+    for row in sorted(manifest["files"], key=lambda row: row["path"]):
+        parts = path_parts(row["path"])
+        directory = "\\".join(parts[:-1])
+        relative = "\\".join(parts)
+        target = "$CrcStageRoot" + ("\\" + directory if directory else "")
+        lines.extend((
+            "  ClearErrors",
+            f'  SetOutPath "{target}"',
+            "  IfErrors 0 +2",
+            '  Abort "Cannot prepare program staging directory."',
+            f'  IfFileExists "$OUTDIR\\{parts[-1]}" 0 +2',
+            '  Abort "Program staging file already exists."',
+            "  ClearErrors",
+            '  File "${CRC_PAYLOAD_ROOT}\\' + relative + '"',
+            "  IfErrors 0 +2",
+            '  Abort "Cannot extract reviewed program file."',
+        ))
+    lines.extend(("!macroend", ""))
+    return "\n".join(lines)
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inventory", type=Path)
