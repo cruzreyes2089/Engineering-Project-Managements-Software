@@ -34,6 +34,38 @@ public sealed partial class LocalPractice
    throw new ArgumentException("Synthetic directory permissions are not qualified. Existing permissions will not be altered.");
   return full;
  }
+ // One operator action over the existing synthetic-only stages. Filesystem and
+ // database changes are not atomic together; a retry must reload current records.
+ public (string ProjectFolder,int Created,int Existing) SetupAcceptanceProjectFolders(long project,string? expectedConfiguration,string? expectedReference,IReadOnlyList<ProjectFolderTemplateItem> selected,bool confirmed)
+ {
+  if(!confirmed)throw new ArgumentException("Confirm selected synthetic project folders.");
+  RequireDocumentAcceptance();var root=SyntheticFolderRoot();var frozen=selected.ToArray();_=ProjectFolderTemplate.Preview(frozen);
+  var generation=sessionGeneration;var identity=userId;
+  void CheckSession(){if(identity==null||userId!=identity||sessionGeneration!=generation)throw new UnauthorizedAccessException();}
+  FolderConfiguration? config;FolderRegisterEntry? folder;
+  using(var c=Open())using(var t=c.BeginTransaction(deferred:true)){
+   RequireDocuments(c,t,true);RequireAdministration(c,t);RequireDocumentRegisterCandidate(c,t);ProjectRow(c,t,project);
+   config=CandidateFolderConfiguration(c).ReadCore(t).LastOrDefault();folder=CandidateProjectFolders(c).ReadCore(t,project).LastOrDefault();
+   if(config?.Hash!=expectedConfiguration||folder?.Hash!=expectedReference)throw new ArgumentException("Folder setup changed. Reload before creating folders.");
+   if(config!=null&&config.RootPath!=root)throw new ArgumentException("Use advanced folder settings to resolve the current configuration.");
+   if(folder!=null&&(folder.State!="Registered"||folder.ConfigurationHash!=config?.Hash||folder.RelativePath!="Synthetic Project "+project.ToString(CultureInfo.InvariantCulture)))throw new ArgumentException("Use advanced folder settings to resolve the existing reference.");
+   var allowed=(config?.Template??ProjectFolderTemplate.Defaults).Select(x=>x.Name).ToHashSet(StringComparer.Ordinal);
+   if(frozen.Any(x=>!allowed.Contains(x.Name)))throw new ArgumentException("Choose labels from the current folder template.");
+  }
+  CheckSession();
+  if(config==null){
+   var path=PrepareAcceptanceFolderRoot(true);CheckSession();
+   config=SaveAcceptanceFolderConfiguration(Guid.NewGuid(),null,path,ProjectFolderTemplate.Defaults,"Confirmed standard synthetic project folder template",true);
+  }
+  CheckSession();
+  if(folder==null){
+   var relative=PrepareAcceptanceProjectDirectory(project,config.Hash,true);CheckSession();
+   folder=SaveAcceptanceProjectFolder(project,Guid.NewGuid(),null,config.Hash,"Registered",relative,"Confirmed synthetic project folder setup",true);
+  }
+  CheckSession();var preview=PreviewAcceptanceFolderCreation(project,folder.Hash,config.Hash,frozen);
+  CheckSession();var created=preview.Missing.Count==0?0:CreateAcceptanceFolders(project,folder.Hash,config.Hash,frozen,preview.PlanHash,true).Count;
+  return(preview.ProjectFolder,created,preview.Existing.Count);
+ }
  public string PrepareAcceptanceFolderRoot(bool confirmed)
  {
   if(!confirmed)throw new ArgumentException("Explicit synthetic folder setup confirmation required.");
