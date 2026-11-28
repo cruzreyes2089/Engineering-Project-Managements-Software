@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [milestone-12/free-codeql-review]
+    branches: [milestone-12/free-codeql-review, milestone-12/scan-finding-review]
 permissions:
   contents: read
 jobs:
@@ -30,3 +30,10 @@ jobs:
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           category: /language:${{ matrix.language }}
+          upload-database: false
+          output: "${{ runner.temp }}/crc-source-sarif"
+      - name: Summarize scanner findings (no source snippets or secrets)
+        env:
+          REPORT_DIR: ${{ runner.temp }}/crc-source-sarif
+          SCAN_LANGUAGE: ${{ matrix.language }}
+        run: python3 tools/security/summarize_codeql.py "$REPORT_DIR" "$SCAN_LANGUAGE"
