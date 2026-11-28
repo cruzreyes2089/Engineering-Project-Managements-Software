@@ -75,7 +75,7 @@ internal static class ProductionWorkspaceIdentityCandidate
      Scalar(c,tx,"SELECT project_root FROM production_storage_settings WHERE singleton=1") is not string projects||
      Scalar(c,tx,"SELECT backup_root FROM production_storage_settings WHERE singleton=1") is not string backup)
    throw new ArgumentException("Stored workspace locations require review.");
-  var layout=ProductionStorageBoundary.Review(localAppData,projects,backup);
+  var layout=ProductionStorageBoundary.ReviewForDailyUse(localAppData,projects,backup);
   VerifyConfiguredRoots(c,tx,layout);
   tx.Commit();
   VerifyMarkerAndLayout(layout,expectedIdentity);
