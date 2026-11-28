@@ -14,17 +14,58 @@ internal static class InstallerExecutableAuthenticity
  {if(!ok)throw new ArgumentException("Installer executable authenticity requires review.");}
  static string Hash(Stream file)
  {file.Position=0;return Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant();}
+ // A cooperative read lease prevents ordinary Windows write/delete opens
+ // during review. It does not launch a process or protect against an admin,
+ // pre-existing writable mapping, or every parent-directory substitution.
+ internal sealed class ArtifactLease : IDisposable
+ {
+  readonly FileStream file;
+  readonly string path,expected;
+  readonly long length;
+  bool disposed;
+  internal ArtifactLease(string executable,string expectedSha256)
+  {
+   Require(Hex(expectedSha256));
+   if(!OperatingSystem.IsWindows())throw new PlatformNotSupportedException("Windows trust verification required.");
+   path=LocalStoragePath.FilePath(executable,mustExist:true,rejectSidecars:true);
+   expected=expectedSha256;
+   Require(WorkspaceConfidentiality.HasWorkspaceFileAcl(path));
+   file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+   try
+   {
+    length=file.Length;
+    Require(length is >0 and <=1024L*1024*1024);
+    ReviewBytes();
+   }
+   catch{file.Dispose();throw;}
+  }
+  internal void ReviewBytes()
+  {
+   ObjectDisposedException.ThrowIf(disposed,this);
+   Require(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(Path.GetDirectoryName(path)!)&&
+    WorkspaceConfidentiality.HasRestrictedWorkspaceFileHandleAcl(file));
+   _=LocalStoragePath.FilePath(path,mustExist:true,rejectSidecars:true);
+   Require(file.Length==length&&Hash(file)==expected&&file.Length==length);
+  }
+  internal void ReviewPublisher(string independentlyTrustedCertificateSha256)
+  {
+   Require(Hex(independentlyTrustedCertificateSha256));
+   ReviewBytes();
+   if(!OperatingSystem.IsWindows())throw new PlatformNotSupportedException();
+   Require(VerifyWindows(file,path)==independentlyTrustedCertificateSha256);
+   ReviewBytes();
+  }
+  public void Dispose()
+  {
+   if(disposed)return;
+   disposed=true;file.Dispose();
+  }
+ }
  internal static void Review(string executable,string expectedSha256,string independentlyTrustedCertificateSha256)
  {
-  Require(Hex(expectedSha256)&&Hex(independentlyTrustedCertificateSha256));
-  if(!OperatingSystem.IsWindows())throw new PlatformNotSupportedException("Windows trust verification required.");
-  var path=LocalStoragePath.FilePath(executable,mustExist:true,rejectSidecars:true);
-  Require(WorkspaceConfidentiality.HasWorkspaceFileAcl(path));
-  using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
-  var length=file.Length;
-  Require(length is >0 and <=1024L*1024*1024&&Hash(file)==expectedSha256);
-  Require(VerifyWindows(file,path)==independentlyTrustedCertificateSha256);
-  Require(file.Length==length&&Hash(file)==expectedSha256);
+  Require(Hex(independentlyTrustedCertificateSha256));
+  using var lease=new ArtifactLease(executable,expectedSha256);
+  lease.ReviewPublisher(independentlyTrustedCertificateSha256);
  }
  [StructLayout(LayoutKind.Sequential)]
  struct FileInfoNative
