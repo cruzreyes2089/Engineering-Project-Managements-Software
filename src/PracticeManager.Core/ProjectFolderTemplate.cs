@@ -27,7 +27,7 @@ public static class ProjectFolderTemplate
    var n=item.Name;
    if(string.IsNullOrWhiteSpace(n)||n.Length>100||n!=n.Trim()||n.EndsWith('.')||
       n.Any(ch=>char.IsControl(ch)||ch is '<' or '>' or ':' or '"' or '/' or '\\' or '|' or '?' or '*')||
-      System.Text.RegularExpressions.Regex.IsMatch(n.Split('.')[0].Trim(),@"^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])$",System.Text.RegularExpressions.RegexOptions.IgnoreCase|System.Text.RegularExpressions.RegexOptions.CultureInvariant)||
+      LocalStoragePath.IsReservedWindowsName(n)||
       !names.Add(n))
     throw new ArgumentException("Use unique, plain Windows-compatible folder names.");
   }
