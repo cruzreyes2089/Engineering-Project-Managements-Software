@@ -237,6 +237,20 @@ internal static class InstalledProgramBoundaryTests
    check(stagingReservation.SealForReview().PayloadFiles==17,"protected reservation seals exact verified envelope");
    check(stagingReservation.ReviewSealed().Inventory==extracted.Digest,"sealed reservation can be reverified under held lease");
    var handoffTime=DateTimeOffset.FromUnixTimeSeconds(1900000000);
+   var reviewRecovery=new InstallerIntegrationReview.RecoveryInput(
+    new(envelopeEvidence.Commit,previousDigest,extracted.Digest,47,49,expectedDigest,previousDigest),reservedHelper,reservedHelper);
+   InstallerIntegrationReview.ValidateScope(InstallerCoordinatorCandidate.Operation.Fresh,null);
+   check(true,"integrated review accepts fresh scope without upgrade evidence");
+   InstallerIntegrationReview.ValidateScope(InstallerCoordinatorCandidate.Operation.Upgrade,reviewRecovery);
+   check(true,"integrated review requires explicit upgrade evidence scope");
+   Refuse(()=>InstallerIntegrationReview.ValidateScope(InstallerCoordinatorCandidate.Operation.Upgrade,null),"integrated upgrade refuses missing recovery evidence");
+   Refuse(()=>InstallerIntegrationReview.ValidateScope(InstallerCoordinatorCandidate.Operation.Fresh,reviewRecovery),"integrated fresh review refuses unexpected recovery evidence");
+   Refuse(()=>InstallerIntegrationReview.ValidateScope(InstallerCoordinatorCandidate.Operation.Remove,null),"integrated extraction review refuses removal scope");
+   Refuse(()=>InstallerIntegrationReview.Review(stagingReservation,InstallerCoordinatorCandidate.Operation.Fresh,
+    Array.Empty<byte>(),Array.Empty<byte>(),Array.Empty<byte>(),expectedDigest,expectedDigest,reservedHelper,reservedHelper,
+    envelopeEvidence.Commit,handoffTime,null),"integrated review refuses absent signed release evidence");
+   check(InstallerCoordinatorCandidate.Run(new[]{"--upgrade"})==3,"integrated review does not open upgrade authorization");
+
    check(stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime).Inventory==extracted.Digest,"sealed handoff binds exact reviewed release evidence");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence with {Commit=new string('d',40)},handoffTime),"handoff refuses different source revision");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime.AddMinutes(2)),"handoff refuses expired release evidence");
