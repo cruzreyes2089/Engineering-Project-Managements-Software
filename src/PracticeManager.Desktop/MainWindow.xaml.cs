@@ -119,8 +119,8 @@ public partial class MainWindow : Window
   var w=new Window{Owner=owner,Title="Restore to separate file",Width=570,Height=300,WindowStartupLocation=WindowStartupLocation.CenterOwner};var p=new StackPanel{Margin=new Thickness(16)};
   p.Children.Add(new TextBlock{Text="Enter the SHA-256 recorded when this recovery copy was made, from a trusted separate record. This never replaces the active database. Accounting credentials remain absent and posting held.",TextWrapping=TextWrapping.Wrap});
   p.Children.Add(new TextBlock{Text="Original verification hash (SHA-256)"});var hash=new TextBox{MaxLength=64};p.Children.Add(hash);var b=new Button{Content="Choose new destination and verify"};p.Children.Add(b);w.Content=p;
-  b.Click+=(_,_)=>{try{var save=new Microsoft.Win32.SaveFileDialog{Title="New isolated restored database",Filter="SQLite database (*.db)|*.db",DefaultExt=".db",FileName="CRC-isolated-restore.db",AddExtension=true,OverwritePrompt=true};if(save.ShowDialog(w)!=true)return;
-   var result=S.RestoreRecoveryCopyToNewFile(open.FileName,hash.Text.Trim(),save.FileName);
+  b.Click+=(_,_)=>{try{var save=new Microsoft.Win32.SaveFileDialog{Title="New isolated restored database",Filter="SQLite database (*.db)|*.db",DefaultExt=".db",FileName="CRC-isolated-restore.db",AddExtension=true,OverwritePrompt=true};if(!S.IsProductionAcceptance&&save.ShowDialog(w)!=true)return;
+   var result=S.IsProductionAcceptance?S.VerifyConfiguredAcceptanceBackup(open.FileName,hash.Text.Trim()):S.RestoreRecoveryCopyToNewFile(open.FileName,hash.Text.Trim(),save.FileName);
    MessageBox.Show(w,$"Isolated restore verified.\nClients: {result.Clients}; projects: {result.Projects}; historical projects: {result.HistoricalProjects}; document copies: {result.Documents}\nSHA-256: {result.Sha256}\nCurrent database remains unchanged.","Recovery",MessageBoxButton.OK,MessageBoxImage.Information);w.DialogResult=true;
   }catch(ArgumentException ex){MessageBox.Show(w,ex.Message);}catch(UnauthorizedAccessException){MessageBox.Show(w,"Access denied.");}catch(Exception){MessageBox.Show(w,"Restore failed; no success assumed.");}};
   w.ShowDialog();
@@ -130,8 +130,8 @@ public partial class MainWindow : Window
   if(!S.Can("Administration.RecoveryCopy"))throw new UnauthorizedAccessException();
   if(MessageBox.Show(owner,"This confidential backup contains firm records, password hashes and documents. Save only to protected local storage. Accounting credentials are removed. The active database remains unchanged.","Create backup",MessageBoxButton.OKCancel,MessageBoxImage.Warning)!=MessageBoxResult.OK)return;
   var dialog=new Microsoft.Win32.SaveFileDialog{Title="Save confidential recovery copy",Filter="SQLite recovery copy (*.db)|*.db",FileName="CRC-recovery-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+".db",AddExtension=true,DefaultExt=".db",OverwritePrompt=true};
-  if(dialog.ShowDialog(owner)!=true)return;
-  var result=S.CreateRecoveryCopy(dialog.FileName);
+  if(!S.IsProductionAcceptance&&dialog.ShowDialog(owner)!=true)return;
+  var result=S.IsProductionAcceptance?S.CreateConfiguredAcceptanceBackup():S.CreateRecoveryCopy(dialog.FileName);
   var receipt=new Window{Owner=owner,Title="Backup verified",Width=620,Height=340,WindowStartupLocation=WindowStartupLocation.CenterOwner};var p=new StackPanel{Margin=new Thickness(18)};
   p.Children.Add(new TextBlock{Text="Backup saved and verified. The active database is unchanged.",TextWrapping=TextWrapping.Wrap});p.Children.Add(new TextBlock{Text="Saved file"});p.Children.Add(new TextBox{Text=result.Path,IsReadOnly=true,TextWrapping=TextWrapping.Wrap});p.Children.Add(new TextBlock{Text=$"Size: {result.Bytes:N0} bytes"});p.Children.Add(new TextBlock{Text="Verification hash (keep in a separate trusted record)"});p.Children.Add(new TextBox{Text=result.Sha256,IsReadOnly=true,TextWrapping=TextWrapping.Wrap});p.Children.Add(new TextBlock{Text="Select and copy the hash before closing. The hash verifies integrity; it does not encrypt the backup.",TextWrapping=TextWrapping.Wrap});var done=new Button{Content="Done",IsDefault=true};done.Click+=(_,_)=>receipt.Close();p.Children.Add(done);receipt.Content=new ScrollViewer{Content=p};receipt.ShowDialog();
  }
