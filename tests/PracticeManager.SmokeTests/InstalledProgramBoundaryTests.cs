@@ -231,6 +231,35 @@ internal static class InstalledProgramBoundaryTests
    }
    hive.DeleteSubKey(registryPath,false);
   }
+  var integratedProfile=Directory.CreateDirectory(Path.Combine(parent,"integrated-fresh")).FullName;
+  var integratedShortcut=Directory.CreateDirectory(Path.Combine(parent,"integrated-shortcuts")).FullName;
+  var helperSource=Path.Combine(parent,"synthetic-uninstaller.bin");
+  File.WriteAllText(helperSource,"Synthetic nonexecutable uninstaller source");
+  var helperHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(helperSource))).ToLowerInvariant();
+  var integratedRegistryPath=@"Software\CRC.PracticeManager.SyntheticTests-"+Guid.NewGuid().ToString("N");
+  using(var hive=Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.CurrentUser,Microsoft.Win32.RegistryView.Registry64))
+  {
+   using(var registry=hive.CreateSubKey(integratedRegistryPath,true)??throw new InvalidOperationException("Synthetic registry fixture unavailable."))
+   {
+    try
+    {
+     Refuse(()=>InstalledVersionSelectionCandidate.InstallFreshRegistered(integratedProfile,extracted.Digest,extracted.Source,extracted.Manifest,helperSource,new string('0',64),registry,integratedShortcut),"incorrect helper digest refuses fresh install");
+     check(!Directory.Exists(Path.Combine(integratedProfile,"Programs","CRC Practice Manager")),"invalid helper leaves program root absent");
+     var installed=InstalledVersionSelectionCandidate.InstallFreshRegistered(integratedProfile,extracted.Digest,extracted.Source,extracted.Manifest,helperSource,helperHash,registry,integratedShortcut);
+     check(InstalledVersionSelectionCandidate.ReviewCurrent(installed)==extracted.Digest,"integrated fresh install selects verified payload");
+     var receipt=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(File.ReadAllBytes(Path.Combine(installed.ProgramRoot,"registration-receipt.json")))!;
+     WindowsRegistrationCandidate.VerifyOwnedRegistration(installed,registry,integratedShortcut,receipt);
+     check(receipt.UninstallerHash==helperHash&&File.Exists(Path.Combine(integratedShortcut,WindowsRegistrationCandidate.ShortcutName)),"integrated registration binds verified uninstaller and shortcut");
+     check(File.ReadAllText(helperSource)=="Synthetic nonexecutable uninstaller source","integrated install preserves helper source");
+     check(!File.Exists(Path.Combine(installed.ProgramRoot,"registration-pending.txt")),"integrated registration completes only after readback");
+     Refuse(()=>InstalledVersionSelectionCandidate.InstallFreshRegistered(integratedProfile,extracted.Digest,extracted.Source,extracted.Manifest,helperSource,helperHash,registry,integratedShortcut),"fresh install refuses existing registration");
+     check(InstalledVersionSelectionCandidate.RemoveRegisteredInstallation(installed,extracted.Digest,registry,integratedShortcut)==17,"integrated installed version can be removed by registered lifecycle");
+     check(!Directory.Exists(Path.Combine(integratedProfile,"CRC Practice Manager DATA"))&&!Directory.Exists(Path.Combine(integratedProfile,"CRC Practice Manager DEV")),"integrated install and removal create no business database");
+    }
+    finally{registry.DeleteSubKey(WindowsRegistrationCandidate.ProductKey,false);}
+   }
+   hive.DeleteSubKey(integratedRegistryPath,false);
+  }
   var freshMarker=Path.Combine(fresh.ProgramRoot,"installation-identity.txt");
   File.WriteAllText(freshMarker,"invalid identity");
   Refuse(()=>InstalledProgramBoundary.ReviewInitialized(freshProfile),"invalid installation identity refuses reopen");
