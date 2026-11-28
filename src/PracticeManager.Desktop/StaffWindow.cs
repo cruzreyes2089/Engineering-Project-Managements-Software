@@ -16,10 +16,10 @@ internal sealed class StaffWindow:Window
  static void Col(DataGrid g,string title,string property)=>g.Columns.Add(new DataGridTextColumn{Header=title,Binding=new Binding(property),Width=DataGridLength.Auto});
  public StaffWindow(LocalPractice service)
  {
-  this.service=service;Title="Staff and permissions — development";Width=1050;Height=680;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text="Staff and permissions",FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Synthetic only. Roles start with no grants. Employee directory contains no compensation or billing rates. Account access and employee status are independent.",TextWrapping=TextWrapping.Wrap});head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);root.Children.Add(tabs);Content=root;
-  if(service.Can("Administration.Manage"))BuildAdmin();
+  this.service=service;Title="Staff";Width=1050;Height=680;WindowStartupLocation=WindowStartupLocation.CenterOwner;
+  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text="Staff",FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Manage employees, licenses and sign-in access.",TextWrapping=TextWrapping.Wrap});head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);root.Children.Add(tabs);Content=root;
   if(service.Can("Employees.View"))BuildEmployees();
+  if(service.Can("Administration.Manage"))BuildAdmin();
  }
  void Run(Action a){try{a();}catch(UnauthorizedAccessException){status.Text="Access denied.";}catch(ArgumentException ex){status.Text=ex.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
  Button Btn(string label,Action action){var b=new Button{Content=label,Margin=new Thickness(2)};b.Click+=(_,_)=>Run(action);return b;}
@@ -53,8 +53,8 @@ internal sealed class StaffWindow:Window
  {
   foreach(var (label,prop) in new[]{("Number","Number"),("Name","Name"),("Email","Email"),("Title","Title"),("Active","Active")})Col(employees,label,prop);
   foreach(var (label,prop) in new[]{("Jurisdiction","Jurisdiction"),("Type","Type"),("Number","Number"),("Expires","Expires"),("Status","Status")})Col(licenses,label,prop);
-  var p=new DockPanel();var top=new WrapPanel();top.Children.Add(Btn("New employee",()=>EmployeeEditor(null)));top.Children.Add(Btn("Edit employee",()=>EmployeeEditor(SelectedEmployee())));top.Children.Add(Btn("New license",()=>LicenseEditor(null)));top.Children.Add(Btn("Renew selected license",()=>LicenseEditor((licenses.SelectedItem as LicenseDisplay)?.License??throw new ArgumentException("Select a license."))));top.Children.Add(Btn("Refresh",RefreshEmployees));top.Children.Add(Btn("License expiry review",()=>new LicenseExpiryWindow(service){Owner=this}.ShowDialog()));DockPanel.SetDock(top,Dock.Top);p.Children.Add(top);
-  var split=new System.Windows.Controls.Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition());System.Windows.Controls.Grid.SetRow(employees,0);System.Windows.Controls.Grid.SetRow(licenses,1);split.Children.Add(employees);split.Children.Add(licenses);p.Children.Add(split);tabs.Items.Add(new TabItem{Header="Employees and licenses",Content=p});employees.SelectionChanged+=(_,_)=>Run(RefreshLicenses);RefreshEmployees();
+  var p=new DockPanel();var top=new WrapPanel();if(service.Can("Employees.Edit")){top.Children.Add(Btn("New employee",()=>EmployeeEditor(null)));top.Children.Add(Btn("Edit employee",()=>EmployeeEditor(SelectedEmployee())));top.Children.Add(Btn("New license",()=>LicenseEditor(null)));top.Children.Add(Btn("Renew selected license",()=>LicenseEditor((licenses.SelectedItem as LicenseDisplay)?.License??throw new ArgumentException("Select a license."))));}top.Children.Add(Btn("Refresh",RefreshEmployees));top.Children.Add(Btn("License expiry review",()=>new LicenseExpiryWindow(service){Owner=this}.ShowDialog()));DockPanel.SetDock(top,Dock.Top);p.Children.Add(top);
+  var split=new System.Windows.Controls.Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition());System.Windows.Controls.Grid.SetRow(employees,0);System.Windows.Controls.Grid.SetRow(licenses,1);split.Children.Add(employees);split.Children.Add(licenses);p.Children.Add(split);tabs.Items.Add(new TabItem{Header="Employees & licenses",Content=p});employees.SelectionChanged+=(_,_)=>Run(RefreshLicenses);RefreshEmployees();
  }
  EmployeeRecord SelectedEmployee()=>employees.SelectedItem as EmployeeRecord??throw new ArgumentException("Select an employee.");
  void RefreshEmployees(){employees.ItemsSource=service.ReadEmployees();licenses.ItemsSource=null;}
