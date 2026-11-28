@@ -21,7 +21,11 @@ def summarize(document, language):
     for run in runs:
         if run.get("tool", {}).get("driver", {}).get("name") != "CodeQL":
             raise ValueError("Unexpected analysis tool")
-        rule_count += len(run["tool"]["driver"].get("rules", []))
+        # SARIF may omit unused rule descriptors, and CodeQL may put rule
+        # metadata in extensions rather than the driver. A zero descriptor
+        # count is not proof that zero queries ran or that coverage is complete.
+        for component in [run["tool"]["driver"], *run["tool"].get("extensions", [])]:
+            rule_count += len(component.get("rules", []))
         invocations = run.get("invocations", [])
         invocation_count += len(invocations)
         for invocation in invocations:
@@ -53,9 +57,7 @@ def summarize(document, language):
             if type(line) is not int or line < 1:
                 line = None
             findings.append({"rule": rule, "kind": kind, "level": level, "path": uri, "line": line})
-    if rule_count == 0:
-        raise ValueError("No query rules reported")
-    return {"language": language, "runCount": len(runs), "ruleCount": rule_count,
+    return {"language": language, "runCount": len(runs), "ruleDescriptorCount": rule_count, "queryCoverageVerified": False,
             "invocationCount": invocation_count, "notificationCount": notifications,
             "resultCount": len(findings), "truncated": len(findings) > MAX_REPORTED,
             "findings": findings[:MAX_REPORTED], "releaseAuthorized": False,
