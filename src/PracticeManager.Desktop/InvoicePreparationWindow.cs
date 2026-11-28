@@ -24,7 +24,7 @@ internal sealed class InvoicePreparationWindow:Window
   if(service.Can("Billing.Rates"))tabs.Items.Add(new TabItem{Header="Restricted employee rates",Content=BuildRates()});
   root.Children.Add(tabs);Content=root;
  }
- void Run(Action a){try{a();}catch(UnauthorizedAccessException){status.Text="Access denied.";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){hasPolicy=false;policyText.Text="";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;status.Text="Operation failed. Refresh before retrying.";}finally{UpdateActions();}}
+ void Run(Action a){try{a();}catch(UnauthorizedAccessException){hasPolicy=false;policyText.Text="";status.Text="Access denied.";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){hasPolicy=false;policyText.Text="";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;status.Text="Operation failed. Refresh before retrying.";}finally{UpdateActions();}}
  long Project()=>projects.SelectedItem is PendingProject p?p.Id:throw new ArgumentException("Select active project.");
  long Employee()=>employees.SelectedItem is EmployeeRecord e?e.Id:throw new ArgumentException("Select employee.");
  UIElement BuildInvoices()
