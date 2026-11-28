@@ -44,14 +44,23 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   if(current!=this)throw new ArgumentException("Workspace identity changed. No fallback database opened.");
   return current;
  }
- public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments)
+ public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments)=>Resolve(localAppData,arguments,out _);
+ public static DevelopmentWorkspace Resolve(string localAppData,IReadOnlyList<string> arguments,out bool newDefaultWorkspace)
  {
+  newDefaultWorkspace=false;
   if(string.IsNullOrWhiteSpace(localAppData)||!Path.IsPathFullyQualified(localAppData))throw new ArgumentException("Trusted local application data folder required.");
   var root=LocalStoragePath.DirectoryPath(localAppData);
   if(arguments.Count==0)
   {
-   var dev=ProtectedDirectory(Path.Combine(root,"CRC Practice Manager DEV"),true);
-   return new(ProtectedFile(Path.Combine(dev,"practice-dev.db"),mustExist:false),null);
+   var directory=Path.Combine(root,"CRC Practice Manager DEV");
+   // An existing workspace directory with a missing DB is a recovery case,
+   // not a fresh start. Never replace or initialize it automatically.
+   var exists=true;
+   try{_=File.GetAttributes(directory);}catch(FileNotFoundException){exists=false;}catch(DirectoryNotFoundException){exists=false;}
+   var dev=ProtectedDirectory(directory,!exists);
+   var db=ProtectedFile(Path.Combine(dev,"practice-dev.db"),mustExist:exists,mustBeNew:!exists,rejectSidecars:!exists);
+   newDefaultWorkspace=!exists;
+   return new(db,null);
   }
   var budget=arguments.Count>0&&arguments[0] is "--budget-acceptance-new" or "--budget-acceptance-session";
   var document=arguments.Count>0&&arguments[0] is "--document-acceptance-new" or "--document-acceptance-session";
