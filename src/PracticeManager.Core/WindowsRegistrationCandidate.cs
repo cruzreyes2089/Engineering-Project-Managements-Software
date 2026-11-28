@@ -120,10 +120,24 @@ internal static class WindowsRegistrationCandidate
   Require(boundary.VerifyInitializedLayout()==entry.Identity&&boundary.ProgramRoot==entry.ProgramRoot);
   var directory=boundary.ReviewExistingVersion(entry.Version);
   Require(entry.Executable==Path.Combine(directory,"CRC.PracticeManager.exe")&&entry.Uninstaller==Path.Combine(boundary.ProgramRoot,"CRC.Uninstall.exe"));
-  Require(IsDigest(entry.UninstallerHash)&&IsDigest(entry.ShortcutHash)&&FileHash(entry.Uninstaller)==entry.UninstallerHash);
+  var uninstaller=LocalStoragePath.FilePath(entry.Uninstaller,mustExist:true,rejectSidecars:true);
+  Require(WorkspaceConfidentiality.HasWorkspaceFileAcl(uninstaller)&&IsDigest(entry.UninstallerHash)&&IsDigest(entry.ShortcutHash)&&FileHash(uninstaller)==entry.UninstallerHash);
   var path=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,ShortcutName),mustExist:true,rejectSidecars:true);
   Require(FileHash(path)==entry.ShortcutHash);
   VerifyShortcut(path,entry.Executable,directory);
   VerifyOwnedKey(parent,entry);
+ }
+ // Caller holds the shared lease and durable removal intent. Never adopt a
+ // modified shortcut or registry key; a partial failure is review-only.
+ internal static void RemoveOwnedRegistration(InstalledProgramBoundary boundary,RegistryKey parent,string shortcutDirectory,Registration entry)
+ {
+  VerifyOwnedRegistration(boundary,parent,shortcutDirectory,entry);
+  RemoveOwnedKey(parent,entry);
+  var shortcut=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,ShortcutName),mustExist:true,rejectSidecars:true);
+  Require(FileHash(shortcut)==entry.ShortcutHash);
+  VerifyShortcut(shortcut,entry.Executable,Path.GetDirectoryName(entry.Executable)!);
+  Require(FileHash(shortcut)==entry.ShortcutHash);
+  File.Delete(shortcut);
+  Require(!Exists(shortcut));
  }
 }
