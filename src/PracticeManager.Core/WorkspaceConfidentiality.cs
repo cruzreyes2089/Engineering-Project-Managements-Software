@@ -104,8 +104,18 @@ public static class WorkspaceConfidentiality
  [SupportedOSPlatform("windows")]
  static bool CheckWindowsFile(string full,bool allowInherited=false)
  {
+  return CheckWindowsFileSecurity(new FileInfo(full).GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner),allowInherited);
+ }
+ // Inspect the same open handle used by the exclusive program lease.
+ internal static bool HasRestrictedWorkspaceFileHandleAcl(FileStream stream)
+  =>OperatingSystem.IsWindows()&&CheckWindowsFileHandle(stream);
+ [SupportedOSPlatform("windows")]
+ static bool CheckWindowsFileHandle(FileStream stream)
+  =>CheckWindowsFileSecurity(stream.GetAccessControl(),true);
+ [SupportedOSPlatform("windows")]
+ static bool CheckWindowsFileSecurity(FileSecurity security,bool allowInherited)
+ {
   var trusted=TrustedPrincipals();
-  var security=new FileInfo(full).GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
   var raw=new RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(),0);
   if(raw.DiscretionaryAcl is null||(!allowInherited&&!security.AreAccessRulesProtected)||!security.AreAccessRulesCanonical||
      security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner||!trusted.Contains(owner))return false;
