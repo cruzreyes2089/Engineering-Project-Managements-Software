@@ -10,6 +10,13 @@ public sealed partial class LocalPractice
   if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=$i AND r.name='Administrator'",("$i",actor)))!=1)throw new UnauthorizedAccessException("Administrator role required.");
   return actor;
  }
+ public (string Name,string ClientPrefix) ReadCompanySettings()
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);RequireAdministration(c,t);
+  using var q=Command(c,t,"SELECT name,client_prefix FROM firms WHERE id=1");using var r=q.ExecuteReader();
+  if(!r.Read())throw new InvalidOperationException("Company settings unavailable.");
+  return(r.GetString(0),r.GetString(1));
+ }
  public IReadOnlyList<StaffRole> ReadStaffRoles()
  {
   using var c=Open();using var t=c.BeginTransaction();RequireAdministration(c,t);using var q=Command(c,t,"SELECT id,name FROM roles ORDER BY name");using var r=q.ExecuteReader();var rows=new List<StaffRole>();while(r.Read())rows.Add(new(r.GetInt64(0),r.GetString(1)));return rows.AsReadOnly();
