@@ -1,0 +1,57 @@
+name: Security review of blocked v0.4.12 archive
+on:
+  push:
+    branches: ['milestone-04c/accounting-connection']
+    paths: ['.github/workflows/blocked-artifact-review.yml', 'tools/security/archive_inventory.py', 'tests/schema/test_archive_inventory.py']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, node24
+        with:
+          persist-credentials: false
+      - name: Test quarantine extraction guards
+        run: python3 -m unittest discover -s tests/schema -p test_archive_inventory.py -v
+      - name: Install malware scanner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+          clamscan --version
+      - name: Retrieve exact quarantined archive and verify digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/quarantine"
+          cd "$RUNNER_TEMP/quarantine"
+          gh api repos/"$GH_REPO"/actions/artifacts/15080514626/zip > blocked.zip
+          echo 'c5840d6dcc5944483ef8b6a254a635dbf247b0155069f814256bc6a8a5ec9a14  blocked.zip' | sha256sum --check
+      - name: Scan quarantined archive without running it
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/quarantine"
+          # Do not execute, extract to the workspace, or republish the suspect archive.
+          # Limits exceed the expected 63 MiB archive and typical expanded .NET runtime.
+          clamscan --infected --alert-exceeds-max=yes --max-filesize=500M --max-scansize=1000M --max-files=20000 --max-recursion=32 blocked.zip
+          echo 'Scanner completed with no detection; this does not clear the browser warning or authorize distribution.'
+      - name: Validate archive structure and inventory every file
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/security/archive_inventory.py "$RUNNER_TEMP/quarantine/blocked.zip" "$RUNNER_TEMP/quarantine/members"
+      - name: Scan extracted files individually without execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          clamscan --recursive --infected --alert-exceeds-max=yes --max-filesize=500M --max-scansize=1000M --max-files=20000 --max-recursion=32 "$RUNNER_TEMP/quarantine/members"
+          echo 'Individual file scan finished. No release authorization.'
