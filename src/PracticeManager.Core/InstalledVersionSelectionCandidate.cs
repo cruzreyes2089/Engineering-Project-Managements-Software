@@ -40,6 +40,24 @@ public static class InstalledVersionSelectionCandidate
  }
  static string? Current(InstalledProgramBoundary boundary)
   =>Exists(Path.Combine(boundary.ProgramRoot,ActiveName))?Read(boundary,ActiveName):null;
+ // Hold the same lease for the entire installed application lifetime.
+ // Refuse stale or relocated executables and interrupted install operations.
+ public static IDisposable AcquireSelectedLaunchLease(InstalledProgramBoundary boundary,string executable)
+ {
+  var lease=boundary.AcquireExistingLease();
+  try
+  {
+   NoPending(boundary);
+   var current=Current(boundary)??throw new ArgumentException("No active program version.");
+   var expected=Path.Combine(boundary.ReviewExistingVersion(current),"CRC.PracticeManager.exe");
+   var actual=LocalStoragePath.FilePath(executable,mustExist:true,rejectSidecars:true);
+   if(!string.Equals(actual,expected,StringComparison.OrdinalIgnoreCase))
+    throw new ArgumentException("This program version is not the selected installed version.");
+   InstalledPayloadVerification.Verify(boundary,current);
+   return lease;
+  }
+  catch{lease.Dispose();throw;}
+ }
  public static string? ReviewCurrent(InstalledProgramBoundary boundary)
  {
   using var lease=boundary.AcquireExistingLease();
