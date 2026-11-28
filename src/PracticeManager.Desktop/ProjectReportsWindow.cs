@@ -1,3 +1,7 @@
+using System.IO;
+using System.Text;
+using System.Security.Cryptography;
+using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
 using PracticeManager.Core;
@@ -14,6 +18,7 @@ internal sealed class ProjectReportsWindow:Window
   var root=new DockPanel{Margin=new Thickness(18)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Operational records, not accounting statements. Manager remains authoritative for posted revenue, cash, receivables and profit.",TextWrapping=TextWrapping.Wrap});projects.ItemsSource=service.SearchPendingProjects();head.Children.Add(projects);var filters=new WrapPanel();filters.Children.Add(start);filters.Children.Add(end);WorkWindowFields.Button(filters,"Generate",Refresh);if(service.CanReadFirmTimeMix())WorkWindowFields.Button(filters,"Firm time mix",()=>new FirmTimeMixWindow(service){Owner=this}.ShowDialog());head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);var tabs=new TabControl();
   if(access.Operations){
    tabs.Items.Add(new TabItem{Header="Operations",Content=new ScrollViewer{Content=ops}});
+   WorkWindowFields.Button(filters,"Export operations CSV",()=>Export(false));
    if(service.CanReadEmployeeTimeReport())WorkWindowFields.Button(filters,"Employee time detail",()=>new EmployeeTimeReportWindow(service){Owner=this}.ShowDialog());
    WorkWindowFields.Button(filters,"Project effort (all dates)",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectEffortWindow(service,p.Id){Owner=this}.ShowDialog();});
    if(service.Can("Projects.Budget.View"))WorkWindowFields.Button(filters,"Budget history",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectBudgetWindow(service,p.Id){Owner=this}.ShowDialog();});
@@ -24,10 +29,37 @@ internal sealed class ProjectReportsWindow:Window
   }
   if(access.Financial){
    tabs.Items.Add(new TabItem{Header="Restricted financial preview",Content=new ScrollViewer{Content=finance}});
+   WorkWindowFields.Button(filters,"Export financial CSV",()=>Export(true));
    if(access.Operations&&service.Can("Projects.Budget.View"))
     WorkWindowFields.Button(filters,"Direct-cost scenario",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectCostScenarioWindow(service,p.Id){Owner=this}.ShowDialog();});
   }
   root.Children.Add(tabs);Content=root;void ClearReports(){ops.Text=finance.Text=closeout.Text="";status.Text="Generate report for selected project and dates.";}projects.SelectionChanged+=(_,_)=>ClearReports();start.SelectedDateChanged+=(_,_)=>ClearReports();end.SelectedDateChanged+=(_,_)=>ClearReports();
+ }
+ (long Project,DateOnly Start,DateOnly End) CurrentFilter()
+ {
+  if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select project.");
+  return (p.Id,WorkWindowFields.Day(start),WorkWindowFields.Day(end));
+ }
+ void Export(bool financial)
+ {
+  try{
+   var filter=CurrentFilter();
+   var access=service.ReadProjectReportAccess();if(financial?!access.Financial:!access.Operations)throw new UnauthorizedAccessException();
+   var kind=financial?"restricted financial preview":"project operations";
+   if(MessageBox.Show(this,$"Export a fresh {kind} report for the selected project and dates? Values may differ from the displayed snapshot. Use protected local storage. This is not an accounting statement.","Project report export",MessageBoxButton.OKCancel,MessageBoxImage.Warning)!=MessageBoxResult.OK)return;
+   var picker=new SaveFileDialog{Title="Save confidential project report",FileName=financial?"CRC-project-financial.csv":"CRC-project-operations.csv",DefaultExt=".csv",Filter="CSV file (*.csv)|*.csv",AddExtension=true,OverwritePrompt=true};
+   if(picker.ShowDialog(this)!=true)return;
+   if(CurrentFilter()!=filter)throw new ArgumentException("Report filters changed. Review and retry.");
+   if(!string.Equals(Path.GetExtension(picker.FileName),".csv",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Keep the .csv extension.");
+   _=LocalStoragePath.FilePath(picker.FileName,mustExist:false,mustBeNew:true,rejectSidecars:true);
+   var csv=financial?service.PrepareProjectFinancialCsv(filter.Project,filter.Start,filter.End):service.PrepareProjectOperationsCsv(filter.Project,filter.Start,filter.End);
+   var bytes=Encoding.UTF8.GetBytes(csv);
+   try{VerifiedDocumentFile.Save(picker.FileName,".csv",bytes,Convert.ToHexString(SHA256.HashData(bytes)));}
+   finally{CryptographicOperations.ZeroMemory(bytes);}
+   ops.Text=finance.Text=closeout.Text="";status.Text="Fresh confidential CSV saved. Generate to display current report.";
+  }catch(UnauthorizedAccessException){ops.Text=finance.Text=closeout.Text="";projects.ItemsSource=null;status.Text="Access denied.";}
+  catch(ArgumentException e){status.Text=e.Message;}
+  catch(Exception){status.Text="Export unavailable; no successful file publication assumed.";}
  }
  void RefreshCloseout()
  {
