@@ -8,11 +8,26 @@ public sealed record RecoveryCopyResult(string Path,string Sha256,long Bytes);
 // A confidential local recovery copy, not a live restore or a portable accounting enrollment.
 public sealed partial class LocalPractice
 {
+ public RecoveryCopyResult CreateConfiguredAcceptanceBackup()
+ {
+  var layout=productionFixtureLayout??throw new UnauthorizedAccessException("Configured acceptance backup unavailable.");
+  if(!Can("Administration.RecoveryCopy"))throw new UnauthorizedAccessException();
+  var root=layout.VerifyBackupDestination();
+  return CreateRecoveryCopy(Path.Combine(root,"CRC-recovery-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss",System.Globalization.CultureInfo.InvariantCulture)+"-"+Guid.NewGuid().ToString("N")+".db"));
+ }
+ void VerifyProductionRecoveryDestination(string target)
+ {
+  if(productionFixtureLayout==null)return;
+  var root=productionFixtureLayout.VerifyBackupDestination();
+  if(!string.Equals(Path.GetDirectoryName(target),root,StringComparison.OrdinalIgnoreCase))
+   throw new ArgumentException("Use the configured backup directory.");
+ }
  public RecoveryCopyResult CreateRecoveryCopy(string destination)
  {
   var generation=sessionGeneration;
   var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
   if(!string.Equals(Path.GetExtension(target),".db",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Choose a new .db recovery-copy file.");
+  VerifyProductionRecoveryDestination(target);
   var folder=Path.GetDirectoryName(target)??throw new ArgumentException("Choose an existing folder.");
   if(!Directory.Exists(folder)||File.Exists(target)||Directory.Exists(target))throw new ArgumentException("Choose a new file in an existing folder; existing files are never overwritten.");
   using var c=Open();
@@ -39,6 +54,13 @@ public sealed partial class LocalPractice
      if(Convert.ToInt64(Scalar(copy,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Recovery schema changed.");
      if(schema>=48){EffortBudgetMigrationCandidate.VerifyLayout(copy,t);budget=EffortBudgetStore.VerifyDatabase(copy,t);}
      if(schema==49){DocumentRegisterMigrationCandidate.VerifyLayout(copy,t);documentRegister=DocumentRegisterVerification.Verify(copy,t);}
+     if(productionFixtureLayout!=null)
+     {
+      ProductionWorkspaceIdentityCandidate.VerifyConnectionIdentity(copy,t,productionFixtureIdentity!);
+      ProductionWorkspaceIdentityCandidate.VerifyConfiguredRoots(copy,t,productionFixtureLayout);
+      Exec(copy,t,$"PRAGMA application_id={ProductionWorkspaceIdentityCandidate.RecoveryApplicationId}");
+      ProductionWorkspaceIdentityCandidate.VerifyRecoveryIdentity(copy,t,productionFixtureIdentity!);
+     }
      Exec(copy,t,"PRAGMA secure_delete=ON");
      Exec(copy,t,"DELETE FROM accounting_profiles");
      Exec(copy,t,"INSERT OR IGNORE INTO accounting_lifecycle_hold(id,reason,declared_by,declared_utc) VALUES(1,'Restore',$a,$u)",("$a",actor),("$u",UtcNow()));
@@ -64,6 +86,7 @@ public sealed partial class LocalPractice
     Audit(c,t,actor,"RecoveryCopyPrepared","Firm",1);
     t.Commit();
    }
+   VerifyProductionRecoveryDestination(target);
    stage.Publish(bytes,hash);
    return new(target,hash,bytes);
  }
