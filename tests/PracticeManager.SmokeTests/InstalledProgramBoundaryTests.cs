@@ -85,6 +85,27 @@ internal static class InstalledProgramBoundaryTests
   Refuse(()=>InstalledVersionSelectionCandidate.SelectReviewedVersion(boundary,second,first),"interrupted selection blocks retry or rollback");
   check(File.ReadAllText(pending)==first&&File.ReadAllText(Path.Combine(root,"active-version.txt"))==second,"interruption evidence and active pointer unchanged");
   File.Delete(pending); // disposable fixture only; not a recovery procedure
+  var projects=Directory.CreateDirectory(Path.Combine(profile,"user-projects")).FullName;
+  var sentinel=Path.Combine(projects,"synthetic-user-record.txt");
+  File.WriteAllText(sentinel,"must survive removal");
+  Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(boundary,first),"stale active version cannot be removed");
+  File.WriteAllText(unexpected,"unexpected");
+  Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(boundary,second),"unexpected file blocks uninstall preflight");
+  check(File.Exists(unexpected)&&File.Exists(secondFile)&&File.ReadAllText(Path.Combine(root,"active-version.txt"))==second,"failed removal preserves candidate and selection");
+  File.Delete(unexpected);
+  File.WriteAllBytes(secondFile,original.Select(x=>(byte)(x^1)).ToArray());
+  Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(boundary,second),"modified program file blocks uninstall preflight");
+  File.WriteAllBytes(secondFile,original);
+  var removalPending=Path.Combine(root,"uninstall-pending.txt");
+  File.WriteAllText(removalPending,second);
+  Refuse(()=>InstalledVersionSelectionCandidate.ReviewCurrent(boundary),"interrupted removal blocks launch review");
+  Refuse(()=>InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(boundary,second),"interrupted removal blocks automatic retry");
+  check(File.ReadAllText(removalPending)==second&&File.Exists(secondFile),"interrupted removal preserves evidence and remaining files");
+  File.Delete(removalPending); // disposable fixture only
+  check(InstalledVersionSelectionCandidate.RemoveReviewedActiveVersion(boundary,second)==17,"removal deletes exactly the verified active payload");
+  check(!Directory.Exists(boundary.VersionDirectory(second))&&InstalledVersionSelectionCandidate.ReviewCurrent(boundary)==null,"uninstalled selection has no fallback active version");
+  check(Directory.Exists(boundary.VersionDirectory(first))&&File.Exists(Path.Combine(manifests,second+".json"))&&Directory.EnumerateFiles(root,"uninstalled-*.txt").Count()==1,"previous payload and uninstall evidence retained");
+  check(File.ReadAllText(sentinel)=="must survive removal","uninstall does not touch user project records");
   check(File.Exists(boundary.LeasePath),"coordination file persists after release");
   File.WriteAllText(boundary.LeasePath,"unexpected content");
   Refuse(()=>boundary.AcquireExistingLease(),"unexpected coordination file content refused");
