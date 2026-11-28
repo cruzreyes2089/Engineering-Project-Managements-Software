@@ -26,6 +26,36 @@ internal static class InstalledProgramBoundaryTests
   Refuse(()=>InstallerCoordinatorCandidate.Validate(new(InstallerCoordinatorCandidate.Operation.Fresh,expectedDigest,previousDigest,expectedDigest)),"coordinator rejects previous version for fresh installation");
   Refuse(()=>InstallerCoordinatorCandidate.Validate(new(InstallerCoordinatorCandidate.Operation.Remove,expectedDigest,null,"not-a-digest")),"coordinator rejects unbound uninstaller identity");
 
+  // Ephemeral synthetic signer only. No production key or approval is stored.
+  using(var signer=System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
+  using(var other=System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
+  {
+   var publicKey=signer.ExportSubjectPublicKeyInfo();
+   string Hash(byte[] bytes)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+   var pin=Hash(publicKey);var commit=new string('c',40);var package=new string('d',64);var coordinator=new string('e',64);
+   var now=DateTimeOffset.FromUnixTimeSeconds(1900000000);
+   byte[] Sign(byte[] bytes)=>signer.SignData(bytes,System.Security.Cryptography.HashAlgorithmName.SHA256,System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+   byte[] Document(string action="--upgrade",long start=1899999900,long end=1900000100)=>System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new{
+    format="CRC-Detached-Installer-Evidence-v1",product="CRC.PracticeManager.win-x64",operation=action,
+    commit,inventory=expectedDigest,previousInventory=previousDigest,uninstallerSha256=expectedDigest,
+    packageSha256=package,coordinatorSha256=coordinator,notBeforeUnix=start,expiresUnix=end});
+   var document=Document();var signature=Sign(document);
+   var verified=InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now);
+   check(verified.Plan.Version==expectedDigest&&verified.Plan.PreviousVersion==previousDigest,"detached signature verifies exact reviewed version binding");
+   var changed=(byte[])document.Clone();changed[0]^=1;
+   Refuse(()=>InstallerReleaseEvidence.Verify(changed,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now),"modified evidence bytes rejected");
+   var wrongKey=other.ExportSubjectPublicKeyInfo();
+   Refuse(()=>InstallerReleaseEvidence.Verify(document,signature,wrongKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now),"untrusted evidence signer rejected");
+   Refuse(()=>InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Remove,package,coordinator,commit,now),"evidence cannot authorize different operation");
+   Refuse(()=>InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,expectedDigest,coordinator,commit,now),"different package digest rejected");
+   Refuse(()=>InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,expectedDigest,commit,now),"different coordinator digest rejected");
+   Refuse(()=>InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,new string('f',40),now),"different source revision rejected");
+   Refuse(()=>InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now.AddMinutes(2)),"expired release evidence rejected");
+   var duplicate=System.Text.Encoding.UTF8.GetBytes(System.Text.Encoding.UTF8.GetString(document)[..^1]+",\"operation\":\"--upgrade\"}");
+   Refuse(()=>InstallerReleaseEvidence.Verify(duplicate,Sign(duplicate),publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now),"duplicate signed evidence property rejected");
+   check(InstallerCoordinatorCandidate.Run(new[]{"--upgrade"})==3,"synthetic signature does not change release hold");
+  }
+
   var digest=new string('a',64);
   var target=boundary.VersionDirectory(digest);
   check(target==Path.Combine(root,"versions",digest)&&!Directory.Exists(target),"version path derived from complete inventory digest without creating directory");
