@@ -1,4 +1,5 @@
 using PracticeManager.Core;
+using System.Security.Cryptography;
 namespace PracticeManager.Persistence;
 
 // Application-owned, same-volume staging in the requested destination parent.
@@ -16,16 +17,27 @@ internal sealed class RecoveryStaging:IDisposable
   WorkspaceConfidentiality.EnsureWorkspaceDirectory(directory);
   FilePath=Path.Combine(directory,"copy.partial");
  }
- public void Publish()
+ internal static void VerifyIdentity(string path,long expectedBytes,string expectedHash)
+ {
+  var full=LocalStoragePath.FilePath(path,mustExist:true,rejectSidecars:true);
+  using var read=new FileStream(full,FileMode.Open,FileAccess.Read,FileShare.Read);
+  if(expectedBytes<1||read.Length!=expectedBytes||
+     !string.Equals(Convert.ToHexString(SHA256.HashData(read)),expectedHash,StringComparison.OrdinalIgnoreCase)||
+     read.Length!=expectedBytes)
+   throw new InvalidOperationException("File content verification failed; review any published file manually.");
+ }
+ public void Publish(long expectedBytes,string expectedHash)
  {
   LocalStoragePath.FilePath(FilePath,mustExist:true,rejectSidecars:true);
   LocalStoragePath.FilePath(target,mustExist:false,mustBeNew:true,rejectSidecars:true);
   WorkspaceConfidentiality.ProtectOwnedStagingFile(FilePath);
+  VerifyIdentity(FilePath,expectedBytes,expectedHash);
   File.Move(FilePath,target,false);
   // Do not report success if the destination filesystem did not retain the protected DACL.
   // Leave any already-published file intact for manual review; never silently delete it.
   if(OperatingSystem.IsWindows()&&!WorkspaceConfidentiality.HasRestrictedFileAcl(target))
    throw new InvalidOperationException("Recovery file published but permissions require manual review.");
+  VerifyIdentity(target,expectedBytes,expectedHash);
  }
  public void Dispose()
  {
