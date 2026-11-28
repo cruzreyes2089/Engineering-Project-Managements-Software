@@ -1,0 +1,3 @@
+# Estimated firm labor cost
+
+Restricted aggregate estimates for approved project and non-project time, split by billing classification and overhead category. Rates effective on actual work date, recorded cost rate only; per-fact cents rounding matches the existing project report. Pending and rejected facts excluded. Missing-rate records and minutes are explicit, known partial cost shown separately, full cost unavailable until rates complete. No assumed $35 rate or retroactive automatic default. No payroll, compensation payable, reimbursement, accounting expense or profit inferred. Existing financial, billing classification and employee rate grants required. Bounded report in one transaction. Tests use synthetic rates and effective dates.
