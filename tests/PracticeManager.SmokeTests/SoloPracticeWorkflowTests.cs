@@ -9,7 +9,10 @@ internal static class SoloPracticeWorkflowTests
   var s=new LocalPractice(path);
   s.Bootstrap("Synthetic solo practice","admin",password,"CL");
   check(s.Login("admin",password)&&!s.IsDocumentAcceptance,"solo workflow uses ordinary local workspace");
-  var employee=s.CreateEmployee(new("Synthetic","Owner","","",true),s.ReadStaffAccounts().Single().Id);
+  check(s.ReadOwnWorkProfileStatus()==("Missing",true),"first-use owner may create own profile");
+  var employee=s.CreateOwnEmployeeProfile(new("Synthetic","Owner","","",true));
+  check(s.ReadOwnWorkProfileStatus()==("Active",false)&&s.ReadEmployees().Single().UserId==s.ReadStaffAccounts().Single().Id,"created profile links current account and enables own work");
+  try{s.CreateOwnEmployeeProfile(new("Duplicate","Owner","","",true));throw new Exception("FAIL: duplicate own profile");}catch(ArgumentException){check(s.ReadEmployees().Count==1,"own profile cannot be duplicated");}
   var client=s.SaveClient(new Client(0,"","Business / Company","Synthetic client","","","","","","","","","","","Active"));
   s.SaveContact(new Contact(0,client,"Synthetic","Contact","","","",true));
   var proposal=s.CreateProposal(new(client,"Residential design fixture","Synthetic site","Synthetic fixed-fee scope",1000m));
