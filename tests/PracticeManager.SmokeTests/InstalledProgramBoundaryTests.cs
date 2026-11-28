@@ -255,6 +255,15 @@ internal static class InstalledProgramBoundaryTests
    check(stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime).Inventory==extracted.Digest,"sealed handoff binds exact reviewed release evidence");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence with {Commit=new string('d',40)},handoffTime),"handoff refuses different source revision");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime.AddMinutes(2)),"handoff refuses expired release evidence");
+   using(var handoff=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
+   {
+    check(CrossProcessInstallerProbe.ObserveHandoff(handoff,false),"one-shot pipe review verifies expected independent child and exact sealed witness");
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(handoff,false),"handoff review cannot be replayed");
+   }
+   using(var wrongPeer=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(wrongPeer,true),"handoff review refuses unexpected operating-system peer PID");
+   Refuse(()=>new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime.AddMinutes(2)),"handoff channel refuses expired release before opening");
+   check(stagingReservation.ReviewSealed().Inventory==extracted.Digest,"handoff channel leaves protected extraction unchanged");
    using(var heldArtifact=new InstallerExecutableAuthenticity.ArtifactLease(reservedHelper,envelopeHelperHash))
    {
     heldArtifact.ReviewBytes();

@@ -2,6 +2,7 @@ using PracticeManager.Core;
 using PracticeManager.Persistence;
 using Microsoft.Data.Sqlite;
 if(args.Length>0&&args[0]=="--synthetic-installer-lock-probe")return CrossProcessInstallerProbe.RunChild(args);
+if(args.Length>0&&args[0]=="--synthetic-installer-handoff-probe")return CrossProcessInstallerProbe.RunHandoffChild(args);
 var path = Path.Combine(Path.GetTempPath(), "CRC-test-" + Guid.NewGuid().ToString("N"), "test.db");
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 int passed=0;

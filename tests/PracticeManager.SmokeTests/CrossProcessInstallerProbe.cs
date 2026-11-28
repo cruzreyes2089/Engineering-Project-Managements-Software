@@ -1,3 +1,5 @@
+using System.IO.Pipes;
+using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Reflection;
 using PracticeManager.Core;
@@ -34,6 +36,46 @@ internal static class CrossProcessInstallerProbe
    catch(IOException ex) when((ex.HResult&0xffff)==32||(ex.HResult&0xffff)==33){return 10;}
   }
   catch{return 1;}
+ }
+ internal static int RunHandoffChild(string[] args)
+ {
+  try
+  {
+   const string prefix="CRC-synthetic-handoff-";
+   if(!OperatingSystem.IsWindows()||args.Length!=2||args[0]!="--synthetic-installer-handoff-probe"||
+      !args[1].StartsWith(prefix,StringComparison.Ordinal)||
+      !Guid.TryParseExact(args[1][prefix.Length..],"N",out var id)||id.ToString("N")!=args[1][prefix.Length..])return 1;
+   using var pipe=new NamedPipeClientStream(".",args[1],PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+   using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+   pipe.ConnectAsync(deadline.Token).GetAwaiter().GetResult();
+   var challenge=new byte[64];
+   pipe.ReadExactlyAsync(challenge,deadline.Token).AsTask().GetAwaiter().GetResult();
+   pipe.WriteAsync(SHA256.HashData(challenge),deadline.Token).AsTask().GetAwaiter().GetResult();
+   var result=new byte[1];
+   pipe.ReadExactlyAsync(result,deadline.Token).AsTask().GetAwaiter().GetResult();
+   return result[0]==1?0:1;
+  }
+  catch{return 1;}
+ }
+ internal static bool ObserveHandoff(InstallerHandoffReviewSession session,bool wrongPeer)
+ {
+  var host=Environment.ProcessPath??throw new InvalidOperationException("Test host unavailable.");
+  var start=new ProcessStartInfo(host){UseShellExecute=false,CreateNoWindow=true};
+  if(string.Equals(Path.GetFileNameWithoutExtension(host),"dotnet",StringComparison.OrdinalIgnoreCase))
+   start.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
+  start.ArgumentList.Add("--synthetic-installer-handoff-probe");start.ArgumentList.Add(session.PipeName);
+  using var child=Process.Start(start)??throw new InvalidOperationException("Synthetic peer unavailable.");
+  using var current=Process.GetCurrentProcess();
+  try
+  {
+   var result=session.ReviewAsync(wrongPeer?current:child).GetAwaiter().GetResult();
+   if(!child.WaitForExit(5000))throw new InvalidOperationException("Synthetic peer did not exit.");
+   return child.ExitCode==0&&!result.MayExecute;
+  }
+  finally
+  {
+   if(!child.HasExited){child.Kill();child.WaitForExit();}
+  }
  }
  internal static int Observe(string parent,string mode)
  {
