@@ -42,6 +42,10 @@ internal static class EngagementTests
   var results=await Task.WhenAll(Task.Run(()=>s.RecordProposalDecision(id,hash,true,"Synthetic acceptance")),Task.Run(()=>peer.RecordProposalDecision(id,hash,true,"Synthetic acceptance")));
   check(results.Count(x=>x.Outcome=="Accepted")==1&&results.Count(x=>x.Outcome=="AlreadyAccepted")==1&&results.Select(x=>x.ProjectId).Distinct().Count()==1,"concurrent acceptance creates one project");
   var project=s.SearchPendingProjects().Single();check(project.State=="Pending"&&project.SetupState=="NotStarted"&&project.ProposalId==id,"acceptance never authorizes start");
+  check(s.SearchPendingProjects("Synthetic site","Pending").Single().Id==project.Id&&s.SearchPendingProjects("Synthetic site","Active").Count==0,"project site and status filters intersect");
+  check(s.SearchPendingProjects("No matching site").Count==0&&s.SearchPendingProjects(project.Number).Single().Id==project.Id,"project search matches number and empty results correctly");
+  check(s.SearchProposals("Synthetic site").Single().Id==id,"proposal search includes site");
+  Invalid(()=>s.SearchPendingProjects("","Unknown"),"invalid project state filter denied");
   check(s.RecordProposalDecision(id,hash,false,"Synthetic rejection").Outcome=="DecisionAlreadyRecorded","accepted proposal cannot reject");
   var rejected=s.CreateProposal(input);var rh=ConflictReviewTests.Issue(s,rejected,1);
   Invalid(()=>s.RetrieveProposalReviewDocument(rejected,review.Id,review.Sha256),"cross-proposal review retrieval denied");
