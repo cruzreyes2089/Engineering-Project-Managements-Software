@@ -78,9 +78,20 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Employees.View");using var q=Command(c,t,"SELECT id,employee_no,user_id,first_name,last_name,email,title,active,revision FROM employees ORDER BY last_name,first_name,id LIMIT 501");using var r=q.ExecuteReader();var rows=new List<EmployeeRecord>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Employee register exceeds development limit.");rows.Add(new(r.GetInt64(0),r.GetString(1),r.IsDBNull(2)?null:r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetInt64(7)==1,r.GetInt32(8)));}return rows.AsReadOnly();
  }
- public long CreateEmployee(EmployeeInput input,long? account=null)
+ public (string State,bool CanCreate) ReadOwnWorkProfileStatus()
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);var actor=Require(c,t,"Work.Own");
+  var value=Scalar(c,t,"SELECT active FROM employees WHERE user_id=$i",("$i",actor));
+  var state=value is long active?(active==1?"Active":"Inactive"):"Missing";bool canCreate=false;
+  if(state=="Missing"){try{RequireAdministration(c,t);Require(c,t,"Employees.View");Require(c,t,"Employees.Edit");canCreate=true;}catch(UnauthorizedAccessException){}}
+  return(state,canCreate);
+ }
+ public long CreateOwnEmployeeProfile(EmployeeInput input)=>CreateEmployeeCore(input,null,true);
+ public long CreateEmployee(EmployeeInput input,long? account=null)=>CreateEmployeeCore(input,account,false);
+ private long CreateEmployeeCore(EmployeeInput input,long? account,bool own)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Employees.Edit");Require(c,t,"Employees.View");var v=ValidateEmployee(input);
+  if(own){RequireAdministration(c,t);Require(c,t,"Work.Own");if(!input.Active)throw new ArgumentException("Your work profile must be active.");account=actor;}
   if(account.HasValue){RequireAdministration(c,t);if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM users WHERE id=$i AND active=1",("$i",account)))!=1||Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM employees WHERE user_id=$i",("$i",account)))!=0)throw new ArgumentException("Account unavailable or already linked.");}
   var n=NextNumber(c,t,"Employee","EMP");Exec(c,t,"INSERT INTO employees(employee_no,user_id,first_name,last_name,email,title,active,revision,created_by,created_utc) VALUES($n,$i,$f,$l,$e,$t,$a,1,$by,$u)",("$n",n),("$i",account),("$f",v.First),("$l",v.Last),("$e",v.Email),("$t",v.Title),("$a",input.Active?1:0),("$by",actor),("$u",UtcNow()));var id=Last(c,t);Audit(c,t,actor,"Create","Employee",id);t.Commit();return id;
  }
