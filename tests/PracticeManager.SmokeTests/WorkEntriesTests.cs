@@ -190,6 +190,8 @@ internal static class WorkEntriesTests
   Invalid(()=>worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Category="Billable"}),"overhead cannot be marked billable");
   Invalid(()=>worker.SubmitOverheadTime(overhead with{OperationKey=Guid.NewGuid(),Date=day.AddDays(1)}),"future overhead rejected");
   Denied(()=>worker.ReviewOverheadTime(o,true,"Synthetic"),"ordinary employee cannot approve own overhead");
+  Denied(()=>worker.WorkReviewRequiresOwnerConfirmation(o,true,true),"overhead preflight requires reviewer grant");
+  check(!admin.WorkReviewRequiresOwnerConfirmation(o,true,true),"independent office-time approval needs no exception prompt");
   check(admin.ReadOverheadReview(day,day).Single().Id==o&&admin.ReviewOverheadTime(o,true,"Reviewed")== "Approved","independent overhead review");
   check(worker.ReadMyOverheadTime(day,day).Single().ReviewState=="Approved"&&admin.ReadOverheadReview(day,day).Count==0,"approved overhead history retained");
   check(admin.ReviewOverheadTime(o,false,"Changed")=="AlreadyApproved","overhead decision immutable");
@@ -228,8 +230,10 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.ReplaceRejectedOverheadTime(rejected,overheadCorrection with{OperationKey=Guid.NewGuid()}),"cross-employee overhead replacement creation denied");
   var ownerEntry=admin.SubmitOverheadTime(new(Guid.NewGuid(),day,15,"Management","Synthetic owner administration"));
   Denied(()=>admin.ReviewOverheadTime(ownerEntry,true,"Self",true),"owner overhead self review blocked by default");
+  Denied(()=>admin.WorkReviewRequiresOwnerConfirmation(ownerEntry,true,true),"owner overhead preflight rejects disabled policy");
   admin.SetStaffGrant(role.Id,"Work.Review",false,true);admin.SetStaffGrant(role.Id,"Billing.Classify",false,true);
   admin.SetOwnerApprovalPolicy(true,null,"Synthetic owner exception");
+  check(admin.WorkReviewRequiresOwnerConfirmation(ownerEntry,true,true),"eligible owner office-time review requires explicit confirmation");
   Denied(()=>admin.ReviewOverheadTime(ownerEntry,true,"Self"),"owner overhead review requires explicit confirmation");
   check(admin.ReviewOverheadTime(ownerEntry,true,"Reviewed owner time",true)=="Approved"&&admin.ReadOwnerDecisionEvidence().Single(x=>x.Kind=="Overhead review").PolicyEventId.HasValue,"owner overhead exception retained in history");
   check(admin.ReadBillingWork(day,day,false).Count==1,"overhead never enters project billing queue");
