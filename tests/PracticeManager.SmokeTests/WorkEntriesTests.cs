@@ -224,7 +224,11 @@ internal static class WorkEntriesTests
   var empty=admin.ReadFirmTimeMix(day.AddDays(-1),day.AddDays(-1));check(empty.Rows.Count==0&&empty.ApprovedBillableShare==null,"empty range does not fabricate utilization");
   check(admin.ReadProjectOperations(project,day,day).ApprovedMinutes==90,"overhead excluded from project report");
   var timeDetail=admin.ReadEmployeeTimeReport(new(employee,null,day,day,"All"));
-  check(timeDetail.ApprovedMinutes==225&&timeDetail.ApprovedProjectMinutes==90&&timeDetail.ApprovedOverheadMinutes==135&&timeDetail.PendingMinutes==60&&timeDetail.RejectedMinutes==1260,"employee time detail reconciles firm time totals without expenses");
+  check(timeDetail.ApprovedMinutes==210&&timeDetail.ApprovedProjectMinutes==90&&timeDetail.ApprovedOverheadMinutes==120&&timeDetail.PendingMinutes==60&&timeDetail.RejectedMinutes==1260&&timeDetail.Rows.All(x=>x.EmployeeId==employee),"employee time detail excludes owner time and expenses");
+  var ownerTimeDetail=admin.ReadEmployeeTimeReport(new(own,null,day,day,"All"));
+  check(ownerTimeDetail.ApprovedMinutes==15&&ownerTimeDetail.ApprovedProjectMinutes==0&&ownerTimeDetail.ApprovedOverheadMinutes==15&&ownerTimeDetail.PendingMinutes==0&&ownerTimeDetail.RejectedMinutes==0&&ownerTimeDetail.Rows.Count==1&&ownerTimeDetail.Rows.All(x=>x.EmployeeId==own),"owner time detail includes only the owner overhead");
+  var allTimeDetail=admin.ReadEmployeeTimeReport(new(null,null,day,day,"All"));
+  check(allTimeDetail.ApprovedMinutes==225&&allTimeDetail.ApprovedProjectMinutes==90&&allTimeDetail.ApprovedOverheadMinutes==135&&allTimeDetail.PendingMinutes==60&&allTimeDetail.RejectedMinutes==1260&&allTimeDetail.Rows.Count==timeDetail.Rows.Count+ownerTimeDetail.Rows.Count&&allTimeDetail.ApprovedMinutes==mix.ApprovedMinutes&&allTimeDetail.PendingMinutes==mix.PendingMinutes&&allTimeDetail.RejectedMinutes==mix.RejectedMinutes,"all-employee time detail reconciles independent employee reports and firm totals without expenses");
   var projectTime=admin.ReadEmployeeTimeReport(new(employee,project,day,day,"Approved"));
   check(projectTime.ApprovedMinutes==90&&projectTime.Rows.All(x=>x.ProjectId==project&&x.EmployeeId==employee&&x.Source=="Project"),"employee project date and status filters combine");
   check(admin.ReadEmployeeTimeReport(new(employee,null,day.AddDays(-1),day.AddDays(-1),"All")).Rows.Count==0,"employee report exact work-date boundary");
