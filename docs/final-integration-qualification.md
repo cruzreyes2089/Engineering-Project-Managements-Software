@@ -22,3 +22,13 @@ The same-process InstallerIntegrationReview composes detached signature and arti
 ## Independent process and interruption qualification
 
 Revision 80b269d7a08cf42250e25c1ac7c12965a9d5c329 passed 2785 native checks and 168 Python tests; Windows run 46168516655, source security 46168516736 and prior-version upgrade 46168516616 passed. DAO 46168516643 remained blocked by provider availability. The synthetic one-use named pipe checks the expected peer PID and nonce response while the parent retains its reservation; it cannot authorize execution. The next candidate bounds the whole channel lifetime from creation, makes cancellation/disconnection fail closed, and tests wrong response, disconnect, cancellation, changed evidence and non-reuse. No actual signed installer, helper execution, live database, trust provisioning or release approval. Positive signed-artifact qualification and independent clearance remain mandatory.
+
+## Final readiness record
+
+Exact revision 11564af08f5a12bc04f1bbc82bd96c6a61bd9066: 2792 native and 168 Python checks, zero compiler warnings/errors; Windows 46169061381, prior upgrade 46169061446 and source security 46169061392 passed. DAO 46169061480 blocked. Remaining work is real qualification, not further simulation for its own sake.
+
+New private structural gate validator: tools/release/validate_release_gate_record.py. It reconciles all eight gates in single-user-release-gates.md and all 56 original/supplemental acceptance scenarios, binds full commit and independently retained package/coordinator/uninstaller/desktop/inventory digests, rejects missing or duplicate gates, refuses a recorded desktop pass with incomplete scenarios, and rejects a final pass with outstanding gates. It never authenticates evidence or authorizes release, even if all records say Pass. No scope waivers supported; owner scope decisions must be independently reviewed without deleting requirements. Use only after exact candidate identifiers exist and keep inputs outside the checkout. Example command (replace placeholders with independently retained full lowercase identifiers):
+
+    python tools/release/validate_release_gate_record.py PRIVATE/gates.json PRIVATE/acceptance.json --commit COMMIT --packageSha256 PACKAGE --coordinatorSha256 COORDINATOR --uninstallerSha256 UNINSTALLER --desktopSha256 DESKTOP --inventorySha256 INVENTORY --initialize
+
+The acceptance manifest must already exist in v2 format; initialize never overwrites the gate record. The current production security hold is unchanged.
