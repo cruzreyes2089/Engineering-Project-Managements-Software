@@ -42,3 +42,14 @@ Keep actual reviewer reports, vendor correspondence, signatures, private evidenc
 ## Work sequencing decision
 
 Stop extending installer simulations merely to increase check counts. The next material work requires a reviewed release design and actual authorized test environment. In parallel, source-level security hardening and internal workflow gap fixes may continue if supported by concrete findings. Real DAO qualification needs an isolated Windows environment with a compatible installed provider. The initial internal-only release is a proposed scope decision, not approved: Manager remains authoritative and all unqualified financial posting, settlement and legacy financial migration remain excluded until separately accepted. Obtain owner decisions before removing any existing requirement.
+
+
+## Milestone 08 checkpoint — 2026-11-27 Pacific
+
+Last fully verified Windows candidate at this review: PR #22 head b1cee87ec9128b831763568aa01410a708f67386, run 46099647353, job 140838945025: 151 Python tests and 2280 native checks, zero compiler warnings/errors. Inventory: 409 files, 151087641 bytes, SHA-256 bf1a168cc63c9d36202ae7c6586b356b84feea34f9d858ad012e5f42440a81d4; unsigned. Prior-version upgrade run 46099647342 passed. PR #23 head 3d9e4762ad1941442c49e076df0027361cd5006b upgrade run 46099770667 passed; Windows build qualification still in progress at review. DAO run 46099770673 failed at provider probe before database access (job 140839333184). No actual extraction qualified.
+
+The current repository branch listing was exhausted (53 branch names); no later schema-54 branch was identified by name. This is not proof that the source never existed. Do not recreate or activate missing schema changes without an exact source or reviewed migration lineage. Current recovered baseline is schema 47 with isolated 48/49 acceptance paths.
+
+Next external prerequisites, not tasks that can be certified by another CI run: independent reviewer/vendor resolution of original browser warning and exact-artifact execution authorization; private clean Windows acceptance environment; compatible DAO provider on isolated machine if legacy import is required; approved encryption/recovery custody design and signing arrangement; owner-approved initial scope, counsel-approved documents. Keep all 56 acceptance rows and record exclusions explicitly rather than converting blocked rows to pass. See updated desktop plan for milestone 08 retest observations.
+
+No binary distribution, no main merge, no production authorization. Source-only improvements do not resolve the original warning.
