@@ -261,6 +261,11 @@ internal static class WorkEntriesTests
   var cost=admin.ReadFirmLaborCost(day,day);check(cost.ApprovedMinutes==225&&cost.MissingRateMinutes==225&&cost.CompleteCost==null,"missing labor rates do not imply zero cost");
   var missingProjectCost=admin.ReadProjectFinancialReport(project,day,day);
   check(missingProjectCost.ApprovedMinutes==90&&missingProjectCost.MissingCostRates>0&&missingProjectCost.EstimatedLaborCost==null&&missingProjectCost.TotalOperationalCost==null,"project missing rate cannot imply zero cost");
+  var missingCostCsv=admin.PrepareProjectFinancialCsv(project,day,day);
+  check(missingCostCsv.Contains("\"Estimated labor cost (blank if incomplete)\",\"\"")&&missingCostCsv.Contains("\"Total operational cost (blank if incomplete)\",\"\""),"financial export preserves unknown costs as blank");
+  Denied(()=>worker.PrepareProjectFinancialCsv(project,day,day),"employee cannot export restricted project financial report");
+  Denied(()=>worker.PrepareProjectOperationsCsv(project,day,day),"employee cannot export management project operations report");
+
   Denied(()=>worker.ReadFirmLaborCost(day,day),"employee cannot see estimated firm labor cost");
   admin.RecordEmployeeRate(new(employee,day.AddDays(-1),180m,35m));
   admin.RecordEmployeeRate(new(employee,day.AddDays(1),180m,99m));
@@ -274,6 +279,13 @@ internal static class WorkEntriesTests
   check(reconciledProjectCost.ApprovedMinutes==operationalTotals.ApprovedMinutes&&reconciledProjectCost.ApprovedMinutes==allTimeDetail.ApprovedProjectMinutes&&reconciledProjectCost.ApprovedMinutes==reconciledProjectCost.BillableMinutes+reconciledProjectCost.NonbillableMinutes+reconciledProjectCost.UnclassifiedMinutes,"project financial, operations and employee approved minutes reconcile");
   check(reconciledProjectCost.EstimatedLaborCost==52.50m&&reconciledProjectCost.EstimatedLaborCost==cost.Rows.Where(x=>x.Category.StartsWith("Project ",StringComparison.Ordinal)).Sum(x=>x.KnownCost)&&reconciledProjectCost.MissingCostRates==0,"project labor cost reconciles to firm project categories without overhead");
   check(operationalTotals.SubmittedMinutes==operationalTotals.ApprovedMinutes+operationalTotals.PendingMinutes+operationalTotals.RejectedMinutes+operationalTotals.InvalidatedMinutes,"project submission states reconcile without double counting");
+  var operationsCsv=admin.PrepareProjectOperationsCsv(project,day,day);
+  var financialCsv=admin.PrepareProjectFinancialCsv(project,day,day);
+  check(operationsCsv.Contains("\"Approved minutes\",\"90\"")&&!operationsCsv.Contains("labor cost")&&!operationsCsv.Contains("draft value"),"operations export reconciles approved time and excludes financial values");
+  check(financialCsv.Contains("\"Estimated labor cost (blank if incomplete)\",\"52.50\"")&&financialCsv.Contains("Held approved draft value (included in approved total)")&&financialCsv.Contains("NOT POSTED REVENUE"),"financial export reconciles costs and labels held subset and preview scope");
+  Invalid(()=>admin.PrepareProjectOperationsCsv(project,day,day.AddDays(-1)),"operations export rejects reversed dates");
+  Invalid(()=>admin.PrepareProjectFinancialCsv(project,day,day.AddDays(-1)),"financial export rejects reversed dates");
+
   check(admin.ReadProjectLifecycle(project).Count==0,"existing active project has no invented closeout history");
   Denied(()=>worker.RecordProjectLifecycle(project,null,true,"Synthetic unauthorized",true),"employee cannot close project");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending expense",true),"unreviewed project expense blocks closeout");
