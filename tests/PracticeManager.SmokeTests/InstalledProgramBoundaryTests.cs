@@ -219,6 +219,35 @@ internal static class InstalledProgramBoundaryTests
   Refuse(()=>InstallerExtractionEvidence.Review(envelope,envelopeEvidence with {Plan=new(InstallerCoordinatorCandidate.Operation.Remove,extracted.Digest,null,envelopeHelperHash)}),"removal evidence cannot authorize extraction review");
   check(InstallerExtractionEvidence.Review(envelope,envelopeEvidence).Inventory==extracted.Digest,"restored synthetic envelope matches exact inventory");
   check(InstallerCoordinatorCandidate.Run(new[]{"--install"})==3,"extraction witness cannot lift installer hold");
+  var reservationParent=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(parent,"reservation-fixture"));
+  using(var reservation=InstallerExtractionReservation.Create(reservationParent,envelopeEvidence))
+  {
+   Refuse(()=>InstallerExtractionReservation.Create(reservationParent,envelopeEvidence),"existing extraction reservation refuses concurrent adoption");
+   Refuse(()=>reservation.SealForReview(),"incomplete extraction cannot be sealed");
+   var reservedPayload=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(reservation.Envelope,"payload"));
+   foreach(var input in Directory.EnumerateFiles(envelopePayload,"*",SearchOption.AllDirectories))
+   {
+    var destination=Path.Combine(reservedPayload,Path.GetRelativePath(envelopePayload,input));
+    WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.GetDirectoryName(destination)!);
+    File.Copy(input,destination,false);
+   }
+   File.Copy(envelopeInventory,Path.Combine(reservation.Envelope,"inventory.json"),false);
+   var reservedHelper=Path.Combine(reservation.Envelope,"CRC.Uninstall.exe");
+   File.Copy(envelopeHelper,reservedHelper,false);
+   check(reservation.SealForReview().PayloadFiles==17,"protected reservation seals exact verified envelope");
+   check(reservation.ReviewSealed().Inventory==extracted.Digest,"sealed reservation can be reverified under held lease");
+   Refuse(()=>reservation.SealForReview(),"sealed reservation cannot be overwritten");
+   File.AppendAllText(reservedHelper,"tamper");
+   Refuse(()=>reservation.ReviewSealed(),"sealed reservation rejects changed helper");
+   check(File.Exists(reservedHelper),"failed handoff review preserves staged evidence");
+  }
+  Refuse(()=>InstallerExtractionReservation.Create(reservationParent,envelopeEvidence),"released reservation remains review-only and cannot be adopted");
+  var interruptedParent=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(parent,"interrupted-reservation-fixture"));
+  using(var interrupted=InstallerExtractionReservation.Create(interruptedParent,envelopeEvidence))
+   check(Directory.Exists(interrupted.Envelope),"interrupted reservation has protected envelope");
+  Refuse(()=>InstallerExtractionReservation.Create(interruptedParent,envelopeEvidence),"interrupted extraction cannot be silently retried");
+  check(InstallerCoordinatorCandidate.Run(new[]{"--install"})==3,"sealed reservation does not authorize installer");
+
 
   var installPending=Path.Combine(root,"install-pending.txt");
   var extraSource=Path.Combine(extracted.Source,"extra.dll");
