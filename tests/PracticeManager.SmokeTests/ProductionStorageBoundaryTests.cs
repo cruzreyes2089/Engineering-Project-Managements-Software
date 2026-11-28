@@ -182,7 +182,9 @@ internal static class ProductionStorageBoundaryTests
    File.Delete(offlineBackup);
    WorkspaceConfidentiality.EnsureWorkspaceDirectory(offlineBackup);
    check(offline.VerifyBackupDestination()==offlineBackup,"restored protected backup path qualifies without settings change");
-   var desktopProfile=Directory.CreateDirectory(Path.Combine(root,"desktop-acceptance-profile")).FullName;
+   // Keep nested acceptance + recovery staging fixture paths within SQLite's
+   // ordinary Windows path budget. Long-path support is not assumed.
+   var desktopProfile=Directory.CreateDirectory(Path.Combine(parent,"pa")).FullName;
    var session=ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-new"});
    check(session.Service.IsProductionAcceptance&&!session.Service.IsInitialized(),"explicit acceptance startup creates isolated empty fixture");
    var sessionRoot=Path.Combine(desktopProfile,"CRC Practice Manager PRODUCTION ACCEPTANCE",session.SessionId);
