@@ -32,7 +32,10 @@ internal static class InstalledProgramBoundaryTests
   {
    var publicKey=signer.ExportSubjectPublicKeyInfo();
    string Hash(byte[] bytes)=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
-   var pin=Hash(publicKey);var commit=new string('c',40);var package=new string('d',64);var coordinator=new string('e',64);
+   var packagePath=Path.Combine(profile,"synthetic-package.bin");var coordinatorPath=Path.Combine(profile,"synthetic-coordinator.bin");
+   File.WriteAllText(packagePath,"Synthetic package bytes, never executed");
+   File.WriteAllText(coordinatorPath,"Synthetic coordinator bytes, never executed");
+   var pin=Hash(publicKey);var commit=new string('c',40);var package=Hash(File.ReadAllBytes(packagePath));var coordinator=Hash(File.ReadAllBytes(coordinatorPath));
    var now=DateTimeOffset.FromUnixTimeSeconds(1900000000);
    byte[] Sign(byte[] bytes)=>signer.SignData(bytes,System.Security.Cryptography.HashAlgorithmName.SHA256,System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
    byte[] Document(string action="--upgrade",long start=1899999900,long end=1900000100)=>System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new{
@@ -42,6 +45,10 @@ internal static class InstalledProgramBoundaryTests
    var document=Document();var signature=Sign(document);
    var verified=InstallerReleaseEvidence.Verify(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now);
    check(verified.Plan.Version==expectedDigest&&verified.Plan.PreviousVersion==previousDigest,"detached signature verifies exact reviewed version binding");
+   check(InstallerReleaseEvidence.VerifyArtifacts(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,packagePath,coordinatorPath,commit,now)==verified,"detached evidence matches actual artifact bytes");
+   File.AppendAllText(coordinatorPath,"changed");
+   Refuse(()=>InstallerReleaseEvidence.VerifyArtifacts(document,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,packagePath,coordinatorPath,commit,now),"modified coordinator file rejected");
+
    var changed=(byte[])document.Clone();changed[0]^=1;
    Refuse(()=>InstallerReleaseEvidence.Verify(changed,signature,publicKey,pin,InstallerCoordinatorCandidate.Operation.Upgrade,package,coordinator,commit,now),"modified evidence bytes rejected");
    var wrongKey=other.ExportSubjectPublicKeyInfo();
