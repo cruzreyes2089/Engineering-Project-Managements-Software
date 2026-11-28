@@ -1,0 +1,3 @@
+# Accounting permission migration — development
+
+Schema 2 adds dedicated Accounting.Connection.Test and Accounting.Connection.Manage permission codes. Existing Administrator roles receive the new grants once, within the same initialization transaction; other roles are not granted access. Existing permission rows are not overwritten. Fresh setup seeds the same permissions. Existing client/contact data and passwords are preserved. A schema 2 database cannot be opened by older schema 1 builds; back up the closed development database before upgrading. No credentials are stored and no accounting writes are enabled by this change. Windows CI and migration regression checks must pass before distribution.
