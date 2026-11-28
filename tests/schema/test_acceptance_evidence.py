@@ -1,0 +1,168 @@
+import copy
+import importlib.util
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("acceptance_evidence", ROOT / "tools/release/validate_acceptance_evidence.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+class AcceptanceEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.commit = "a" * 40
+        self.digest = "b" * 64
+        self.ids = m.scenario_ids(ROOT / "docs/legacy-acceptance-register.csv")
+        self.manifest = {
+            "format": "CRC-Acceptance-Evidence-v1", "commit": self.commit,
+            "artifactSha256": self.digest, "syntheticOnly": True,
+            "results": [{"testId": i, "status": "Not run"} for i in sorted(self.ids)]
+        }
+
+    def test_full_original_and_supplemental_scope(self):
+        self.assertEqual(len(self.ids), 49)
+        result = m.validate(self.manifest, self.ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Not run"], 49)
+        self.assertFalse(result["releaseAuthorized"])
+
+    def test_missing_duplicate_unknown_scenario(self):
+        for case in ("missing", "duplicate", "unknown"):
+            with self.subTest(case=case):
+                bad = copy.deepcopy(self.manifest)
+                if case == "missing": bad["results"].pop()
+                if case == "duplicate": bad["results"].append(bad["results"][0])
+                if case == "unknown": bad["results"][0]["testId"] = "NEW-99"
+                with self.assertRaises(ValueError):
+                    m.validate(bad, self.ids, self.commit, self.digest)
+
+    def test_exact_candidate_and_synthetic_boundary(self):
+        for key, value in (("commit", "c"*40), ("artifactSha256", "d"*64),
+                           ("syntheticOnly", False), ("format", "unknown")):
+            with self.subTest(key=key):
+                bad = copy.deepcopy(self.manifest)
+                bad[key] = value
+                with self.assertRaises(ValueError):
+                    m.validate(bad, self.ids, self.commit, self.digest)
+
+    def test_pass_needs_evidence(self):
+        row = self.manifest["results"][0]
+        row["status"] = "Pass"
+        with self.assertRaises(ValueError):
+            m.validate(self.manifest, self.ids, self.commit, self.digest)
+        row.update(reviewer="Reviewer-01", date="2026-11-26", environment="Windows-VM",
+                   session="e"*32, fixture="Synthetic-01", observed="Expected invariant observed",
+                   evidenceRef="Evidence-01")
+        result = m.validate(self.manifest, self.ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Pass"], 1)
+        self.assertFalse(result["releaseAuthorized"])
+        for key in ("reviewer", "date", "environment", "session", "fixture", "observed", "evidenceRef"):
+            with self.subTest(key=key):
+                bad = copy.deepcopy(self.manifest)
+                bad["results"][0][key] = ""
+                with self.assertRaises(ValueError):
+                    m.validate(bad, self.ids, self.commit, self.digest)
+
+    def test_failure_and_blocker_not_pass(self):
+        row = self.manifest["results"][0]
+        row.update(status="Fail", reviewer="Reviewer-01", date="2026-11-26",
+                   environment="Windows-VM", session="e"*32, fixture="Synthetic-01",
+                   observed="Invariant failed", evidenceRef="Evidence-02")
+        with self.assertRaises(ValueError):
+            m.validate(self.manifest, self.ids, self.commit, self.digest)
+        row["defectId"] = "DEF-01"
+        self.manifest["results"][1].update(status="Blocked", reason="Adapter not qualified")
+        result = m.validate(self.manifest, self.ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Fail"], 1)
+        self.assertEqual(result["counts"]["Blocked"], 1)
+        self.assertFalse(result["releaseAuthorized"])
+
+    def test_no_extra_or_malformed_fields(self):
+        for key, value in (("status", "Waived"), ("status", []), ("password", "secret")):
+            with self.subTest(key=key, value=value):
+                bad = copy.deepcopy(self.manifest)
+                bad["results"][0][key] = value
+                with self.assertRaises(ValueError):
+                    m.validate(bad, self.ids, self.commit, self.digest)
+
+    def test_original_ids_cannot_be_silently_replaced(self):
+        import tempfile
+        source = (ROOT / "docs/legacy-acceptance-register.csv").read_text(encoding="utf-8-sig")
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "register.csv"
+            path.write_text(source.replace("SEC-05,SEC-02,", "SEC-99,SEC-02,", 1), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                m.scenario_ids(path)
+
+    def test_all_pass_never_authorizes_release(self):
+        for row in self.manifest["results"]:
+            row.update(status="Pass", reviewer="Reviewer-01", date="2026-11-26",
+                       environment="Synthetic harness", session="e"*32, fixture="Synthetic-01",
+                       observed="Synthetic test", evidenceRef="Private-01")
+        result = m.validate(self.manifest, self.ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Pass"], 49)
+        self.assertFalse(result["evidenceAuthenticityVerified"])
+        self.assertFalse(result["releaseAuthorized"])
+
+    def test_initialize_private_manifest_without_overwrite(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "acceptance.json"
+            m.initialize(path, self.ids, self.commit, self.digest)
+            before = path.read_bytes()
+            self.assertEqual(m.load(path), self.manifest)
+            with self.assertRaises(FileExistsError):
+                m.initialize(path, self.ids, "c"*40, self.digest)
+            self.assertEqual(path.read_bytes(), before)
+            other = Path(folder) / "invalid.json"
+            with self.assertRaises(ValueError):
+                m.initialize(other, self.ids, "bad", self.digest)
+            self.assertFalse(other.exists())
+
+    def test_invalid_date_session_and_duplicate_json(self):
+        import tempfile
+        row = self.manifest["results"][0]
+        row.update(status="Pass", reviewer="Reviewer-01", date="2026-11-26",
+                   environment="Windows-VM", session="e"*32, fixture="Synthetic-01",
+                   observed="Synthetic test", evidenceRef="Private-01")
+        for key, value in (("date", "2026-02-30"), ("date", "20261126"), ("session", "x"*32)):
+            bad = copy.deepcopy(self.manifest)
+            bad["results"][0][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                m.validate(bad, self.ids, self.commit, self.digest)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "duplicate.json"
+            path.write_text('{"format":"one","format":"two"}', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                m.load(path)
+
+    def test_schema47_requires_all_56_cases_and_v2(self):
+        import tempfile
+        ids = m.scenario_ids(ROOT / "docs/legacy-acceptance-register.csv", schema47=True)
+        self.assertEqual(len(ids), 56)
+        self.assertEqual(ids - self.ids, m.ARCHIVE)
+        with self.assertRaises(ValueError):
+            m.validate(self.manifest, ids, self.commit, self.digest)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "v2.json"
+            upgraded = m.initialize(path, ids, self.commit, self.digest)
+            self.assertEqual(upgraded["format"], "CRC-Acceptance-Evidence-v2")
+            self.assertEqual(m.validate(m.load(path), ids, self.commit, self.digest)["counts"]["Not run"], 56)
+            with self.assertRaises(ValueError):
+                m.validate(upgraded, self.ids, self.commit, self.digest)
+            for key in ("format", "results"):
+                bad = copy.deepcopy(upgraded)
+                if key == "format": bad[key] = "CRC-Acceptance-Evidence-v1"
+                else: bad[key] = [r for r in bad[key] if r["testId"] != "CRC-ARC-07"]
+                with self.assertRaises(ValueError):
+                    m.validate(bad, ids, self.commit, self.digest)
+
+    def test_schema47_archive_blocker_never_authorizes(self):
+        ids = m.V2_IDS
+        data = copy.deepcopy(self.manifest)
+        data["format"] = "CRC-Acceptance-Evidence-v2"
+        data["results"] += [{"testId": i, "status": "Blocked",
+                             "reason": "Interactive acceptance not authorized"} for i in sorted(m.ARCHIVE)]
+        result = m.validate(data, ids, self.commit, self.digest)
+        self.assertEqual(result["counts"]["Blocked"], 7)
+        self.assertFalse(result["releaseAuthorized"])
+        self.assertFalse(result["evidenceAuthenticityVerified"])
