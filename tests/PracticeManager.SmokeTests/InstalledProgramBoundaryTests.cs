@@ -181,6 +181,45 @@ internal static class InstalledProgramBoundaryTests
    return(source,raw,Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(raw)).ToLowerInvariant());
   }
   var extracted=Extracted("extract-one");
+  // Private extraction envelope, text-only fixture. No package execution.
+  var envelope=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(parent,"reviewed-extraction"));
+  var envelopePayload=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(envelope,"payload"));
+  foreach(var input in Directory.EnumerateFiles(extracted.Source,"*",SearchOption.AllDirectories))
+  {
+   var destination=Path.Combine(envelopePayload,Path.GetRelativePath(extracted.Source,input));
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.GetDirectoryName(destination)!);
+   File.Copy(input,destination,false);
+  }
+  var envelopeInventory=Path.Combine(envelope,"inventory.json");
+  File.WriteAllBytes(envelopeInventory,extracted.Manifest);
+  var envelopeHelper=Path.Combine(envelope,"CRC.Uninstall.exe");
+  File.WriteAllText(envelopeHelper,"Synthetic helper, never executed");
+  var envelopeHelperHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(envelopeHelper))).ToLowerInvariant();
+  // Model evidence only; this fixture cannot grant release authorization.
+  var envelopeEvidence=new InstallerReleaseEvidence.Evidence(
+   new(InstallerCoordinatorCandidate.Operation.Fresh,extracted.Digest,null,envelopeHelperHash),
+   new string('c',40),expectedDigest,expectedDigest,1899999900,1900000100);
+  check(InstallerExtractionEvidence.Review(envelope,envelopeEvidence).PayloadFiles==17,"protected extraction exact envelope and payload verified");
+  var extraEnvelope=Path.Combine(envelope,"unexpected.txt");
+  File.WriteAllText(extraEnvelope,"retain");
+  Refuse(()=>InstallerExtractionEvidence.Review(envelope,envelopeEvidence),"unexpected extraction entry rejected");
+  check(File.ReadAllText(extraEnvelope)=="retain","extraction review does not clean unknown files");
+  File.Delete(extraEnvelope); // disposable fixture only
+  File.AppendAllText(envelopeHelper,"changed");
+  Refuse(()=>InstallerExtractionEvidence.Review(envelope,envelopeEvidence),"modified extraction helper rejected");
+  File.WriteAllText(envelopeHelper,"Synthetic helper, never executed");
+  File.AppendAllText(envelopeInventory," ");
+  Refuse(()=>InstallerExtractionEvidence.Review(envelope,envelopeEvidence),"modified extraction inventory rejected");
+  File.WriteAllBytes(envelopeInventory,extracted.Manifest);
+  var envelopeFile=Path.Combine(envelopePayload,"hostfxr.dll");
+  var envelopeBytes=File.ReadAllBytes(envelopeFile);
+  File.WriteAllBytes(envelopeFile,envelopeBytes.Select(x=>(byte)(x^1)).ToArray());
+  Refuse(()=>InstallerExtractionEvidence.Review(envelope,envelopeEvidence),"modified extraction payload rejected");
+  File.WriteAllBytes(envelopeFile,envelopeBytes);
+  Refuse(()=>InstallerExtractionEvidence.Review(envelope,envelopeEvidence with {Plan=new(InstallerCoordinatorCandidate.Operation.Remove,extracted.Digest,null,envelopeHelperHash)}),"removal evidence cannot authorize extraction review");
+  check(InstallerExtractionEvidence.Review(envelope,envelopeEvidence).Inventory==extracted.Digest,"restored synthetic envelope matches exact inventory");
+  check(InstallerCoordinatorCandidate.Run(new[]{"--install"})==3,"extraction witness cannot lift installer hold");
+
   var installPending=Path.Combine(root,"install-pending.txt");
   var extraSource=Path.Combine(extracted.Source,"extra.dll");
   File.WriteAllText(extraSource,"unexpected");
