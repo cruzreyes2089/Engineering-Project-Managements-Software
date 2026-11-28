@@ -36,3 +36,9 @@ This document records evidence; it does not change application code, schema, or 
 - This supersedes PR #10 as verified development baseline. Normal schema 47 and isolated schemas 48/49 unchanged. No schema 54 recovery.
 - Source review confirms acceptance-only folder creation service already exists (dedicated synthetic root, reviewed plan, existing directory preservation, audit). No production or shared storage qualification. CRC template defaults unchanged.
 - PR #12 head 27dc15dd154de8b35f4db131b1eb40f7a09b3e08 contains shared reserved-device path checks plus 16 additional synthetic assertions. Exact-revision CI pending. No production changes or release approval.
+
+## Subsequent verified candidate — cycle 12E
+
+- PR #12 head 27dc15dd154de8b35f4db131b1eb40f7a09b3e08, Windows run https://github.com/cruzreyes2089/Engineering-Project-Managements-Software/actions/runs/46097594665: passed 2228 native checks and 151 Python tests, zero compiler warnings/errors, all 16 additional path assertions and dependency review passed. 409 files / 151073253 bytes; layout inventory SHA-256 be5f07603a904912b176104ee7d0b2dde247991013835c5c4e43176fca247523. NotSigned, not independently verified, no release. Prior-source run 46097593993 passed; DAO run 46097594099 failed (provider unavailable in prior qualification; exact latest failure not separately investigated).
+- PR #12 supersedes PR #11 as verified development baseline. No normal or isolated schema changes.
+- PR #13 head c74ef76db21abcb3a2dbf3908f04dd6a4d642e93: document registration shares Windows reserved-device validator; six filename/unchanged-register checks and thirteen live grant tests added. CI pending. No production documents, real issue/delivery, accounting writes, distribution or release authorization. Schema 54 source gap remains.
