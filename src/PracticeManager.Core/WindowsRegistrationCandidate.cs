@@ -29,7 +29,7 @@ internal static class WindowsRegistrationCandidate
  static bool IsDigest(string value)=>value.Length==64&&value.All(c=>c is >= '0' and <= '9' or >= 'a' and <= 'f');
  static Dictionary<string,object> Values(Registration entry)=>new(StringComparer.Ordinal){
   ["DisplayName"]="CRC Practice Manager",["Publisher"]="CRC Engineering",
-  ["InstallLocation"]=entry.ProgramRoot,["UninstallString"]="\""+entry.Uninstaller+"\"",
+  ["InstallLocation"]=entry.ProgramRoot,["UninstallString"]="\""+entry.Uninstaller+"\" --uninstall",
   ["DisplayIcon"]=entry.Executable,["NoModify"]=1,["NoRepair"]=1,
   ["CRCInstallationIdentity"]=entry.Identity,["CRCVersionInventory"]=entry.Version,
   ["CRCUninstallerSha256"]=entry.UninstallerHash,["CRCShortcutSha256"]=entry.ShortcutHash};
