@@ -10,8 +10,17 @@ foreach ($project in $projects) {
   foreach ($mode in @('inventory','vulnerabilities')) {
     $argsList = @('package','list','--project',$project,'--include-transitive','--format','json','--output-version','1','--no-restore')
     if ($mode -eq 'vulnerabilities') { $argsList += '--vulnerable' }
-    $raw = (& dotnet @argsList | Out-String)
-    if ($LASTEXITCODE -ne 0) { throw "Dependency review command failed: $mode" }
+    $stderr = [IO.Path]::GetTempFileName()
+    try {
+      $raw = (& dotnet @argsList 2> $stderr | Out-String)
+      $exit = $LASTEXITCODE
+      if ($exit -ne 0) { throw "Dependency review command failed: $mode" }
+      if (-not [string]::IsNullOrWhiteSpace((Get-Content -LiteralPath $stderr -Raw))) {
+        throw "Dependency review emitted diagnostic errors or warnings: $mode; review required."
+      }
+    } finally {
+      Remove-Item -LiteralPath $stderr -Force
+    }
     $report = $raw | ConvertFrom-Json -ErrorAction Stop
     if ($report.version -ne 1 -or $null -eq $report.projects -or @($report.projects).Count -ne 1) {
       throw "Unexpected dependency report schema: $mode"
