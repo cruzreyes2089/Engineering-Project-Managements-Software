@@ -24,6 +24,12 @@ class ReleaseGateRecordTests(unittest.TestCase):
     def pass_gate(self, ident):
         row = next(x for x in self.record["gates"] if x["id"] == ident)
         row.update(status="Pass", reviewer="Synthetic reviewer", date="2026-11-28", evidenceRef="Synthetic record")
+        if ident == "G7":
+            row["defender"] = dict(sourceCommit=self.commit, artifacts=self.artifacts.copy(),
+                antivirusEnabled=True, serviceEnabled=True, realTimeProtectionEnabled=True,
+                scanCompleted=True, bytesUnchanged=True, securityControlsUnchanged=True,
+                engineVersion="Synthetic engine", definitionVersion="Synthetic definitions",
+                definitionsAgeHours=1, detections=0, remediations=0, evidenceRef="Synthetic scan record")
     def test_empty_record(self):
         self.assertEqual(self.validate()["scenarioCounts"]["Not run"], 56)
         self.assertFalse(self.validate()["releaseAuthorized"])
@@ -145,3 +151,49 @@ class ReleaseGateRecordTests(unittest.TestCase):
             report = m.validate(record, self.scenarios, self.commit, self.artifacts, "Synthetic owner decision")
             self.assertEqual(report["scenarioCounts"]["Not run"], 56)
             self.assertFalse(report["scopedGateRecordsComplete"])
+
+    def test_security_pass_requires_defender_evidence(self):
+        self.pass_gate("G7")
+        row = next(r for r in self.record["gates"] if r["id"] == "G7")
+        row.pop("defender")
+        with self.assertRaises(ValueError): self.validate()
+
+    def test_defender_flags_cannot_be_relaxed(self):
+        self.pass_gate("G7")
+        evidence = next(r for r in self.record["gates"] if r["id"] == "G7")["defender"]
+        for key in ("antivirusEnabled", "serviceEnabled", "realTimeProtectionEnabled",
+                    "scanCompleted", "bytesUnchanged", "securityControlsUnchanged"):
+            with self.subTest(key=key):
+                evidence[key] = False
+                with self.assertRaises(ValueError): self.validate()
+                evidence[key] = True
+
+    def test_defender_evidence_must_bind_exact_artifacts(self):
+        self.pass_gate("G7")
+        evidence = next(r for r in self.record["gates"] if r["id"] == "G7")["defender"]
+        for key in m.ARTIFACTS:
+            with self.subTest(key=key):
+                evidence["artifacts"][key] = "d" * 64
+                with self.assertRaises(ValueError): self.validate()
+                evidence["artifacts"][key] = self.artifacts[key]
+        evidence["sourceCommit"] = "d" * 40
+        with self.assertRaises(ValueError): self.validate()
+
+    def test_defender_findings_and_stale_definitions_block(self):
+        self.pass_gate("G7")
+        evidence = next(r for r in self.record["gates"] if r["id"] == "G7")["defender"]
+        for key, value in (("detections", 1), ("remediations", 1),
+                           ("definitionsAgeHours", 49), ("definitionsAgeHours", -1),
+                           ("detections", False), ("definitionVersion", "")):
+            with self.subTest(key=key, value=value):
+                original = evidence[key]
+                evidence[key] = value
+                with self.assertRaises(ValueError): self.validate()
+                evidence[key] = original
+
+    def test_defender_structure_does_not_authorize(self):
+        self.pass_gate("G7")
+        report = self.validate()
+        self.assertEqual(report["gateStatuses"]["G7"], "Pass")
+        self.assertFalse(report["evidenceAuthenticityVerified"])
+        self.assertFalse(report["releaseAuthorized"])

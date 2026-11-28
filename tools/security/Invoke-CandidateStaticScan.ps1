@@ -57,6 +57,12 @@ try {
   $events = @(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational';StartTime=$start} -ErrorAction Stop)
   if (@($events | Where-Object { $_.Id -in @(1116,1117,1118,1119,1002,1005) }).Count -gt 0) { throw 'Detection, remediation or interrupted scan requires review.' }
   if (@($events | Where-Object { $_.Id -eq 1001 }).Count -lt 1) { throw 'Scan completion not verified.' }
+  $finalStatus = Get-MpComputerStatus
+  if (-not $finalStatus.AntivirusEnabled -or -not $finalStatus.AMServiceEnabled -or -not $finalStatus.RealTimeProtectionEnabled -or $null -eq $finalStatus.AntivirusSignatureLastUpdated) {
+    throw 'BLOCKED: active protection not verified after scan.'
+  }
+  $finalAge = ((Get-Date) - $finalStatus.AntivirusSignatureLastUpdated).TotalHours
+  if ($finalAge -lt 0 -or $finalAge -gt 48) { throw 'BLOCKED: definitions not current after scan.' }
   ./tools/security/Inventory-DevelopmentBuild.ps1
   Write-Host 'Fresh candidate static scan completed; matching detection events absent and bytes unchanged. Not release approval.'
 } finally {

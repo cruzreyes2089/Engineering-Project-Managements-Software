@@ -14,7 +14,7 @@ GATES = {
     "G4": "Legal and document acceptance",
     "G5": "Clean-machine desktop acceptance",
     "G6": "Recovery and physical installer qualification",
-    "G7": "Documented exact-candidate security qualification and owner risk decision",
+    "G7": "Mandatory Microsoft Defender and exact-candidate security qualification",
     "G8": "Explicit final release decision",
 }
 ARTIFACTS = {"packageSha256", "coordinatorSha256", "uninstallerSha256", "desktopSha256", "inventorySha256"}
@@ -25,6 +25,26 @@ def scope_for(approval_ref):
     acceptance.require(acceptance.nonempty(approval_ref), "Independent owner scope reference required")
     return {"policy": "Fresh-firm-no-Access-migration", "approvalRef": approval_ref,
             "deferredIds": sorted(ACCESS_DEFERRED)}
+
+def validate_defender(evidence, commit, artifacts):
+    """Structural evidence only; does not run Defender or authenticate a report."""
+    require = acceptance.require
+    flags = {"antivirusEnabled", "serviceEnabled", "realTimeProtectionEnabled",
+             "scanCompleted", "bytesUnchanged", "securityControlsUnchanged"}
+    fields = flags | {"sourceCommit", "artifacts", "engineVersion", "definitionVersion",
+                      "definitionsAgeHours", "detections", "remediations", "evidenceRef"}
+    require(isinstance(evidence, dict) and set(evidence) == fields,
+            "Mandatory exact-candidate Defender evidence missing or malformed")
+    require(evidence["sourceCommit"] == commit and evidence["artifacts"] == artifacts,
+            "Defender evidence is not bound to the exact release candidate")
+    require(all(evidence[key] is True for key in flags), "Defender protections or scan not verified")
+    require(all(type(evidence[key]) is int and evidence[key] == 0
+                for key in ("detections", "remediations")), "Defender finding requires resolution")
+    age = evidence["definitionsAgeHours"]
+    require(type(age) is int and 0 <= age <= 48, "Defender definitions not current")
+    require(all(acceptance.nonempty(evidence[key]) for key in
+                ("engineVersion", "definitionVersion", "evidenceRef")),
+            "Defender scan details required")
 
 def validate(record, scenarios, commit, artifacts, approval_ref=None):
     require = acceptance.require
@@ -60,8 +80,12 @@ def validate(record, scenarios, commit, artifacts, approval_ref=None):
             required |= {"reviewer", "date", "evidenceRef"}
             if status == "Fail":
                 required.add("defectId")
-        require(set(row) == required and all(acceptance.nonempty(row[k]) for k in required),
+            if ident == "G7" and status == "Pass":
+                required.add("defender")
+        require(set(row) == required and all(acceptance.nonempty(row[k]) for k in required - {"defender"}),
                 "Gate evidence fields incomplete")
+        if ident == "G7" and status == "Pass":
+            validate_defender(row["defender"], commit, artifacts)
         if status in ("Pass", "Fail", "Deferred"):
             require(date.fromisoformat(row["date"]).isoformat() == row["date"], "Invalid review date")
         statuses[ident] = status

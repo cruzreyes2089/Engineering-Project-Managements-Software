@@ -1,7 +1,10 @@
 name: Owner-led fresh candidate static scan
-# Hosted Defender availability is not guaranteed; manual qualification only.
-# The same script is used on an owner-controlled isolated Windows machine.
+# Mandatory security qualification: fail closed if hosted Defender is unavailable.
+# One automatic PR check; also allow explicitly requested manual qualification.
+# A separate owner-controlled Windows scan is required if hosted scan is blocked.
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
