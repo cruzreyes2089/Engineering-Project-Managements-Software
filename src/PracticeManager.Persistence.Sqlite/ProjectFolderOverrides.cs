@@ -4,6 +4,7 @@ namespace PracticeManager.Persistence;
 
 public sealed record ProjectFolderCustomization(long SelectionId,long BaseTemplateRevision,bool IncludeCorrespondence,IReadOnlyList<string> Paths)
 {
+ public bool Customized{get;init;}
  public override string ToString()=>"[Project folder customization draft]";
 }
 public sealed partial class LocalPractice
@@ -14,7 +15,22 @@ public sealed partial class LocalPractice
   _=ProjectRow(c,t,project);var selected=CurrentFolderSelection(c,t,project);
   if(!selected.Assigned)throw new ArgumentException("Select a project template before customizing its folders.");
   var layout=SelectedLayout(c,t,selected);
-  return new(selected.Id,selected.TemplateRevision,selected.IncludeCorrespondence,layout.Names);
+  return new(selected.Id,selected.TemplateRevision,selected.IncludeCorrespondence,layout.Names){Customized=selected.Customized};
+ }
+ // Reset only to the exact recorded base revision, never the current catalog revision.
+ public ProjectFolderSelection RestoreProjectFolderBase(long project,long expectedSelection,bool confirmed)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireStorageSettings(c,t);RequireDocuments(c,t,false);
+  var row=ProjectRow(c,t,project);var selected=CurrentFolderSelection(c,t,project);
+  if(!confirmed)throw new ArgumentException("Confirm restoration of the recorded base template.");
+  if(!selected.Assigned||selected.Id!=expectedSelection||!selected.Customized)throw new ArgumentException("Current customized project selection required. Reload.");
+  var choice=ReadChoice(c,t,selected.TemplateRevision);
+  var layout=choice.Revision==0?ProjectFolderLayout.Default():ProjectFolderLayout.Named(choice.Revision,choice.Paths);
+  _=ProjectFolderPlanning.Build(project,row.Number,selected.IncludeCorrespondence,true,layout);
+  Exec(c,t,"INSERT INTO project_folder_selections(project_id,template_id,correspondence,recorded_by,recorded_utc) VALUES($p,$i,$c,$a,$u)",
+   ("$p",project),("$i",selected.TemplateRevision==0?(object?)null:selected.TemplateRevision),("$c",selected.IncludeCorrespondence?1:0),("$a",actor),("$u",UtcNow()));
+  var id=Last(c,t);Audit(c,t,actor,"RestoreProjectFolderBase","Project",project);t.Commit();
+  return new(id,selected.TemplateRevision,selected.IncludeCorrespondence);
  }
  public ProjectFolderSelection SaveProjectFolderCustomization(long project,long expectedSelection,IReadOnlyList<string> paths,
   bool correspondence,bool confirmed)

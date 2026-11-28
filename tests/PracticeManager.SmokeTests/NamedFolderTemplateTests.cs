@@ -47,7 +47,13 @@ internal static class NamedFolderTemplateTests
   var next=s.SelectProjectFolderTemplate(other,changed.Revision,false,0,true);
   check(s.ReadProjectFolderPreview(other).Production.Single().Name=="New Design"&&next.Assigned,"new project selects current revision");
   Reject<ArgumentException>(()=>s.SelectProjectFolderTemplate(project,second.Revision,false,0,true),"stale project selection rejected");
-  var preset=s.SelectProjectFolderTemplate(project,0,false,edited.Id,true);
+  Reject<ArgumentException>(()=>s.RestoreProjectFolderBase(project,edited.Id,false),"base restoration requires explicit confirmation");
+  Reject<ArgumentException>(()=>s.RestoreProjectFolderBase(project,selected.Id,true),"stale base restoration rejected");
+  var reset=s.RestoreProjectFolderBase(project,edited.Id,true);
+  check(!reset.Customized&&reset.TemplateRevision==first.Revision&&!reset.IncludeCorrespondence&&s.ReadProjectFolderCustomization(project).Paths.SequenceEqual(first.Paths),"restore exact historical base not latest catalog revision; retain saved correspondence");
+  check(s.ReadProjectFolderPreview(other).Production.Single().Name=="New Design","base restoration leaves other project unchanged");
+  Reject<ArgumentException>(()=>s.RestoreProjectFolderBase(project,reset.Id,true),"noncustomized selection cannot create redundant restore");
+  var preset=s.SelectProjectFolderTemplate(project,0,false,reset.Id,true);
   check(preset.Assigned&&!preset.Customized&&s.ReadProjectFolderPreview(project).Production.Count==9&&!s.ReadProjectFolderPreview(project).Plan.IncludeCorrespondence,"explicit CRC selection replaces logical plan");
   check(s.ReadProjectDocuments(project).Count==0&&!s.ReadProjectFolderPreview(project).Provisioned,"no external provisioning or document records");
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false,ForeignKeys=true}.ToString()))
@@ -59,6 +65,7 @@ internal static class NamedFolderTemplateTests
    q.CommandText="UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'";q.ExecuteNonQuery();
    Reject<UnauthorizedAccessException>(()=>s.ReadProjectFolderCustomization(project),"customization settings permission enforced");
    Reject<UnauthorizedAccessException>(()=>s.SaveProjectFolderCustomization(project,preset.Id,new[]{"Other"},false,true),"customization write permission enforced");
+   Reject<UnauthorizedAccessException>(()=>s.RestoreProjectFolderBase(project,preset.Id,true),"base restoration permission enforced");
    q.CommandText="UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.Restricted'";q.ExecuteNonQuery();
   }
   using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false,ForeignKeys=true}.ToString())){
