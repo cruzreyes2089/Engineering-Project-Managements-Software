@@ -17,6 +17,22 @@ class CodeQLSummaryTests(unittest.TestCase):
         self.assertFalse(report["independentSecurityApproved"])
         self.assertFalse(report["releaseAuthorized"])
 
+    def test_sparse_rule_metadata_is_not_query_coverage(self):
+        doc = fixture()
+        doc["runs"][0]["tool"]["driver"].pop("rules")
+        report = m.summarize(doc, "python")
+        self.assertEqual(report["ruleDescriptorCount"], 0)
+        self.assertEqual(report["resultCount"], 0)
+        self.assertFalse(report["queryCoverageVerified"])
+
+    def test_rules_in_extensions(self):
+        doc = fixture()
+        doc["runs"][0]["tool"]["driver"].pop("rules")
+        doc["runs"][0]["tool"]["extensions"] = [{"name": "query pack", "rules": [{"id": "cs/test"}]}]
+        report = m.summarize(doc, "csharp")
+        self.assertEqual(report["ruleDescriptorCount"], 1)
+        self.assertFalse(report["queryCoverageVerified"])
+
     def test_location_and_no_message(self):
         report = m.summarize(fixture([{"ruleId": "cs/test", "level": "warning", "message": {"text": "DO NOT EMIT"},
                  "locations": [{"physicalLocation": {"artifactLocation": {"uri": "src/Test.cs"}, "region": {"startLine": 4}}}]}]), "csharp")
