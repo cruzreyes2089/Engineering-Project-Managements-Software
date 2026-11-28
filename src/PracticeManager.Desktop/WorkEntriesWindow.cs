@@ -96,21 +96,86 @@ internal sealed class WorkReviewWindow:Window
  readonly LocalPractice service;readonly DataGrid reviews=WorkWindowFields.Grid(),billing=WorkWindowFields.Grid(),overheadReviews=WorkWindowFields.Grid();
  readonly DatePicker start=new(){SelectedDate=DateTime.Today.AddDays(-30)},end=new(){SelectedDate=DateTime.Today};
  readonly CheckBox pending=new(){Content="Unreviewed / unclassified only",IsChecked=true};
- readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
+ readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap},selectedInfo=new(){TextWrapping=TextWrapping.Wrap};
+ readonly List<(Button Button,Func<bool> Allowed)> reviewActions=new();
+ bool loaded;
  public WorkReviewWindow(LocalPractice service)
  {
-  this.service=service;Title="Work review and billing classification";Width=1080;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Review factual submissions separately from billing classification. Self-approval is prohibited except for an explicitly enabled founding-owner exception. Independent review is otherwise required. No invoices, reimbursements or payments are created.",TextWrapping=TextWrapping.Wrap});var filters=new WrapPanel();filters.Children.Add(start);filters.Children.Add(end);filters.Children.Add(pending);WorkWindowFields.Button(filters,"Refresh",()=>Run(Refresh));if(service.Can("Work.Review")&&service.Can("Work.Correct"))WorkWindowFields.Button(filters,"Attendance corrections (UTC)",()=>Run(()=>new AttendanceCorrectionWindow(service){Owner=this}.ShowDialog()));head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
-  var tabs=new TabControl();DockPanel Page(DataGrid g,params (string Label,Action Action)[] buttons){var p=new DockPanel();var bar=new WrapPanel();foreach(var (label,action) in buttons)WorkWindowFields.Button(bar,label,()=>Run(action));DockPanel.SetDock(bar,Dock.Top);p.Children.Add(bar);p.Children.Add(g);return p;}
+  this.service=service;Title="Work approvals and billing";Width=1080;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
+  var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="First approve actual work or expenses, then decide whether approved project work is billable. Independent review is required unless the founding-owner exception applies. No payments or invoices are created here.",TextWrapping=TextWrapping.Wrap});var filters=new WrapPanel();filters.Children.Add(new TextBlock{Text="From",Margin=new Thickness(4,8,4,0)});filters.Children.Add(start);filters.Children.Add(new TextBlock{Text="Through",Margin=new Thickness(4,8,4,0)});filters.Children.Add(end);filters.Children.Add(pending);WorkWindowFields.Button(filters,"Refresh",()=>Run(Refresh));if(service.Can("Work.Review")&&service.Can("Work.Correct"))WorkWindowFields.Button(filters,"Attendance corrections (UTC)",()=>Run(()=>new AttendanceCorrectionWindow(service){Owner=this}.ShowDialog()));head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
+  var tabs=new TabControl();
+  bool ReviewGrant()=>loaded&&service.Can("Work.Review")&&service.Can("Projects.View")&&service.Can("Clients.View");
+  bool CorrectGrant()=>ReviewGrant()&&service.Can("Work.Correct");
+  WorkReviewRow? ProjectRecord()=>reviews.SelectedItem as WorkReviewRow;
+  OverheadReviewRow? NonProjectRecord()=>overheadReviews.SelectedItem as OverheadReviewRow;
+  WorkBillingRow? BillingRecord()=>billing.SelectedItem as WorkBillingRow;
+  DockPanel Page(DataGrid g,params (string Label,Action Action,Func<bool> Allowed)[] buttons)
+  {
+   var p=new DockPanel();var bar=new WrapPanel();
+   foreach(var (label,action,allowed) in buttons)
+   {
+    var button=new Button{Content=label,Margin=new Thickness(2),IsEnabled=false};
+    button.Click+=(_,_)=>Run(()=>{if(!allowed())throw new ArgumentException("Select an eligible record.");action();});
+    reviewActions.Add((button,allowed));bar.Children.Add(button);
+   }
+   DockPanel.SetDock(bar,Dock.Top);p.Children.Add(bar);p.Children.Add(g);return p;
+  }
   foreach(var g in new[]{reviews,billing})WorkWindowFields.Columns(g,("Employee","Employee"),("Project","ProjectNumber"),("Task","Task"),("Kind","Kind"),("Date","Date"),("Minutes","Minutes"),("Expense USD","Amount"),("Category","Category"),("Description","Description"));
-  WorkWindowFields.Columns(reviews,("Record ID","Id"),("Replaces","ReplacesId"),("Replacement","ReplacementId"),("Current closure","CurrentClosureId"),("Entry closure","ClosureId"),("Historical evidence","HistoricalReason"),("Review","ReviewState"));WorkWindowFields.Columns(billing,("Classification","Classification"));
-  WorkWindowFields.Columns(overheadReviews,("Record ID","Id"),("Replaces","ReplacesId"),("Replacement","ReplacementId"),("Employee","Employee"),("Date","Date"),("Minutes","Minutes"),("Category","Category"),("Description","Description"),("Review","ReviewState"));
-  if(service.Can("Work.Review")){var actions=new List<(string Label,Action Action)>{("Approve",()=>Review(true)),("Reject",()=>Review(false))};if(service.Can("Work.Correct")){actions.Add(("Invalidate erroneous approved fact",InvalidateApproved));actions.Add(("Invalidation evidence",ViewInvalidation));if(service.Can("Billing.Invoices.View")&&service.Can("Billing.Invoices.Edit"))actions.Add(("Reconcile cancelled allocations",ReconcileAllocations));}tabs.Items.Add(new TabItem{Header="Fact review",Content=Page(reviews,actions.ToArray())});var overheadActions=new List<(string Label,Action Action)>{("Approve",()=>ReviewOverhead(true)),("Reject",()=>ReviewOverhead(false))};if(service.Can("Work.Correct")){overheadActions.Add(("Invalidate erroneous approved overhead",InvalidateOverhead));overheadActions.Add(("Invalidation evidence",ViewOverheadInvalidation));}tabs.Items.Add(new TabItem{Header="Overhead review",Content=Page(overheadReviews,overheadActions.ToArray())});}
-  if(service.Can("Billing.Classify"))tabs.Items.Add(new TabItem{Header="Billing classification",Content=Page(billing,("Billable",()=>Classify(true)),("Nonbillable",()=>Classify(false)))});
+  WorkWindowFields.Columns(reviews,("Review","ReviewState"),("Record ID","Id"));
+  WorkWindowFields.Columns(billing,("Billing","Classification"));
+  WorkWindowFields.Columns(overheadReviews,("Employee","Employee"),("Date","Date"),("Minutes","Minutes"),("Category","Category"),("Description","Description"),("Review","ReviewState"),("Record ID","Id"));
+  if(service.Can("Work.Review"))
+  {
+   var actions=new List<(string Label,Action Action,Func<bool> Allowed)>{
+    ("Approve",()=>Review(true),()=>ReviewGrant()&&ProjectRecord()?.ReviewState=="Submitted"),
+    ("Reject",()=>Review(false),()=>ReviewGrant()&&ProjectRecord()?.ReviewState=="Submitted")};
+   if(service.Can("Work.Correct"))
+   {
+    actions.Add(("Correct erroneous approval",InvalidateApproved,()=>CorrectGrant()&&ProjectRecord()?.ReviewState=="Approved"));
+    actions.Add(("View correction evidence",ViewInvalidation,()=>CorrectGrant()&&ProjectRecord()?.ReviewState=="Invalidated"));
+    if(service.Can("Billing.Invoices.View")&&service.Can("Billing.Invoices.Edit"))
+     actions.Add(("Review cancelled allocations",ReconcileAllocations,()=>CorrectGrant()&&service.Can("Billing.Invoices.View")&&service.Can("Billing.Invoices.Edit")&&ProjectRecord()?.ReviewState=="Approved"));
+   }
+   tabs.Items.Add(new TabItem{Header="Project time & expenses",Content=Page(reviews,actions.ToArray())});
+   var overheadActions=new List<(string Label,Action Action,Func<bool> Allowed)>{
+    ("Approve",()=>ReviewOverhead(true),()=>ReviewGrant()&&NonProjectRecord()?.ReviewState=="Submitted"),
+    ("Reject",()=>ReviewOverhead(false),()=>ReviewGrant()&&NonProjectRecord()?.ReviewState=="Submitted")};
+   if(service.Can("Work.Correct"))
+   {
+    overheadActions.Add(("Correct erroneous approval",InvalidateOverhead,()=>CorrectGrant()&&NonProjectRecord()?.ReviewState=="Approved"));
+    overheadActions.Add(("View correction evidence",ViewOverheadInvalidation,()=>CorrectGrant()&&NonProjectRecord()?.ReviewState=="Invalidated"));
+   }
+   tabs.Items.Add(new TabItem{Header="Non-project time",Content=Page(overheadReviews,overheadActions.ToArray())});
+  }
+  if(service.Can("Billing.Classify"))
+   tabs.Items.Add(new TabItem{Header="Billing decisions",Content=Page(billing,
+    ("Billable",()=>Classify(true),()=>loaded&&service.Can("Billing.Classify")&&BillingRecord()?.Classification=="Unclassified"),
+    ("Nonbillable",()=>Classify(false),()=>loaded&&service.Can("Billing.Classify")&&BillingRecord()?.Classification=="Unclassified"))});
+  DockPanel.SetDock(selectedInfo,Dock.Bottom);selectedInfo.Margin=new Thickness(0,8,0,0);root.Children.Add(selectedInfo);
+  void Details()
+  {
+   UpdateActions();selectedInfo.Text="";
+   if(!loaded)return;
+   if(tabs.SelectedItem is not TabItem tab)return;
+   if(Equals(tab.Header,"Project time & expenses")&&ReviewGrant()&&ProjectRecord() is WorkReviewRow r)
+    selectedInfo.Text=$"Record #{r.Id} | Replaces: {r.ReplacesId?.ToString()??"—"} | Replacement: {r.ReplacementId?.ToString()??"—"} | Entry closure: {r.ClosureId?.ToString()??"—"} | Current closure: {r.CurrentClosureId?.ToString()??"—"}\nHistorical evidence: {r.HistoricalReason??"Not applicable"}";
+   else if(Equals(tab.Header,"Non-project time")&&ReviewGrant()&&NonProjectRecord() is OverheadReviewRow o)
+    selectedInfo.Text=$"Record #{o.Id} | Replaces: {o.ReplacesId?.ToString()??"—"} | Replacement: {o.ReplacementId?.ToString()??"—"}";
+  }
+  reviews.SelectionChanged+=(_,_)=>Details();overheadReviews.SelectionChanged+=(_,_)=>Details();billing.SelectionChanged+=(_,_)=>Details();tabs.SelectionChanged+=(_,_)=>Details();
+  pending.Checked+=(_,_)=>Run(Refresh);pending.Unchecked+=(_,_)=>Run(Refresh);
   root.Children.Add(tabs);Content=root;Run(Refresh);
  }
- void Run(Action a){try{a();}catch(UnauthorizedAccessException){reviews.ItemsSource=billing.ItemsSource=overheadReviews.ItemsSource=null;status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
- void Refresh(){reviews.ItemsSource=billing.ItemsSource=overheadReviews.ItemsSource=null;var a=WorkWindowFields.Day(start);var b=WorkWindowFields.Day(end);if(service.Can("Work.Review")){reviews.ItemsSource=service.ReadWorkReview(a,b,pending.IsChecked==true);overheadReviews.ItemsSource=service.ReadOverheadReview(a,b,pending.IsChecked==true);}if(service.Can("Billing.Classify"))billing.ItemsSource=service.ReadBillingWork(a,b,pending.IsChecked==true);status.Text="";}
+ void UpdateActions(){foreach(var a in reviewActions){try{a.Button.IsEnabled=a.Allowed();}catch(Exception){a.Button.IsEnabled=false;}}}
+ void Clear(){loaded=false;reviews.ItemsSource=billing.ItemsSource=overheadReviews.ItemsSource=null;selectedInfo.Text="";UpdateActions();}
+ void Run(Action a){try{a();}catch(UnauthorizedAccessException){Clear();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){Clear();status.Text="Operation failed. Refresh before retrying.";}finally{UpdateActions();}}
+ void Refresh()
+ {
+  Clear();var a=WorkWindowFields.Day(start);var b=WorkWindowFields.Day(end);var counts=new List<string>();
+  if(service.Can("Work.Review")){var project=service.ReadWorkReview(a,b,pending.IsChecked==true);var nonProject=service.ReadOverheadReview(a,b,pending.IsChecked==true);reviews.ItemsSource=project;overheadReviews.ItemsSource=nonProject;counts.Add(project.Count+" project records");counts.Add(nonProject.Count+" non-project records");}
+  if(service.Can("Billing.Classify")){var records=service.ReadBillingWork(a,b,pending.IsChecked==true);billing.ItemsSource=records;counts.Add(records.Count+" billing records");}
+  loaded=true;status.Text=counts.Count==0?"No review access.":string.Join(" · ",counts);UpdateActions();
+ }
  bool ConfirmOwner(bool applicable)=>applicable&&service.Can("Administration.Manage")&&service.ReadOwnerApprovalPolicy().Enabled&&MessageBox.Show(this,"If this is your own submission, explicitly invoke the single-owner exception using the justification just entered? Otherwise choose No for ordinary independent review.","Owner exception",MessageBoxButton.YesNo,MessageBoxImage.Warning)==MessageBoxResult.Yes;
  void Review(bool approved){if(reviews.SelectedItem is not WorkReviewRow r)throw new ArgumentException("Select a submission.");var n=WorkWindowFields.Note(this,approved?"Approve facts":"Reject facts");if(n==null)return;var outcome=service.ReviewWork(r.Id,approved,n,ConfirmOwner(approved));Refresh();status.Text=outcome;}
  void InvalidateApproved()
