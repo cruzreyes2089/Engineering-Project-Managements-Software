@@ -6,6 +6,14 @@ internal static class DevelopmentWorkspaceTests
  {
   var root=Path.Combine(parent,"workspace-tests");Directory.CreateDirectory(root);
   void Invalid(Action a,string name){try{a();}catch(ArgumentException){check(true,name);return;}throw new Exception("FAIL: "+name);}
+  Invalid(()=>DevelopmentWorkspace.Resolve(Path.Combine(root,"missing-profile"),Array.Empty<string>()),"missing profile fails closed");
+  var collision=Path.Combine(root,"collision");Directory.CreateDirectory(collision);
+  File.WriteAllText(Path.Combine(collision,"CRC Practice Manager DEV"),"synthetic collision");
+  Invalid(()=>DevelopmentWorkspace.Resolve(collision,Array.Empty<string>()),"development directory collision blocked");
+  File.Delete(Path.Combine(collision,"CRC Practice Manager DEV"));Directory.CreateDirectory(Path.Combine(collision,"CRC Practice Manager DEV","practice-dev.db"));
+  Invalid(()=>DevelopmentWorkspace.Resolve(collision,Array.Empty<string>()),"development database directory collision blocked");
+  File.WriteAllText(Path.Combine(collision,"CRC Practice Manager ACCEPTANCE"),"synthetic collision");
+  Invalid(()=>DevelopmentWorkspace.Resolve(collision,new[]{"--acceptance-new"}),"acceptance directory collision blocked");
   var normal=DevelopmentWorkspace.Resolve(root,Array.Empty<string>());
   check(!normal.IsAcceptance&&normal.DatabasePath==Path.Combine(root,"CRC Practice Manager DEV","practice-dev.db"),"default development workspace unchanged");
   Directory.CreateDirectory(Path.GetDirectoryName(normal.DatabasePath)!);File.WriteAllText(normal.DatabasePath,"synthetic protected default");

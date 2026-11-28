@@ -20,7 +20,22 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
  {
   if(string.IsNullOrWhiteSpace(localAppData)||!Path.IsPathFullyQualified(localAppData))throw new ArgumentException("Trusted local application data folder required.");
   var root=Path.GetFullPath(localAppData);
-  if(arguments.Count==0)return new(Path.Combine(root,"CRC Practice Manager DEV","practice-dev.db"),null);
+  if(!Directory.Exists(root))throw new ArgumentException("Local application data directory unavailable.");
+  // Existing ancestor inspection prevents ordinary redirected profile roots.
+  // This remains a trusted-local-filesystem check, not race-free containment.
+  for(DirectoryInfo? part=new DirectoryInfo(root);part!=null;part=part.Parent)
+   if((part.Attributes&FileAttributes.ReparsePoint)!=0)throw new ArgumentException("Redirected application data directory.");
+
+  if(arguments.Count==0)
+  {
+   var normal=Path.Combine(root,"CRC Practice Manager DEV");
+   var normalDb=Path.Combine(normal,"practice-dev.db");
+   if(File.Exists(normal))throw new ArgumentException("Development workspace directory collision.");
+   if(Directory.Exists(normal))PlainDirectory(normal);
+   if(Directory.Exists(normalDb))throw new ArgumentException("Development database path collision.");
+   if(File.Exists(normalDb))PlainFile(normalDb);
+   return new(normalDb,null);
+  }
   var create=arguments.Count==1&&arguments[0]=="--acceptance-new";
   var reopen=arguments.Count==2&&arguments[0]=="--acceptance-session";
   if(!create&&!reopen)throw new ArgumentException("Unsupported startup arguments. No default workspace opened.");
@@ -32,7 +47,8 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
   var db=Path.Combine(folder,DatabaseName);
   if(create)
   {
-   Directory.CreateDirectory(acceptanceRoot);PlainDirectory(acceptanceRoot);
+   if(File.Exists(acceptanceRoot))throw new ArgumentException("Acceptance workspace directory collision.");
+   if(Directory.Exists(acceptanceRoot))PlainDirectory(acceptanceRoot);else{Directory.CreateDirectory(acceptanceRoot);PlainDirectory(acceptanceRoot);}
    if(Directory.Exists(folder)||File.Exists(folder))throw new ArgumentException("Acceptance session already exists; no existing workspace opened.");
    Directory.CreateDirectory(folder);PlainDirectory(folder);
    using(var stream=new FileStream(marker,FileMode.CreateNew,FileAccess.Write,FileShare.None)){var bytes=Encoding.ASCII.GetBytes(id);stream.Write(bytes);stream.Flush(true);}
