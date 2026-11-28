@@ -110,6 +110,14 @@ try{
  s.Logout(); using(var c=new SqliteConnection($"Data Source={path}")){c.Open(); using var q=c.CreateCommand();q.CommandText="UPDATE users SET active=0";q.ExecuteNonQuery();}
  Check(!s.Login("admin",pw),"inactive user denied");
  Check(PasswordCodec.Verify(pw,PasswordCodec.Hash(pw)),"password hash roundtrip"); Check(!PasswordCodec.Verify(pw,"invalid"),"bad hash denied");
+ var encodedPassword=PasswordCodec.Hash(pw);
+ Check(encodedPassword.Length==90&&PasswordCodec.Verify(pw,encodedPassword),"canonical password encoding");
+ Check(encodedPassword!=PasswordCodec.Hash(pw),"unique random password salt");
+ Check(!PasswordCodec.Verify(pw,encodedPassword+" "),"noncanonical password encoding denied");
+ Check(!PasswordCodec.Verify(pw,new string('A',100000)),"oversized password encoding denied");
+ Check(!PasswordCodec.Verify(new string('x',257),encodedPassword),"oversized password denied");
+ Check(!PasswordCodec.Verify("short",encodedPassword),"short password denied");
+ Check(!PasswordCodec.Verify(pw,encodedPassword.Replace("600000","999999")),"unrecognized work factor denied");
  await AccountingProbeTests.Run(Check);
  var legacyPath=Path.Combine(Path.GetDirectoryName(path)!,"legacy-v1.db");
  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=legacyPath,Pooling=false}.ToString())){

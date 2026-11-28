@@ -637,10 +637,10 @@ public sealed partial class LocalPractice
  public bool CanManageAccountingConnection()=>Can("Accounting.Connection.Manage");
  public async Task<AccountingProbeResult> TestAccountingConnectionAsync(string endpoint,string secret,CancellationToken cancellationToken=default)
  {
-  var actor=userId;
+  var actor=userId;var generation=sessionGeneration;
   if(!CanTestAccountingConnection())throw new UnauthorizedAccessException("Accounting connection diagnostic requires the accounting test permission.");
   var result=await new ManagerDesktopProbe().TestAsync(endpoint,secret,cancellationToken);
-  if(userId!=actor||!CanTestAccountingConnection())throw new UnauthorizedAccessException("Accounting diagnostic session ended.");
+  if(userId!=actor||sessionGeneration!=generation||!CanTestAccountingConnection())throw new UnauthorizedAccessException("Accounting diagnostic session ended.");
   return result;
  }
  static void Audit(SqliteConnection c,SqliteTransaction t,long actor,string action,string entity,long id)=>Exec(c,t,"INSERT INTO audit_events(actor_id,action,entity,entity_id) VALUES($a,$x,$e,$i)",("$a",actor),("$x",action),("$e",entity),("$i",id));

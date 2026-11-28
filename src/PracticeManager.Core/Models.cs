@@ -6,8 +6,30 @@ public sealed record Contact(long Id,long ClientId,string First,string Last,stri
 public static class PasswordCodec
 {
  const int Iterations=600_000;
- public static string Hash(string password){ if(password.Length<14 || password.Length>256)throw new ArgumentException("Use a password of 14–256 characters."); var salt=RandomNumberGenerator.GetBytes(16);var hash=Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32);return $"pbkdf2-sha256${Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}"; }
- public static bool Verify(string password,string encoded){ if(password.Length>256)return false;try{var p=encoded.Split('$');if(p.Length!=4||p[0]!="pbkdf2-sha256"||p[1]!=Iterations.ToString())return false;var salt=Convert.FromBase64String(p[2]);var hash=Convert.FromBase64String(p[3]);if(salt.Length!=16||hash.Length!=32)return false;return CryptographicOperations.FixedTimeEquals(hash,Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32));}catch(FormatException){return false;}}
+ public static string Hash(string password)
+ {
+  if(password==null||password.Length<14||password.Length>256)throw new ArgumentException("Use a password of 14–256 characters.");
+  var salt=RandomNumberGenerator.GetBytes(16);
+  var hash=Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32);
+  try{return $"pbkdf2-sha256${Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";}
+  finally{CryptographicOperations.ZeroMemory(hash);}
+ }
+ public static bool Verify(string password,string encoded)
+ {
+  // Exact format: 13-character algorithm, six-digit work factor, separators,
+  // 24-character salt and 44-character digest. Bound before splitting/decoding.
+  if(password==null||password.Length<14||password.Length>256||encoded==null||encoded.Length!=90)return false;
+  byte[]? hash=null,derived=null;
+  try{
+   var p=encoded.Split('$');
+   if(p.Length!=4||p[0]!="pbkdf2-sha256"||p[1]!=Iterations.ToString()||p[2].Length!=24||p[3].Length!=44)return false;
+   var salt=Convert.FromBase64String(p[2]);hash=Convert.FromBase64String(p[3]);
+   if(salt.Length!=16||hash.Length!=32||Convert.ToBase64String(salt)!=p[2]||Convert.ToBase64String(hash)!=p[3])return false;
+   derived=Rfc2898DeriveBytes.Pbkdf2(password,salt,Iterations,HashAlgorithmName.SHA256,32);
+   return CryptographicOperations.FixedTimeEquals(hash,derived);
+  }catch(FormatException){return false;}
+  finally{if(hash!=null)CryptographicOperations.ZeroMemory(hash);if(derived!=null)CryptographicOperations.ZeroMemory(derived);}
+ }
 }
 public static class Validation
 {
