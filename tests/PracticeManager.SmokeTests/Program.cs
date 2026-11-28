@@ -24,6 +24,7 @@ try{
   return 0;
  }
  DevelopmentWorkspaceTests.Run(Path.GetDirectoryName(path)!,Check);
+ ProductionStorageBoundaryTests.Run(Path.GetDirectoryName(path)!,Check);
  var s=new LocalPractice(path);
  // Inspect actual private application connection, not an independently configured test connection.
  var openMethod=typeof(LocalPractice).GetMethod("Open",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)
