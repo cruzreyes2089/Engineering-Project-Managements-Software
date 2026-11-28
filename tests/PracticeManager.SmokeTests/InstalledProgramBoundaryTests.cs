@@ -164,6 +164,48 @@ internal static class InstalledProgramBoundaryTests
   Refuse(()=>InstalledProgramBoundary.InitializeNewInstallation(freshProfile),"existing program root cannot be reinitialized");
   InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(fresh,null,extracted.Digest,extracted.Source,extracted.Manifest);
   check(InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest,"fresh initialization and staged installation work together");
+  var uninstaller=Path.Combine(fresh.ProgramRoot,"CRC.Uninstall.exe");
+  File.WriteAllText(uninstaller,"Synthetic nonexecutable uninstaller fixture");
+  var uninstallerHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(uninstaller))).ToLowerInvariant();
+  var shortcutFolder=Directory.CreateDirectory(Path.Combine(parent,"crc-shortcut-fixture")).FullName;
+  var registryPath=@"Software\CRC.PracticeManager.SyntheticTests-"+Guid.NewGuid().ToString("N");
+  using(var hive=Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.CurrentUser,Microsoft.Win32.RegistryView.Registry64))
+  {
+   using(var registry=hive.CreateSubKey(registryPath,true)??throw new InvalidOperationException("Synthetic registry fixture unavailable."))
+   {
+    try
+    {
+     var receiptPath=Path.Combine(fresh.ProgramRoot,"registration-receipt.json");
+     var shortcutPath=Path.Combine(shortcutFolder,WindowsRegistrationCandidate.ShortcutName);
+     InstalledVersionSelectionCandidate.RegisterReviewedInstallation(fresh,extracted.Digest,uninstallerHash,registry,shortcutFolder);
+     check(File.Exists(shortcutPath)&&File.Exists(receiptPath)&&!File.Exists(Path.Combine(fresh.ProgramRoot,"registration-pending.txt")),"registration publishes shortcut and receipt after verification");
+     var receipt=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(File.ReadAllBytes(receiptPath))??throw new Exception("Missing registration receipt");
+     WindowsRegistrationCandidate.VerifyOwnedRegistration(fresh,registry,shortcutFolder,receipt);
+     check(receipt.Identity==freshId&&receipt.Version==extracted.Digest,"registration binds installation identity and exact version");
+     Refuse(()=>InstalledVersionSelectionCandidate.RegisterReviewedInstallation(fresh,extracted.Digest,uninstallerHash,registry,shortcutFolder),"existing registration cannot be replaced");
+     using(var key=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,true)!)
+      key.SetValue("Unexpected","unrelated");
+     Refuse(()=>WindowsRegistrationCandidate.RemoveOwnedKey(registry,receipt),"unexpected registry value blocks removal");
+     using(var key=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,true)!)
+     {
+      check((string?)key.GetValue("Unexpected")=="unrelated","unrelated registry value preserved");
+      key.DeleteValue("Unexpected"); // disposable fixture only
+     }
+     WindowsRegistrationCandidate.RemoveOwnedKey(registry,receipt);
+     using(var removed=registry.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
+      check(removed==null,"exact owned registry key removed nonrecursively");
+     File.WriteAllText(shortcutPath,"modified shortcut");
+     // A mismatching shortcut is never adopted as owned.
+     Refuse(()=>WindowsRegistrationCandidate.VerifyOwnedKey(registry,receipt),"missing registry key refuses ownership");
+    }
+    finally
+    {
+     // Exact disposable test key only; no actual Windows Apps registration.
+     registry.DeleteSubKey(WindowsRegistrationCandidate.ProductKey,false);
+    }
+   }
+   hive.DeleteSubKey(registryPath,false);
+  }
   var freshMarker=Path.Combine(fresh.ProgramRoot,"installation-identity.txt");
   File.WriteAllText(freshMarker,"invalid identity");
   Refuse(()=>InstalledProgramBoundary.ReviewInitialized(freshProfile),"invalid installation identity refuses reopen");
