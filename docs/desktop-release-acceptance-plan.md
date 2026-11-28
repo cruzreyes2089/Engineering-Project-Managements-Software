@@ -122,3 +122,12 @@ Retain all 56 existing scenario IDs; the following are additional observations w
 | REL-02 | Verify restricted staging ACL before raw writes, destination collision refusal, preservation of existing target, no live replacement, accounting hold, and no residual staging after normal completion. Exercise interrupted installation only in an independently approved isolated environment. |
 
 Do not execute or redistribute the original blocked archive. No installer or real desktop acceptance has been executed by this update. Record observed results privately against the exact approved candidate, not a predecessor's CI results.
+
+
+## Milestone 09 — simplicity first
+
+Owner direction: keep the software simple, straightforward, intuitive and user-friendly. Freeze discretionary feature expansion. Use familiar engineering-office terms, sensible defaults, role-relevant navigation, one obvious primary action, and technical details on demand. Keep validation, audit trails, concurrency checks, accounting authority and conflict safeguards in services; do not require staff to manage hashes, revision tokens or technical state. Keep confirmation for consequential decisions, not repeated confirmation of ordinary file saves. Do not simplify by bypassing agreement/start authorization, permission, QA or accounting controls.
+
+Add observations to existing UX-01, SEC-03, DOC-01 and REP-01: ordinary users see only permitted navigation; authorized administrative tools remain accessible in the collapsed group; sign-out resets navigation; document list and review history hide technical columns by default but reveal them on request; report export opens the save dialog directly, with fresh-snapshot and protected-storage notice visible, and still denies stale filters, unauthorized access and overwrites. These are acceptance criteria, not executed WPF results.
+
+Future target: consolidate project setup, folder selection and Send Outs around one project context. Automatic creation outside the dedicated synthetic workspace and actual issuance remain blocked; no schema activation or bypass of security review. Do not add modules or confirmation dialogs unless tied to a documented requirement and measurable user benefit.
