@@ -54,6 +54,22 @@ class CodeQLSummaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.summarize(doc, "actions")
 
+    def test_diagnostics_counted_separately_from_findings(self):
+        doc = fixture()
+        invocation = doc["runs"][0]["invocations"][0]
+        invocation["toolExecutionNotifications"] = [
+            {"level": "note", "descriptor": {"id": "cs/diagnostics/extracted-files"}, "message": {"text": "PRIVATE"}},
+            {"level": "note", "descriptor": {"id": "cs/diagnostics/extracted-files"}},
+            {"level": "error", "descriptor": {"id": "cs/extraction-error"}}]
+        invocation["toolConfigurationNotifications"] = [{"descriptor": {"id": "::invalid::"}}]
+        report = m.summarize(doc, "csharp")
+        self.assertEqual(report["resultCount"], 0)
+        self.assertEqual(report["notificationCount"], 4)
+        self.assertEqual(report["diagnosticLevels"], {"note": 2, "error": 1, "unspecified": 1})
+        self.assertIn({"level": "note", "rule": "cs/diagnostics/extracted-files", "count": 2}, report["diagnosticGroups"])
+        self.assertNotIn("PRIVATE", str(report))
+        self.assertFalse(report["queryCoverageVerified"])
+
     def test_truncated_count(self):
         report = m.summarize(fixture([{"ruleId": "cs/test"}] * 251), "csharp")
         self.assertEqual(report["resultCount"], 251)
