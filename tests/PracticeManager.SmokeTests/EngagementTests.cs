@@ -10,6 +10,7 @@ internal static class EngagementTests
   void Invalid(Action action,string label){try{action();}catch(ArgumentException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   void Sql(string sql){using var c=new SqliteConnection($"Data Source={path}");c.Open();using var q=c.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
   Denied(()=>s.SearchProposals(),"engagement list requires authentication");
+  Denied(()=>s.ReadClientCount(),"dashboard client count requires authentication");
   check(s.Login("admin",pw)&&s.Can("Engagements.Edit"),"engagement admin grants");
   var client=s.SaveClient(new Client(0,"","Business / Company","Synthetic Client","","","","","","","","","","","Active"));
   var input=new ProposalInput(client,"Synthetic design","Synthetic site","Synthetic structural scope",1200m);
@@ -42,6 +43,8 @@ internal static class EngagementTests
   var results=await Task.WhenAll(Task.Run(()=>s.RecordProposalDecision(id,hash,true,"Synthetic acceptance")),Task.Run(()=>peer.RecordProposalDecision(id,hash,true,"Synthetic acceptance")));
   check(results.Count(x=>x.Outcome=="Accepted")==1&&results.Count(x=>x.Outcome=="AlreadyAccepted")==1&&results.Select(x=>x.ProjectId).Distinct().Count()==1,"concurrent acceptance creates one project");
   var project=s.SearchPendingProjects().Single();check(project.State=="Pending"&&project.SetupState=="NotStarted"&&project.ProposalId==id,"acceptance never authorizes start");
+  check(s.ReadClientCount()==1&&s.ReadProjectDashboardCounts()==(1L,0L),"dashboard counts actual pending project and client");
+  check(project.ReportLabel==project.Number+" — "+project.Title,"report project selector retains number and title");
   check(s.SearchPendingProjects("Synthetic site","Pending").Single().Id==project.Id&&s.SearchPendingProjects("Synthetic site","Active").Count==0,"project site and status filters intersect");
   check(s.SearchPendingProjects("No matching site").Count==0&&s.SearchPendingProjects(project.Number).Single().Id==project.Id,"project search matches number and empty results correctly");
   check(s.SearchProposals("Synthetic site").Single().Id==id,"proposal search includes site");
@@ -60,6 +63,7 @@ internal static class EngagementTests
   Denied(()=>s.RecordProposalDecision(id,hash,true,"Synthetic"),"revoked decision grant enforced");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Projects.View'");
   Denied(()=>s.SearchPendingProjects(),"project permission enforced");
+  Denied(()=>s.ReadProjectDashboardCounts(),"dashboard project counts respect project grant");
   Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Projects.View'");
   var reopened=new LocalPractice(path);check(reopened.Login("admin",pw)&&reopened.SearchPendingProjects().Count==2&&!reopened.Can("Engagements.Accept"),"history and revocation retained on restart");
  }
