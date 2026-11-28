@@ -30,5 +30,21 @@ internal static class UpgradeRehearsalTests
   File.WriteAllText(legacyPath+"-wal","synthetic sidecar");
   try{Invalid(()=>UpgradeRehearsal.Run(legacyPath,hash,true),"closed source with sidecar rejected");}finally{File.Delete(legacyPath+"-wal");}
   check(!Directory.EnumerateDirectories(root,".crc-upgrade-*").Any(),"no owned disposable upgrade database left beside source");
+  if(OperatingSystem.IsWindows())
+  {
+   var synthetic=PracticeManager.Core.WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"installer-upgrade-source"));
+   var stage=PracticeManager.Core.WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"installer-upgrade-stage"));
+   var current=Path.Combine(synthetic,"source.db");
+   File.Copy(legacyPath,current,false);
+   _=new LocalPractice(current);
+   var currentHash=Hash(current);
+   var candidate=InstallerUpgradeRehearsalCandidate.Run(current,currentHash,stage,49);
+   check(candidate.SourceSchema==47&&candidate.TargetSchema==49&&candidate.PreservationVerified&&candidate.SourceUnchanged,"combined schema 47 to 49 isolated rehearsal preserves existing data");
+   check(Hash(current)==currentHash,"combined rehearsal preserves original database bytes");
+   Invalid(()=>InstallerUpgradeRehearsalCandidate.Run(current,new string('0',64),stage,49),"combined rehearsal refuses incorrect source hash");
+   var staged=Directory.EnumerateFiles(stage,"rehearsal.db",SearchOption.AllDirectories).Single();
+   check(Hash(staged)==candidate.TargetSha256,"combined rehearsal retains exact candidate evidence");
+   Invalid(()=>InstallerUpgradeRehearsalCandidate.Run(staged,candidate.TargetSha256,synthetic,47),"combined rehearsal refuses downgrade");
+  }
  }
 }
