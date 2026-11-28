@@ -20,7 +20,8 @@ public sealed partial class LocalPractice
    // Reserve the new file exclusively before SQLite initialization.
    using(var reserve=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None)){}
   }
-  return new LocalPractice(path,true);
+  if(!newlyCreated&&DevelopmentWorkspace.Resolve(localAppData,new[]{"--budget-acceptance-session",sessionId}).DatabasePath!=path)throw new ArgumentException("Acceptance workspace identity changed.");
+  return new LocalPractice(path,true,existingOnly:true);
  }
  static string ValidateBudgetId(string id)
  {
