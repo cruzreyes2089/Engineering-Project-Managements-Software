@@ -17,13 +17,20 @@ internal static class OwnerApprovalTests
   var time=s.SubmitWork(new(Guid.NewGuid(),task,day,"Time",60,null,null,"Synthetic time"));var expense=s.SubmitWork(new(Guid.NewGuid(),task,day,"Expense",null,10m,"Supplies","Synthetic expense"));
   var initial=s.ReadOwnerApprovalPolicy();check(initial.Eligible&&!initial.Enabled&&initial.EventId==null,"owner exception default off");
   Denied(()=>s.ReviewWork(time,true,"Synthetic",true),"owner default denial");
+  Denied(()=>s.WorkReviewRequiresOwnerConfirmation(time,true),"work review preflight denies disabled owner exception");
+  Invalid(()=>s.WorkClassificationRequiresOwnerConfirmation(time),"classification preflight rejects unapproved work");
   Invalid(()=>s.SetOwnerApprovalPolicy(true,null,""),"policy justification required");
   var enabled=s.SetOwnerApprovalPolicy(true,null,"Synthetic sole owner");check(enabled.Enabled&&enabled.EventId.HasValue,"owner explicit activation");
+  check(s.WorkReviewRequiresOwnerConfirmation(time,true),"own submitted work requires explicit exception");
+  Denied(()=>s.WorkReviewRequiresOwnerConfirmation(time,false),"preflight prohibits self rejection");
   Denied(()=>s.ReviewWork(time,true,"Synthetic"),"individual confirmation required");
   Invalid(()=>s.ReviewWork(time,true,"",true),"self review justification required");
   Denied(()=>s.ReviewWork(time,false,"Synthetic",true),"self rejection not permitted");
   check(s.ReviewWork(time,true,"Verified time",true)=="Approved"&&s.ClassifyWork(time,true,"Reviewed contract",true)=="Billable","owner time and classification exception");
+  Invalid(()=>s.WorkReviewRequiresOwnerConfirmation(time,true),"review preflight rejects completed review");
+  Invalid(()=>s.WorkClassificationRequiresOwnerConfirmation(time),"classification preflight rejects classified work");
   check(s.ReviewWork(expense,true,"Verified expense",true)=="Approved","owner expense exception");
+  check(s.WorkClassificationRequiresOwnerConfirmation(expense),"own approved expense classification requires exception");
   var role=s.ReadStaffRoles().Single(x=>x.Name=="Financial / Accounting");
   var staff=s.CreateStaffAccount("reviewer",role.Id,"Synthetic-reviewer-temp-0001");
   check(s.ReadOwnerApprovalPolicy().Enabled,"ordinary nonreview account does not suspend exception");
@@ -33,6 +40,7 @@ internal static class OwnerApprovalTests
   s.SetStaffGrant(role.Id,"Work.Review",true,false);
   var suspended=s.ReadOwnerApprovalPolicy();check(!suspended.Enabled&&!suspended.Eligible&&suspended.EventId!=enabled.EventId,"new reviewer grant suspends even before password change");
   Denied(()=>s.ClassifyWork(expense,true,"Synthetic",true),"suspension covers classification");
+  Denied(()=>s.WorkClassificationRequiresOwnerConfirmation(expense),"preflight respects suspended exception");
   Denied(()=>s.SetOwnerApprovalPolicy(true,suspended.EventId,"Synthetic"),"cannot enable while other approval account exists");
   Denied(()=>s.DecideInvoiceDraft(project,draft,draftHash,true,"Synthetic",true),"suspended owner cannot approve own invoice");
   foreach(var grant in new[]{"Projects.View","Clients.View","Billing.Invoices.View","Billing.Invoices.Edit","Billing.Invoices.Approve"})s.SetStaffGrant(role.Id,grant,true,false);
