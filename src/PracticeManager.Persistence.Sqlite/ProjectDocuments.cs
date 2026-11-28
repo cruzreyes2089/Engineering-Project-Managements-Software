@@ -43,11 +43,15 @@ public sealed partial class LocalPractice
  }
  public long RegisterProjectDocument(long project,Guid operation,long? supersedes,string classification,string category,string name,byte[] bytes)
  {
-  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireDocuments(c,t,true);ProjectRow(c,t,project);
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var id=RegisterProjectDocumentCore(c,t,project,operation,supersedes,classification,category,name,bytes);t.Commit();return id;
+ }
+ private long RegisterProjectDocumentCore(SqliteConnection c,SqliteTransaction t,long project,Guid operation,long? supersedes,string classification,string category,string name,byte[] bytes)
+ {
+  var actor=RequireDocuments(c,t,true);ProjectRow(c,t,project);
   if(classification is not ("Production" or "Restricted")||!DocumentCategories.Contains(category)||operation==Guid.Empty)throw new ArgumentException("Select valid document metadata.");
   if(classification=="Restricted")Require(c,t,"Documents.Restricted");
   var file=SafeDocumentName(name);if(bytes==null||bytes.Length is <1 or >MaxProjectDocumentBytes)throw new ArgumentException("Document size must be 1 byte to 20 MiB.");
-  var copy=bytes.ToArray();var hash=Convert.ToHexString(SHA256.HashData(copy));var key=operation.ToString("D");
+  var copy=bytes.ToArray();try{var hash=Convert.ToHexString(SHA256.HashData(copy));var key=operation.ToString("D");
   using(var q=Command(c,t,"SELECT id,project_id,supersedes_id,classification,category,file_name,file_hash FROM project_documents WHERE operation_key=$k",("$k",key)))
   using(var r=q.ExecuteReader()){
    if(r.Read()){
@@ -56,7 +60,7 @@ public sealed partial class LocalPractice
    }
   }
   if(supersedes.HasValue){var prior=FindDocument(c,t,project,supersedes.Value);if(prior==null||!prior.IsCurrent||prior.Classification!=classification||prior.Category!=category)throw new ArgumentException("Current matching document version required.");}
-  Exec(c,t,"INSERT INTO project_documents(project_id,operation_key,supersedes_id,classification,category,file_name,file_bytes,file_hash,recorded_by,recorded_utc) VALUES($p,$k,$s,$c,$g,$f,$b,$h,$a,$u)",("$p",project),("$k",key),("$s",supersedes),("$c",classification),("$g",category),("$f",file),("$b",copy),("$h",hash),("$a",actor),("$u",UtcNow()));var id=Last(c,t);Audit(c,t,actor,"RegisterDocument","ProjectDocument",id);t.Commit();return id;
+  Exec(c,t,"INSERT INTO project_documents(project_id,operation_key,supersedes_id,classification,category,file_name,file_bytes,file_hash,recorded_by,recorded_utc) VALUES($p,$k,$s,$c,$g,$f,$b,$h,$a,$u)",("$p",project),("$k",key),("$s",supersedes),("$c",classification),("$g",category),("$f",file),("$b",copy),("$h",hash),("$a",actor),("$u",UtcNow()));var id=Last(c,t);Audit(c,t,actor,"RegisterDocument","ProjectDocument",id);return id;}finally{CryptographicOperations.ZeroMemory(copy);}
  }
  public ProjectDocumentContent RetrieveProjectDocument(long project,long document,string expectedHash)
  {
