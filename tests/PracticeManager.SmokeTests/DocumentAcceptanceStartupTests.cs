@@ -11,13 +11,14 @@ internal static class DocumentAcceptanceStartupTests
   var s=LocalPractice.OpenDocumentAcceptance(local,id,true);
   s.Bootstrap("Synthetic document acceptance","admin",pw,"CL");
   check(s.Login("admin",pw)&&s.IsDocumentAcceptance&&s.Can("Projects.Budget.Record"),"document acceptance bootstraps both candidate migrations");
-  var external=s.PrepareAcceptanceFolderRoot(true);
-  var cfg=s.SaveAcceptanceFolderConfiguration(Guid.NewGuid(),null,external,ProjectFolderTemplate.Defaults,"Synthetic template",true);
   var client=s.SaveClient(new Client(0,"","Business / Company","Synthetic client","","","","","","","","","","","Active"));
   var proposal=s.CreateProposal(new(client,"Synthetic project","Site","Scope",100m));var h=ConflictReviewTests.Issue(s,proposal,1);
   var project=s.RecordProposalDecision(proposal,h,true,"Synthetic").ProjectId!.Value;
-  var relative=s.PrepareAcceptanceProjectDirectory(project,cfg.Hash,true);
-  var folder=s.SaveAcceptanceProjectFolder(project,Guid.NewGuid(),null,cfg.Hash,"Registered",relative,"Synthetic",true);
+  var firstSelection=ProjectFolderTemplate.Defaults.Where(x=>x.Name=="Calculations").ToArray();
+  try{s.SetupAcceptanceProjectFolders(project,null,null,firstSelection,false);throw new Exception("FAIL: unconfirmed setup");}catch(ArgumentException){check(s.ReviewAcceptanceFolderConfigurations().Count==0&&s.ReviewAcceptanceProjectFolders(project).Count==0,"unconfirmed simplified setup makes no records");}
+  var first=s.SetupAcceptanceProjectFolders(project,null,null,firstSelection,true);
+  var cfg=s.ReviewAcceptanceFolderConfigurations().Single();var folder=s.ReviewAcceptanceProjectFolders(project).Single();
+  check(first.Created==1&&first.Existing==0&&first.ProjectFolder==folder.DisplayPath&&Directory.Exists(Path.Combine(folder.DisplayPath,"Calculations")),"single setup initializes root, configuration, reference and selected folder");
   var selected=cfg.Template.Where(x=>x.Name is "QA-QC" or "Reference Documents" or "Calculations").ToArray();
   var existing=Path.Combine(folder.DisplayPath,"Calculations");Directory.CreateDirectory(existing);
   var marker=Path.Combine(existing,"preserve.txt");File.WriteAllText(marker,"Synthetic existing content");
@@ -27,6 +28,9 @@ internal static class DocumentAcceptanceStartupTests
   check(created.Count==2&&File.ReadAllText(marker)=="Synthetic existing content","acceptance creates only missing template folders");
   var reconciled=s.PreviewAcceptanceFolderCreation(project,folder.Hash,cfg.Hash,selected);
   check(reconciled.Missing.Count==0,"acceptance folder creation reconciles complete template");
+  var repeat=s.SetupAcceptanceProjectFolders(project,cfg.Hash,folder.Hash,selected,true);
+  check(repeat.Created==0&&repeat.Existing==3&&s.ReviewAcceptanceProjectFolders(project).Single()==folder&&File.ReadAllText(marker)=="Synthetic existing content","simplified setup retry preserves file and registered reference");
+  try{s.SetupAcceptanceProjectFolders(project,null,folder.Hash,selected,true);throw new Exception("FAIL: stale simplified setup");}catch(ArgumentException){check(true,"simplified setup refuses stale configuration");}
   try{s.CreateAcceptanceFolders(project,folder.Hash,cfg.Hash,selected,preview.PlanHash,true);throw new Exception("FAIL: stale acceptance creation");}
   catch(ArgumentException){check(true,"acceptance refuses stale folder creation plan");}
   if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(Path.Combine(folder.DisplayPath,"QA-QC")),"acceptance new QA-QC folder has restricted permissions");
@@ -60,6 +64,7 @@ internal static class DocumentAcceptanceStartupTests
    Denied(()=>s.PrepareAcceptanceTransmittal(Guid.NewGuid(),intent,"Synthetic preparation","Reviewed",true),"transmittal preparation requires current record grant");
    Denied(()=>s.SaveAcceptanceTransmittalEvent(project,record.Id,Guid.NewGuid(),record.History[0].Event.Hash,"IssueRecorded","Synthetic issue","Reviewed",true),"issue recording requires current record grant");
    Denied(()=>s.CreateAcceptanceFolders(project,folder.Hash,cfg.Hash,selected,reconciled.PlanHash,true),"folder creation requires current record grant");
+   Denied(()=>s.SetupAcceptanceProjectFolders(project,cfg.Hash,folder.Hash,selected,true),"simplified setup requires current record grant");
    check(s.ReviewAcceptanceTransmittals(project).Single().History.Count==1,"read-only authorization retains original transmittal without new events");
   });
   WithRevoked("Administration.Manage",()=>{
