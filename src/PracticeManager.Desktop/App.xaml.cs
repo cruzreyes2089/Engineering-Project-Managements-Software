@@ -22,7 +22,7 @@ public partial class App : Application
        !(e.Args.Length==2&&e.Args[0]=="--production-acceptance-session"))
      throw new ArgumentException("Installed production startup remains disabled.");
     installedLease=InstalledVersionSelectionCandidate.AcquireSelectedLaunchLease(
-      InstalledProgramBoundary.ReviewExisting(profile),executable);
+      InstalledProgramBoundary.ReviewInitialized(profile),executable);
    }
    else if(e.Args.Contains("--installed",StringComparer.Ordinal))
     throw new ArgumentException("Installed program location required.");
