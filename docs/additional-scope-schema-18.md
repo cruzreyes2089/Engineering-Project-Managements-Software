@@ -1,0 +1,3 @@
+# Additional scope task enforcement — schema 18
+
+Every explicitly identified additional-service task is linked immutably to the same project's scope-change request. Planning can precede client approval; starting or completing that task requires the project's existing start authorization plus an Authorized scope decision. Rejected scope cannot receive new tasks; a planned task cannot lose its link to evade authorization. The planning and own-work views display scope status without exposing fee or client evidence. Historical tasks migrate as base-scope tasks; the system cannot infer semantic scope from old task descriptions, and planners remain responsible for identifying extra services. No automatic fee amendment or production accounting. CI pending.
