@@ -3,6 +3,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from collections import Counter
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_REPORTED = 250
@@ -16,6 +17,8 @@ def summarize(document, language):
         raise ValueError("Missing analysis runs")
     findings = []
     notifications = 0
+    diagnostic_levels = Counter()
+    diagnostic_rules = Counter()
     invocation_count = 0
     rule_count = 0
     for run in runs:
@@ -31,8 +34,18 @@ def summarize(document, language):
         for invocation in invocations:
             if invocation.get("executionSuccessful") is False:
                 raise ValueError("Failed analysis invocation")
-            notifications += len(invocation.get("toolExecutionNotifications", []))
-            notifications += len(invocation.get("toolConfigurationNotifications", []))
+            for key in ("toolExecutionNotifications", "toolConfigurationNotifications"):
+                for notice in invocation.get(key, []):
+                    notifications += 1
+                    level = notice.get("level", "unspecified")
+                    if level not in ("error", "warning", "note", "none", "unspecified"):
+                        level = "unspecified"
+                    diagnostic_levels[level] += 1
+                    descriptor = notice.get("descriptor", {})
+                    rule = descriptor.get("id", notice.get("ruleId", ""))
+                    if not isinstance(rule, str) or not re.fullmatch(r"[A-Za-z0-9_./-]{1,160}", rule):
+                        rule = "[unrecognized diagnostic]"
+                    diagnostic_rules[(level, rule)] += 1
         results = run.get("results")
         if not isinstance(results, list):
             raise ValueError("Missing findings array")
@@ -59,6 +72,10 @@ def summarize(document, language):
             findings.append({"rule": rule, "kind": kind, "level": level, "path": uri, "line": line})
     return {"language": language, "runCount": len(runs), "ruleDescriptorCount": rule_count, "queryCoverageVerified": False,
             "invocationCount": invocation_count, "notificationCount": notifications,
+            "diagnosticLevels": dict(sorted(diagnostic_levels.items())),
+            "diagnosticGroupsTruncated": len(diagnostic_rules) > MAX_REPORTED,
+            "diagnosticGroups": [{"level": level, "rule": rule, "count": count}
+                                 for (level, rule), count in diagnostic_rules.most_common(MAX_REPORTED)],
             "resultCount": len(findings), "truncated": len(findings) > MAX_REPORTED,
             "findings": findings[:MAX_REPORTED], "releaseAuthorized": False,
             "independentSecurityApproved": False}
