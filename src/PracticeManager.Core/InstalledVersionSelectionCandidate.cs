@@ -36,7 +36,7 @@ public static class InstalledVersionSelectionCandidate
  }
  static void NoPending(InstalledProgramBoundary boundary)
  {
-  if(Exists(Path.Combine(boundary.ProgramRoot,IntentName))||Exists(Path.Combine(boundary.ProgramRoot,RemovalIntent))||Exists(Path.Combine(boundary.ProgramRoot,InstallIntent)))
+  if(Exists(Path.Combine(boundary.ProgramRoot,IntentName))||Exists(Path.Combine(boundary.ProgramRoot,RemovalIntent))||Exists(Path.Combine(boundary.ProgramRoot,InstallIntent))||Exists(Path.Combine(boundary.ProgramRoot,"registration-pending.txt")))
    throw new ArgumentException("Interrupted program selection requires review. No automatic rollback.");
  }
  static string? Current(InstalledProgramBoundary boundary)
@@ -58,6 +58,31 @@ public static class InstalledVersionSelectionCandidate
    return lease;
   }
   catch{lease.Dispose();throw;}
+ }
+ // Not wired to NSIS while release is held. Registers only the current
+ // verified version; an interrupted registration prevents cooperative startup.
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ internal static void RegisterReviewedInstallation(InstalledProgramBoundary boundary,string expectedVersion,string expectedUninstallerHash,Microsoft.Win32.RegistryKey parent,string shortcutDirectory)
+ {
+  using var lease=boundary.AcquireExistingLease();
+  NoPending(boundary);
+  if(Current(boundary)!=expectedVersion)throw new ArgumentException("Selected program changed.");
+  _=boundary.VerifyInitializedLayout();
+  InstalledPayloadVerification.Verify(boundary,expectedVersion);
+  var receiptPath=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"registration-receipt.json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  using(var existing=parent.OpenSubKey(WindowsRegistrationCandidate.ProductKey,false))
+   if(existing!=null)throw new ArgumentException("Existing Windows registration requires review.");
+  _=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,WindowsRegistrationCandidate.ShortcutName),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  WriteNew(boundary,"registration-pending.txt",expectedVersion);
+  var receipt=WindowsRegistrationCandidate.RegisterFresh(boundary,expectedVersion,expectedUninstallerHash,parent,shortcutDirectory);
+  var raw=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(receipt);
+  using(var stream=new FileStream(receiptPath,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+  {stream.Write(raw);stream.Flush(true);}
+  if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(receiptPath))throw new ArgumentException("Registration receipt permissions require review.");
+  WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
+  if(Read(boundary,"registration-pending.txt")!=expectedVersion||Current(boundary)!=expectedVersion)
+   throw new ArgumentException("Registration outcome requires review.");
+  File.Delete(Path.Combine(boundary.ProgramRoot,"registration-pending.txt"));
  }
  public static string? ReviewCurrent(InstalledProgramBoundary boundary)
  {
