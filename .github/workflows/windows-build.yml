@@ -63,6 +63,14 @@ jobs:
       - name: Exercise due-date diagnostic with offline fixtures
         shell: pwsh
         run: ./tools/accounting/Inspect-SyntheticDueDates.ps1 -SelfTest
+      - name: Parse owner-led static scan procedure (no scan or application execution)
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/security/Invoke-CandidateStaticScan.ps1').Path, [ref]$tokens, [ref]$errors)
+          if (@($errors).Count -ne 0) { throw ($errors | Out-String) }
+          Write-Host 'Local static scan procedure syntax checked; actual endpoint scan remains mandatory.'
       - name: SQLite schema tests
         run: python -m unittest discover -s tests/schema -v
       - name: Build, smoke test and publish

@@ -1,12 +1,8 @@
 name: Synthetic DAO qualification
+# Optional legacy migration: owner-approved deferral for initial deployment.
+# Keep actual qualification available on demand; never report an unexecuted test as passing.
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'tools/migration/**'
-      - 'src/PracticeManager.Persistence.Sqlite/**'
-      - 'tests/PracticeManager.SmokeTests/**'
-      - '.github/workflows/synthetic-dao-qualification.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
