@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><InternalsVisibleTo Include="PracticeManager.SmokeTests"/><InternalsVisibleTo Include="PracticeManager.Persistence.Sqlite"/></ItemGroup></Project>
