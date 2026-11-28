@@ -1,0 +1,7 @@
+# v0.4.3 — saved accounting profile (development)
+
+Windows DPAPI CurrentUser through Microsoft's ProtectedData package (10.0.15) protects the explicitly saved key. Profile is per CRC user, stored in schema 3 with endpoint, protected bytes, last successful UTC timestamp and revision. Endpoint/user binding prevents accidental reuse with another configured endpoint. Application permissions are checked before access and before persisting a result. Test and save only replaces a profile after HTTP 200 JSON success. A failed test retains the last success timestamp; no claim of continuous connectivity. Test saved uses the saved endpoint, not unsaved form text. Remove deletes the local profile but does not revoke the Manager token or securely erase prior backups. No network access outside the already-verified local probe. No sync/posting.
+
+Back up the closed development database before upgrading. The new database schema is incompatible with earlier executable versions; restore the backup if rolling back. DPAPI is not a boundary against other software running as the same Windows user; copied profiles may be unavailable on another Windows account or device. Re-enter credentials after such a move. Managed strings cannot be guaranteed zeroized. Test on synthetic data only. No production release. API schema mapping, token revocation and accounting reconciliation remain pending.
+
+Reference: https://learn.microsoft.com/en-us/dotnet/standard/security/how-to-use-data-protection
