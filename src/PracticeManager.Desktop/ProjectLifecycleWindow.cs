@@ -26,14 +26,18 @@ internal sealed class ProjectLifecycleWindow:Window
  {
   loaded=false;expected=null;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";note.Clear();
   try{
-   var r=service.ReadProjectCloseoutReview(project);var events=service.ReadProjectLifecycle(project);history.ItemsSource=events;expected=events.FirstOrDefault()?.Id;
+   var review=service.ReadProjectLifecycleReview(project);var r=review.Snapshot;var events=review.History;history.ItemsSource=events;expected=events.FirstOrDefault()?.Id;
    summary.Text=$"{r.ProjectNumber} — {r.ProjectState}\nSetup: {r.SetupState}; conflict: {r.ConflictStatus}\nOutstanding tasks: {r.OpenTasks}; QA: {r.OpenQualityItems}; scope: {r.PendingScopeDecisions}\nPending time: {r.PendingTimeSubmissions}; expenses: {r.PendingExpenseSubmissions}";
-   close.IsEnabled=r.ProjectState=="Active";reopen.IsEnabled=r.ProjectState=="OperationalClosed";loaded=true;status.Text="Current operational snapshot. Service rechecks evidence before recording.";
+   close.IsEnabled=r.CanRequestClose;reopen.IsEnabled=r.CanRequestReopen;loaded=true;
+   status.Text=r.ProjectState=="Active"&&!r.CanRequestClose?"Resolve outstanding setup, conflict or operational items shown above before closing.":
+    r.ProjectState=="OperationalClosed"&&!r.CanRequestReopen?"Resolve current conflict clearance before requesting reopening.":
+    "Current operational snapshot. Service rechecks authorization and evidence before recording.";
   }catch(UnauthorizedAccessException){status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Lifecycle unavailable.";}
  }
  void Record(bool closing)
  {
-  if(!loaded)return;
+  if(!loaded||!(closing?close.IsEnabled:reopen.IsEnabled))return;
+  if(string.IsNullOrWhiteSpace(note.Text)){status.Text="Enter the decision evidence or reason before confirming.";note.Focus();return;}
   var question=closing?"Record operational closure? This does not settle invoices or release contractual obligations.":"Explicitly reopen this project for operational work subject to current controls?";
   if(MessageBox.Show(this,question,"Confirm lifecycle decision",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
   try{var result=service.RecordProjectLifecycle(project,expected,closing,note.Text,true);Refresh();status.Text="Recorded: "+result.State;}
