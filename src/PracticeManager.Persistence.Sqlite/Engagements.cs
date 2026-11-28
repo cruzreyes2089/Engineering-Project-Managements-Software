@@ -101,6 +101,13 @@ public sealed partial class LocalPractice
   t.Commit();return new("Accepted",project,number);
  }
  // Historical method name retained for compatibility; register now includes both Pending and Active projects.
+ public (long Pending,long Active) ReadProjectDashboardCounts()
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);RequireProjectView(c,t);
+  using var q=Command(c,t,"SELECT count(CASE WHEN v.state='Pending' THEN 1 END),count(CASE WHEN v.state='Active' THEN 1 END) FROM project_operational_state v");using var reader=q.ExecuteReader();
+  if(!reader.Read())throw new InvalidOperationException("Project counts unavailable.");
+  return(reader.GetInt64(0),reader.GetInt64(1));
+ }
  public IReadOnlyList<PendingProject> SearchPendingProjects(string search="",string state="All")
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Projects.View");Require(c,t,"Clients.View");
