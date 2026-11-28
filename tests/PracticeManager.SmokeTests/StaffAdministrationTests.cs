@@ -12,6 +12,8 @@ internal static class StaffAdministrationTests
   Invalid(()=>s.SetStaffGrant(role.Id,"Administration.Manage",true,false),"administration grant protected");
   Invalid(()=>s.SetStaffGrant(admin.Id,"Clients.View",false,true),"administrator grants protected");
   Denied(()=>new LocalPractice(path).FirmName(),"unauthenticated firm identity denied");
+  Denied(()=>new LocalPractice(path).ReadCompanySettings(),"unauthenticated company settings denied");
+  check(s.ReadCompanySettings()==("Synthetic Staff Firm","CL"),"company settings reflect actual bootstrap identity and numbering");
   var user=s.CreateStaffAccount("synthetic-engineer",role.Id,"Synthetic-temporary-0001");
   var staff=new LocalPractice(path);check(!staff.Login("synthetic-engineer","Synthetic-temporary-0001"),"temporary password cannot open session");
   check(!staff.ChangeRequiredPassword("synthetic-engineer","wrong","Synthetic-permanent-0001"),"incorrect temporary password denied");
@@ -19,6 +21,7 @@ internal static class StaffAdministrationTests
   check(staff.Login("synthetic-engineer","Synthetic-permanent-0001"),"new password authenticates");
   check(staff.FirmName()=="Synthetic Staff Firm","authenticated staff may read firm identity without domain grants");
   Denied(()=>staff.ReadStaffAccounts(),"ordinary account cannot enumerate users");
+  Denied(()=>staff.ReadCompanySettings(),"ordinary account cannot access administrator settings");
   Denied(()=>staff.ReadEmployees(),"ordinary account cannot enumerate employees without grant");
   var initialStamp=staff.ReadSessionAccessStamp();
   s.SetStaffGrant(role.Id,"Clients.View",true,false);check(staff.Can("Clients.View"),"grant becomes effective on existing session");
