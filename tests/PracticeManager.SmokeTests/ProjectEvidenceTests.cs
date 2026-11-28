@@ -67,14 +67,21 @@ internal static class ProjectEvidenceTests
   var pdfId=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),null,"Production","Drawings","drawing.pdf",pdf);
   var pdfRow=s.ReadProjectDocuments(p.Id).Single(x=>x.Id==pdfId);
   var pick=new[]{new ReleaseReviewSelection(pdfId,pdfRow.Hash)};
+  check(s.ReadReleaseReviewCandidates(p.Id).Single().Id==pdfId,"release candidates exclude non-PDF and restricted documents");
+  Invalid(()=>s.ReadReleaseReviewCandidates(other.Id),"pending project cannot list release candidates");
+  Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Record'");
+  Denied(()=>s.ReadReleaseReviewCandidates(p.Id),"release candidates require current document write permission");
+  Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.Record'");
   Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",false),"release review confirmation required");
   Invalid(()=>s.PrepareProjectReleaseReview(p.Id,new[]{new ReleaseReviewSelection(successor,s.ReadProjectDocuments(p.Id).Single(x=>x.Id==successor).Hash)},"Review","Synthetic recipient","Review",true),"release review rejects non-PDF");
   Denied(()=>s.PrepareProjectReleaseReview(p.Id,new[]{new ReleaseReviewSelection(restricted,rd.Hash)},"Review","Synthetic recipient","Review",true),"release review refuses restricted content");
   Invalid(()=>s.PrepareProjectReleaseReview(other.Id,pick,"Review","Synthetic recipient","Review",true),"pending other project cannot prepare release review");
 
   var qa=s.CreateQualityItem(p.Id,"Synthetic release QA","Correction","Review pending");
+  Invalid(()=>s.ReadReleaseReviewCandidates(p.Id),"open QA blocks release candidate list");
   Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",true),"open QA blocks release review");
   s.CloseQualityItem(p.Id,qa,"Resolved");
+  check(s.ReadReleaseReviewCandidates(p.Id).Single().Id==pdfId,"resolved QA restores eligible candidate list");
   var package=s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Reviewed",true);
   using(var memory=new MemoryStream(package.Bytes))
   using(var zip=new System.IO.Compression.ZipArchive(memory,System.IO.Compression.ZipArchiveMode.Read))
@@ -90,6 +97,7 @@ internal static class ProjectEvidenceTests
   Invalid(()=>VerifiedDocumentFile.Save(Path.Combine(Path.GetDirectoryName(path)!,"wrong-hash.zip"),".zip",package.Bytes,new string('0',64)),"verified save rejects mismatched bytes");
   if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(dest),"verified document copy retains restricted ACL");
   var newPdf=s.RegisterProjectDocument(p.Id,Guid.NewGuid(),pdfId,"Production","Drawings","drawing.pdf","%PDF-1.7\nSynthetic revised\n%%EOF"u8.ToArray());
+  check(s.ReadReleaseReviewCandidates(p.Id).Single().Id==newPdf,"release candidate list excludes superseded PDF");
   Invalid(()=>s.PrepareProjectReleaseReview(p.Id,pick,"Review","Synthetic recipient","Review",true),"superseded document cannot enter release review");
   check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"verified document staging cleaned");
   Denied(()=>s.ReadCandidateFolderConfiguration(),"ordinary database cannot access inactive document register");
