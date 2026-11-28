@@ -43,6 +43,12 @@ internal static class DocumentRegisterReviewTests
   var intent=DocumentTransmittalReview.Prepare(1,"Synthetic recipient","Permit review",new[]{d});
   var now=new DateTimeOffset(2026,11,27,0,0,0,TimeSpan.Zero);var none=Array.Empty<TransmittalEvent>();
   var prepared=DocumentTransmittalReview.Append(intent,none,null,"Prepared","Review evidence","Prepared only",1,now,true);
+  check(DocumentTransmittalReview.AvailableAttestations(null).Count==0,"no selected transmittal offers no attestation");
+  check(DocumentTransmittalReview.AvailableAttestations("Prepared").SequenceEqual(new[]{"IssueRecorded","Withdrawn"}),"prepared transmittal offers issue or withdrawal only");
+  check(DocumentTransmittalReview.AvailableAttestations("IssueRecorded").SequenceEqual(new[]{"DeliveryRecorded","Withdrawn"}),"issued transmittal offers delivery or withdrawal only");
+  check(DocumentTransmittalReview.AvailableAttestations("DeliveryRecorded").SequenceEqual(new[]{"Withdrawn"}),"delivered transmittal offers withdrawal only");
+  check(DocumentTransmittalReview.AvailableAttestations("Withdrawn").Count==0&&DocumentTransmittalReview.AvailableAttestations("Unknown").Count==0,"terminal or unknown state offers no attestation");
+
   Invalid(()=>DocumentTransmittalReview.Append(intent,new[]{prepared},prepared.Hash,"DeliveryRecorded","Delivery evidence","Review",1,now,true),"delivery cannot precede recorded issue");
   Invalid(()=>DocumentTransmittalReview.Append(intent,new[]{prepared},null,"IssueRecorded","Issue evidence","Review",1,now,true),"stale transmittal predecessor refused");
   Invalid(()=>DocumentTransmittalReview.Append(intent,new[]{prepared},prepared.Hash,"IssueRecorded","Issue evidence","Review",1,now,false),"explicit issuance review required");
