@@ -40,21 +40,22 @@ public sealed partial class LocalPractice
   Exec(c,t,@"ALTER TABLE project_folder_selections ADD COLUMN override_paths TEXT CHECK(override_paths IS NULL OR length(override_paths) BETWEEN 3 AND 24000);
    PRAGMA user_version=51;");
  }
- static string NamedLabel(string name)
+ static string NamedLabel(string name,bool existing=false)
  {
   if(string.IsNullOrWhiteSpace(name)||name.Length>60||name!=name.Trim()||
      name.Any(x=>!char.IsAsciiLetterOrDigit(x)&&x is not (' ' or '-' or '_'))||
-     (string.Equals(name,"CRC Engineering",StringComparison.OrdinalIgnoreCase)||string.Equals(name,"Suggested preset",StringComparison.OrdinalIgnoreCase)))
+     (!existing&&(string.Equals(name,"CRC Engineering",StringComparison.OrdinalIgnoreCase)||string.Equals(name,"Suggested preset",StringComparison.OrdinalIgnoreCase))))
    throw new ArgumentException("Use a distinct template name, 1–60 letters, numbers, spaces, hyphens or underscores.");
   return name;
  }
+ static string SerializeFolderPaths(IReadOnlyList<string> paths){var json=JsonSerializer.Serialize(paths);if(json.Length>24000)throw new ArgumentException("Encoded folder paths exceed the saved plan limit.");return json;}
  static NamedFolderChoice ReadChoice(SqliteConnection c,SqliteTransaction t,long revision)
  {
   if(revision==0)return new(0,"Suggested preset",ProjectFolderLayout.Default().Names);
   using var q=Command(c,t,"SELECT name,paths FROM named_folder_templates WHERE id=$i AND firm_id=1",("$i",revision));
   using var reader=q.ExecuteReader();
   if(!reader.Read())throw new ArgumentException("Template revision unavailable.");
-  return new(revision,NamedLabel(reader.GetString(0)),ProjectFolderLayout.ValidatePaths(JsonSerializer.Deserialize<string[]>(reader.GetString(1))??throw new InvalidOperationException("Template paths unavailable.")));
+  return new(revision,NamedLabel(reader.GetString(0),true),ProjectFolderLayout.ValidatePaths(JsonSerializer.Deserialize<string[]>(reader.GetString(1))??throw new InvalidOperationException("Template paths unavailable.")));
  }
  public IReadOnlyList<NamedFolderChoice> ReadNamedFolderChoices()
  {
@@ -70,7 +71,7 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireStorageSettings(c,t);
   if(!confirmed)throw new ArgumentException("Confirm template revision.");
-  name=NamedLabel(name);var valid=ProjectFolderLayout.ValidatePaths(paths);
+  name=NamedLabel(name);var valid=ProjectFolderLayout.ValidatePaths(paths);var serialized=SerializeFolderPaths(valid);
   var latest=Convert.ToInt64(Scalar(c,t,"SELECT coalesce(max(id),0) FROM named_folder_templates WHERE firm_id=1 AND name=$n COLLATE NOCASE",("$n",name)));
   if(latest!=expectedRevision)throw new ArgumentException("Template name exists or revision changed. Reload.");
   if(latest>0)
@@ -78,7 +79,7 @@ public sealed partial class LocalPractice
    var prior=ReadChoice(c,t,latest);
    if(prior.Name==name&&prior.Paths.SequenceEqual(valid))return prior;
   }
-  Exec(c,t,"INSERT INTO named_folder_templates(firm_id,name,paths,recorded_by,recorded_utc) VALUES(1,$n,$p,$a,$u)",("$n",name),("$p",JsonSerializer.Serialize(valid)),("$a",actor),("$u",UtcNow()));
+  Exec(c,t,"INSERT INTO named_folder_templates(firm_id,name,paths,recorded_by,recorded_utc) VALUES(1,$n,$p,$a,$u)",("$n",name),("$p",serialized),("$a",actor),("$u",UtcNow()));
   var id=Last(c,t);Audit(c,t,actor,"RecordNamedFolderTemplate","Firm",1);t.Commit();
   return new(id,name,valid);
  }

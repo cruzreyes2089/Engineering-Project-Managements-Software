@@ -12,6 +12,7 @@ internal static class NamedFolderTemplateTests
   check(s.ReadNamedFolderChoices().Single().Revision==0,"CRC is an available preset");
   foreach(var bad in new[]{new[]{"Design/Child"},new[]{"Design","design/Child"},new[]{"Design","Design/../x"},new[]{"Design","Design/Billing Administration"},new[]{"Design","Design/Child","Design/child"}})
    Reject<ArgumentException>(()=>s.SaveNamedFolderChoice("Synthetic",bad,0,true),"unsafe nested template rejected");
+  Reject<ArgumentException>(()=>s.SaveNamedFolderChoice("Suggested preset",new[]{"Design"},0,true),"new reserved preset name rejected");
   var first=s.SaveNamedFolderChoice("Residential",new[]{"Design","Design/Drawings","Design/Calculations","Delivery"},0,true);
   var second=s.SaveNamedFolderChoice("Commercial",new[]{"Reports","Reference"},0,true);
   check(s.ReadNamedFolderChoices().Count==3,"multiple named templates available");
@@ -60,6 +61,10 @@ internal static class NamedFolderTemplateTests
    Reject<UnauthorizedAccessException>(()=>s.SaveProjectFolderCustomization(project,preset.Id,new[]{"Other"},false,true),"customization write permission enforced");
    q.CommandText="UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.Restricted'";q.ExecuteNonQuery();
   }
+  using(var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false,ForeignKeys=true}.ToString())){
+   db.Open();using var q=db.CreateCommand();q.CommandText="INSERT INTO named_folder_templates(firm_id,name,paths,recorded_by,recorded_utc) VALUES(1,'Suggested preset','[\"Legacy Design\"]',1,'2026-01-01T00:00:00Z')";q.ExecuteNonQuery();
+  }
+  check(s.ReadNamedFolderChoices().Count(x=>x.Name=="Suggested preset")==2&&s.ReadNamedFolderChoices().Single(x=>x.Name=="Suggested preset"&&x.Revision>0).Paths.Single()=="Legacy Design","legacy reserved name remains readable by distinct revision");
   s.Logout();var reopened=new LocalPractice(path);check(reopened.Login("admin",pw)&&reopened.ReadProjectFolderPreview(project).Selection==preset,"selection survives restart");
  }
 }

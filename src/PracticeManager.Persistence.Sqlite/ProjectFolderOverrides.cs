@@ -24,13 +24,13 @@ public sealed partial class LocalPractice
   if(!confirmed)throw new ArgumentException("Confirm the project-specific folder plan.");
   var selected=CurrentFolderSelection(c,t,project);
   if(!selected.Assigned||selected.Id!=expectedSelection)throw new ArgumentException("Project selection changed or is missing. Reload.");
-  var valid=ProjectFolderLayout.ValidatePaths(paths);
+  var valid=ProjectFolderLayout.ValidatePaths(paths);var serialized=SerializeFolderPaths(valid);
   var current=SelectedLayout(c,t,selected);
   if(current.Names.SequenceEqual(valid)&&selected.IncludeCorrespondence==correspondence)return selected;
   // Validate the full logical plan, retaining the originally selected template as provenance.
   _=ProjectFolderPlanning.Build(project,row.Number,correspondence,true,ProjectFolderLayout.ProjectOverride(selected.Id,valid));
   Exec(c,t,"INSERT INTO project_folder_selections(project_id,template_id,correspondence,recorded_by,recorded_utc,override_paths) VALUES($p,$i,$c,$a,$u,$n)",
-   ("$p",project),("$i",selected.TemplateRevision==0?(object?)null:selected.TemplateRevision),("$c",correspondence?1:0),("$a",actor),("$u",UtcNow()),("$n",JsonSerializer.Serialize(valid)));
+   ("$p",project),("$i",selected.TemplateRevision==0?(object?)null:selected.TemplateRevision),("$c",correspondence?1:0),("$a",actor),("$u",UtcNow()),("$n",serialized));
   var id=Last(c,t);Audit(c,t,actor,"CustomizeProjectFolders","Project",project);t.Commit();
   return new ProjectFolderSelection(id,selected.TemplateRevision,correspondence){Customized=true};
  }

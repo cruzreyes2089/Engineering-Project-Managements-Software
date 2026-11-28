@@ -46,7 +46,9 @@ internal sealed class ProjectWorkspaceWindow:Window
    heading.Text=row.Number+" — "+row.Title;
    summary.Text="Client: "+row.ClientName+"\nSite: "+row.Site+"\nStatus: "+row.State+"   |   Setup: "+row.SetupState+"\nConflict screening: "+row.ConflictStatus;
    foreach(var a in actions)a.Button.IsEnabled=a.Allowed();
-  }catch(UnauthorizedAccessException){status.Text="Access denied.";}
-   catch(Exception){status.Text="Project unavailable. Refresh before continuing.";}
+  }catch(UnauthorizedAccessException){Clear();status.Text="Access denied.";}
+   catch(Exception){Clear();status.Text="Project unavailable. Refresh before continuing.";}
+ }
+ void Clear(){heading.Text="Project";summary.Text="";foreach(var a in actions)a.Button.IsEnabled=false;
  }
 }

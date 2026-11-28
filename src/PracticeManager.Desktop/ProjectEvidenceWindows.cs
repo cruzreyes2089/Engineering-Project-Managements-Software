@@ -12,7 +12,6 @@ internal sealed class ProjectDocumentsWindow:Window
  readonly TextBox search=new(){MaxLength=180,ToolTip="Search file names"};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap},details=new(){TextWrapping=TextWrapping.Wrap};
  readonly Button add=new(){Content="Add document"},version=new(){Content="Add new version"},export=new(){Content="Save copy"},folders=new(){Content="Project folders"};
- IReadOnlyList<ProjectDocument> rows=Array.Empty<ProjectDocument>();
  bool loaded;
  public ProjectDocumentsWindow(LocalPractice service,long project)
  {
@@ -35,26 +34,28 @@ internal sealed class ProjectDocumentsWindow:Window
   Closed+=(_,_)=>Clear();Run(Refresh);
  }
  ProjectDocument Selected()=>grid.SelectedItem as ProjectDocument??throw new ArgumentException("Select a document.");
- void Clear(){loaded=false;rows=Array.Empty<ProjectDocument>();grid.ItemsSource=null;details.Text="";add.IsEnabled=version.IsEnabled=export.IsEnabled=folders.IsEnabled=false;}
+ void Clear(){loaded=false;grid.ItemsSource=null;details.Text="";add.IsEnabled=version.IsEnabled=export.IsEnabled=folders.IsEnabled=false;}
  void Run(Action a){try{a();}catch(UnauthorizedAccessException){Clear();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){Clear();status.Text="Operation failed; refresh before retrying.";}}
- void Refresh(){Clear();rows=service.ReadProjectDocuments(project,current.IsChecked==true);loaded=true;Filter();}
+ void Refresh()=>Filter();
  void Filter()
  {
-  if(!loaded)return;
-  // Reacquire authorized rows before presenting a new filtered view. A revoked
-  // restricted-document grant must not reveal cached names through search.
-  rows=service.ReadProjectDocuments(project,current.IsChecked==true);
+  var selected=(grid.SelectedItem as ProjectDocument)?.Id;
+  Clear();
+  // Reacquire authorized rows before presenting a new filtered view.
+  var rows=service.ReadProjectDocuments(project,current.IsChecked==true);
   var matching=rows.Where(x=>x.FileName.Contains(search.Text.Trim(),StringComparison.OrdinalIgnoreCase)).ToArray();
-  grid.ItemsSource=matching;status.Text=matching.Length+" document(s)";UpdateActions();
+  grid.ItemsSource=matching;loaded=true;grid.SelectedItem=matching.FirstOrDefault(x=>x.Id==selected);status.Text=matching.Length+" document(s)";UpdateActions();
  }
  void UpdateActions()
  {
+  try{
   var selected=grid.SelectedItem as ProjectDocument;
   bool view=loaded&&service.Can("Documents.View")&&service.Can("Projects.View")&&service.Can("Clients.View");
   bool visible=view&&selected!=null&&(selected.Classification!="Restricted"||service.Can("Documents.Restricted"));
   add.IsEnabled=view&&service.Can("Documents.Record");version.IsEnabled=add.IsEnabled&&visible&&selected!.IsCurrent;
   export.IsEnabled=visible;folders.IsEnabled=view;
   details.Text=visible?"Selected: "+selected!.FileName+"\nSHA-256: "+selected.Hash:"Select a document to view its identity.";
+  }catch(Exception){Clear();status.Text="Document access unavailable. Refresh." ;}
  }
  void Register(ProjectDocument? prior)
  {
@@ -80,7 +81,7 @@ internal sealed class ProjectDocumentsWindow:Window
   }catch(ArgumentException e){MessageBox.Show(w,e.Message);}catch(UnauthorizedAccessException){MessageBox.Show(w,"Access denied.");w.DialogResult=false;}catch(Exception){MessageBox.Show(w,"Save failed. Check document history before retrying.");}};
   w.ShowDialog();Refresh();
  }
- void Export(){var d=Selected();var picker=new SaveFileDialog{FileName=d.FileName,DefaultExt=Path.GetExtension(d.FileName),OverwritePrompt=true};if(picker.ShowDialog(this)!=true)return;var content=service.RetrieveProjectDocument(project,d.Id,d.Hash);if(!string.Equals(Path.GetExtension(picker.FileName),Path.GetExtension(d.FileName),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Keep the original document extension.");using var stream=new FileStream(picker.FileName,FileMode.CreateNew,FileAccess.Write,FileShare.None);stream.Write(content.Bytes);stream.Flush(true);status.Text="Verified copy saved. Scan before opening. Existing files are never overwritten.";}
+ void Export(){var d=Selected();var picker=new SaveFileDialog{FileName=d.FileName,DefaultExt=Path.GetExtension(d.FileName),OverwritePrompt=true};if(picker.ShowDialog(this)!=true)return;if(File.Exists(picker.FileName)||Directory.Exists(picker.FileName))throw new ArgumentException("Choose a new file name; existing files are never overwritten.");var content=service.RetrieveProjectDocument(project,d.Id,d.Hash);if(!string.Equals(Path.GetExtension(picker.FileName),Path.GetExtension(d.FileName),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Keep the original document extension.");using var stream=new FileStream(picker.FileName,FileMode.CreateNew,FileAccess.Write,FileShare.None);stream.Write(content.Bytes);stream.Flush(true);status.Text="Verified copy saved. Scan before opening. Existing files are never overwritten.";}
 }
 internal sealed class ProjectQualityWindow:Window
 {

@@ -24,7 +24,7 @@ internal sealed class InvoicePreparationWindow:Window
   if(service.Can("Billing.Rates"))tabs.Items.Add(new TabItem{Header="Restricted employee rates",Content=BuildRates()});
   root.Children.Add(tabs);Content=root;
  }
- void Run(Action a){try{a();}catch(UnauthorizedAccessException){ClearInvoices();rates.ItemsSource=null;status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
+ void Run(Action a){try{a();}catch(UnauthorizedAccessException){ClearInvoices();rates.ItemsSource=null;status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){ClearInvoices();rates.ItemsSource=null;status.Text="Operation failed. Refresh before retrying.";}}
  long Project()=>projects.SelectedItem is PendingProject p?p.Id:throw new ArgumentException("Select active project.");
  long Employee()=>employees.SelectedItem is EmployeeRecord e?e.Id:throw new ArgumentException("Select employee.");
  UIElement BuildInvoices()
@@ -70,7 +70,7 @@ internal sealed class InvoicePreparationWindow:Window
   Add(reviewBar,"View draft",ViewDraft,Selected);
   Add(reviewBar,"Approve draft",()=>Decide(true),()=>Approve()&&Draft()?.State=="Draft");
   Add(reviewBar,"Cancel unsent draft",()=>Decide(false),()=>Edit()&&Draft()?.State=="Draft");
-  Add(reviewBar,"Export approved CSV",Export,Approved);
+  Add(reviewBar,"Export approved CSV",Export,()=>Approved()&&service.Can("Billing.Invoices.Export"));
   Add(reviewBar,"Save review DOCX",()=>{var d=SelectedDraft();ReviewDocumentSave.Save(this,service.PrepareInvoiceReviewDocx(Project(),d.Id,d.PayloadHash));},Selected);
   var more=new Menu{VerticalAlignment=VerticalAlignment.Center};var advanced=new MenuItem{Header="Advanced controls"};more.Items.Add(advanced);
   void MenuAction(string label,Action action,Func<bool> allowed){var item=new MenuItem{Header=label};advanced.Items.Add(item);item.Click+=(_,_)=>Run(()=>{if(!allowed())throw new ArgumentException("Select an eligible draft.");action();});advanced.SubmenuOpened+=(_,_)=>{try{item.IsEnabled=allowed();}catch(Exception){item.IsEnabled=false;}};}
@@ -149,7 +149,7 @@ internal sealed class InvoicePreparationWindow:Window
  {
   var d=Selected();var picker=new SaveFileDialog{FileName=d.Number+".csv",Filter="CSV file (*.csv)|*.csv",DefaultExt=".csv",OverwritePrompt=true};if(picker.ShowDialog(this)!=true)return;
   if(!string.Equals(Path.GetExtension(picker.FileName),".csv",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Use .csv extension.");
-  var data=service.ExportInvoiceDraftCsv(Project(),d.Id,d.PayloadHash);using var stream=new FileStream(picker.FileName,FileMode.CreateNew,FileAccess.Write,FileShare.None);using var writer=new StreamWriter(stream,new UTF8Encoding(true));writer.Write(data);writer.Flush();stream.Flush(true);status.Text="Approved internal draft export saved. Not an issued invoice or posting.";
+  if(File.Exists(picker.FileName)||Directory.Exists(picker.FileName))throw new ArgumentException("Choose a new file name; existing files are never overwritten.");var data=service.ExportInvoiceDraftCsv(Project(),d.Id,d.PayloadHash);using var stream=new FileStream(picker.FileName,FileMode.CreateNew,FileAccess.Write,FileShare.None);using var writer=new StreamWriter(stream,new UTF8Encoding(true));writer.Write(data);writer.Flush();stream.Flush(true);status.Text="Approved internal draft export saved. Not an issued invoice or posting.";
  }
  UIElement BuildRates()
  {

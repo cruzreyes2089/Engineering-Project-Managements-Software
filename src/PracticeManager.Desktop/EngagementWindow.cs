@@ -12,7 +12,7 @@ internal sealed class EngagementWindow:Window
  readonly DataGrid projects=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly TextBox search=new(){MaxLength=150,ToolTip="Search proposals and projects"};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
- readonly Button edit=new(){Content="Edit draft"},issue=new(){Content="Record proposal sent"},accept=new(){Content="Record acceptance"},reject=new(){Content="Record rejection"},snapshot=new(){Content="View issued record"};
+ readonly Button edit=new(){Content="Edit draft"},issue=new(){Content="Record as sent"},accept=new(){Content="Record acceptance"},reject=new(){Content="Record rejection"},snapshot=new(){Content="View issued record"};
  public EngagementWindow(LocalPractice service)
  {
   this.service=service;Title="Proposals and projects — development";Width=1060;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;

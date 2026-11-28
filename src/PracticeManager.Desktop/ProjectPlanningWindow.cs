@@ -11,7 +11,7 @@ internal sealed class ProjectPlanningWindow:Window
  readonly DataGrid phases=new(){IsReadOnly=true,AutoGenerateColumns=false,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly DataGrid tasks=new(){IsReadOnly=true,AutoGenerateColumns=false,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
- bool loaded;
+ bool loaded;string? projectState;
  readonly List<(Button Button,Func<bool> Allowed)> actions=new();
  public ProjectPlanningWindow(LocalPractice service,long project)
  {
@@ -19,7 +19,7 @@ internal sealed class ProjectPlanningWindow:Window
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();head.Children.Add(new TextBlock{Text="Project planning",FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Planning is allowed while Pending; employees may start work only after explicit project authorization. Estimate is original total task hours, not allocated daily capacity. Cancelled and discontinued assignments remain visible for history and are excluded from operational estimate totals.",TextWrapping=TextWrapping.Wrap});head.Children.Add(status);
   DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);
   bool CanPlan()=>loaded&&service.Can("Projects.Plan")&&service.Can("Employees.View")&&service.Can("Projects.View")&&service.Can("Clients.View");
-  bool Open()=>CanPlan()&&tasks.ItemsSource!=null&&service.ReadProjectOverview(project).State is "Pending" or "Active";
+  bool Open()=>CanPlan()&&tasks.ItemsSource!=null&&projectState is "Pending" or "Active";
   ProjectTask? Selected()=>tasks.SelectedItem as ProjectTask;
   DockPanel Section(string title,DataGrid g,Action<WrapPanel> build){
    var p=new DockPanel();var h=new StackPanel();h.Children.Add(new TextBlock{Text=title,FontSize=17,FontWeight=FontWeights.SemiBold});var bar=new WrapPanel();build(bar);h.Children.Add(bar);DockPanel.SetDock(h,Dock.Top);p.Children.Add(h);p.Children.Add(g);return p;
@@ -44,9 +44,9 @@ internal sealed class ProjectPlanningWindow:Window
   var split=new Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition{Height=new GridLength(2,GridUnitType.Star)});Grid.SetRow(phaseSection,0);Grid.SetRow(taskSection,1);split.Children.Add(phaseSection);split.Children.Add(taskSection);root.Children.Add(split);Content=root;phases.SelectionChanged+=(_,_)=>UpdateActions();tasks.SelectionChanged+=(_,_)=>UpdateActions();Run(Refresh);
  }
  void UpdateActions(){foreach(var a in actions){try{a.Button.IsEnabled=a.Allowed();}catch(Exception){a.Button.IsEnabled=false;}}}
- void Clear(){loaded=false;phases.ItemsSource=tasks.ItemsSource=null;UpdateActions();}
+ void Clear(){loaded=false;projectState=null;phases.ItemsSource=tasks.ItemsSource=null;UpdateActions();}
  void Run(Action a){try{a();}catch(UnauthorizedAccessException){Clear();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){Clear();status.Text="Operation failed. Refresh before retrying.";}finally{UpdateActions();}}
- void Refresh(){var phase=(phases.SelectedItem as ProjectPhase)?.Id;var task=(tasks.SelectedItem as ProjectTask)?.Id;Clear();var overview=service.ReadProjectOverview(project);var ps=service.ReadProjectPhases(project);var ts=service.ReadProjectTasks(project);phases.ItemsSource=ps;tasks.ItemsSource=ts;phases.SelectedItem=ps.FirstOrDefault(x=>x.Id==phase);tasks.SelectedItem=ts.FirstOrDefault(x=>x.Id==task);loaded=true;status.Text=overview.Number+" — "+overview.State+" · "+ps.Count+" phases · "+ts.Count+" tasks";UpdateActions();}
+ void Refresh(){var phase=(phases.SelectedItem as ProjectPhase)?.Id;var task=(tasks.SelectedItem as ProjectTask)?.Id;Clear();var overview=service.ReadProjectOverview(project);var ps=service.ReadProjectPhases(project);var ts=service.ReadProjectTasks(project);phases.ItemsSource=ps;tasks.ItemsSource=ts;phases.SelectedItem=ps.FirstOrDefault(x=>x.Id==phase);tasks.SelectedItem=ts.FirstOrDefault(x=>x.Id==task);projectState=overview.State;loaded=true;status.Text=overview.Number+" — "+overview.State+" · "+ps.Count+" phases · "+ts.Count+" tasks";UpdateActions();}
  TextBox Field(StackPanel p,string label,string value){p.Children.Add(new TextBlock{Text=label});var b=new TextBox{Text=value,MaxLength=200};p.Children.Add(b);return b;}
  DatePicker DateField(StackPanel p,string label,DateOnly day){p.Children.Add(new TextBlock{Text=label});var d=new DatePicker{SelectedDate=day.ToDateTime(TimeOnly.MinValue)};p.Children.Add(d);return d;}
  static DateOnly Day(DatePicker d)=>d.SelectedDate.HasValue?DateOnly.FromDateTime(d.SelectedDate.Value):throw new ArgumentException("Select a date.");

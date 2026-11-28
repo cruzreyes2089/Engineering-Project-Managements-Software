@@ -1,0 +1,5 @@
+# Consolidated source corrections
+
+Prior static deployment qualification passed at 1dddfada5bc6ba82fc00173a59415bf359728feb (run 46087766004). Startup revision c34aca7d576f69be4f0a171ac5bf5c26183ba158 also completed successful CI.
+
+This batch removes redundant project overview/document reads, clears document results before requery and disables actions on failed workspace refresh, identifies work tasks by project/phase/title and reloads own eligible tasks using actual selected work date (existing service requires date inside task plan), resets attendance controls after denied or failed calls, checks the existing invoice export grant, guards against overwriting documents/CSV, clarifies manual proposal issuance, preserves historical reserved template names while still rejecting new reserved names and gives explicit validation for encoded folder plan size. A legacy-name fixture is added. No schema, permission defaults, external posting or physical provisioning changes. Exact CI and interactive acceptance pending. Existing filesystem and independent release security limitations remain.
