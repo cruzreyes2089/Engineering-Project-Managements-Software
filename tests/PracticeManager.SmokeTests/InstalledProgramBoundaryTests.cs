@@ -156,6 +156,32 @@ internal static class InstalledProgramBoundaryTests
   Refuse(()=>InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,upgrade.Digest,first,extracted.Source,extracted.Manifest),"incomplete install blocks further staging");
   check(File.ReadAllText(sentinel)=="must survive removal","staging and selection preserve project data");
   File.Delete(installPending); // disposable fixture only
+  var freshProfile=Directory.CreateDirectory(Path.Combine(parent,"fresh-install")).FullName;
+  var fresh=InstalledProgramBoundary.InitializeNewInstallation(freshProfile);
+  var freshId=fresh.VerifyInitializedLayout();
+  check(Guid.TryParseExact(freshId,"N",out var parsed)&&parsed!=Guid.Empty,"fresh install reserves protected root and unique identity");
+  check(InstalledProgramBoundary.ReviewInitialized(freshProfile).VerifyInitializedLayout()==freshId,"existing initialized installation retains identity");
+  Refuse(()=>InstalledProgramBoundary.InitializeNewInstallation(freshProfile),"existing program root cannot be reinitialized");
+  InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(fresh,null,extracted.Digest,extracted.Source,extracted.Manifest);
+  check(InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest,"fresh initialization and staged installation work together");
+  var freshMarker=Path.Combine(fresh.ProgramRoot,"installation-identity.txt");
+  File.WriteAllText(freshMarker,"invalid identity");
+  Refuse(()=>InstalledProgramBoundary.ReviewInitialized(freshProfile),"invalid installation identity refuses reopen");
+  check(File.ReadAllText(freshMarker)=="invalid identity","invalid installation identity remains unchanged");
+  var collisionProfile=Directory.CreateDirectory(Path.Combine(parent,"collision-install")).FullName;
+  var collisionPrograms=Directory.CreateDirectory(Path.Combine(collisionProfile,"Programs")).FullName;
+  var collisionRoot=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(collisionPrograms,"CRC Practice Manager"));
+  var existing=Path.Combine(collisionRoot,"existing.txt");
+  File.WriteAllText(existing,"retain existing");
+  Refuse(()=>InstalledProgramBoundary.InitializeNewInstallation(collisionProfile),"existing unmarked program root not adopted");
+  check(File.ReadAllText(existing)=="retain existing"&&!File.Exists(Path.Combine(collisionRoot,"program.lock")),"existing program content preserved");
+  var interruptedProfile=Directory.CreateDirectory(Path.Combine(parent,"interrupted-install")).FullName;
+  var interruptedPrograms=Directory.CreateDirectory(Path.Combine(interruptedProfile,"Programs")).FullName;
+  var reservation=Directory.CreateDirectory(Path.Combine(interruptedPrograms,".crc-install-reservation-"+Guid.NewGuid().ToString("N"))).FullName;
+  Refuse(()=>InstalledProgramBoundary.InitializeNewInstallation(interruptedProfile),"interrupted first installation refuses replacement reservation");
+  check(Directory.Exists(reservation)&&!Directory.Exists(Path.Combine(interruptedPrograms,"CRC Practice Manager")),"interrupted reservation retained without publishing program root");
+  check(!Directory.Exists(Path.Combine(freshProfile,"CRC Practice Manager DATA"))&&!Directory.Exists(Path.Combine(freshProfile,"CRC Practice Manager DEV")),"first install creates no business database");
+
 
   check(File.Exists(boundary.LeasePath),"coordination file persists after release");
   File.WriteAllText(boundary.LeasePath,"unexpected content");
