@@ -53,3 +53,18 @@ The current repository branch listing was exhausted (53 branch names); no later 
 Next external prerequisites, not tasks that can be certified by another CI run: independent reviewer/vendor resolution of original browser warning and exact-artifact execution authorization; private clean Windows acceptance environment; compatible DAO provider on isolated machine if legacy import is required; approved encryption/recovery custody design and signing arrangement; owner-approved initial scope, counsel-approved documents. Keep all 56 acceptance rows and record exclusions explicitly rather than converting blocked rows to pass. See updated desktop plan for milestone 08 retest observations.
 
 No binary distribution, no main merge, no production authorization. Source-only improvements do not resolve the original warning.
+
+
+## Milestone 10 consolidated checkpoint
+
+Verified PR #44 head 62bc2e5e1d75407f61c56f92fe169c8019452415: Windows run 46106347229, 2390 native and 151 Python checks, zero compiler warnings/errors. Upgrade run 46106347144 passed; DAO run 46106347141 failed. Prior integrated solo-practice regression (#40 run 46103482143) passed on ordinary schema 47, including reviewed agreement, conflict clearance, time and expense, fixed-fee draft, operational closeout, report reconciliation and isolated recovery. Those tests do not constitute interactive acceptance. PR #45 head eab7b688c1e43e3598af1d491e1e8acc0a9670b2: upgrade 46108011612 passed; Windows 46108011570 still running at review; DAO 46108011636 failed. Do not reuse earlier artifact hashes for either candidate.
+
+Current source revision adds a startup check for exact restricted Windows directory DACLs on normal development and synthetic acceptance root/session folders. Missing or broadened access fails closed without changing an existing ACL, opening a database or falling back to a different workspace. New acceptance directory creation is refused under an unqualified acceptance root. This is a conservative point-in-time directory-layout check, not encryption, file-level ACL verification, a whole-machine effective-access check, or race-resistant filesystem isolation. An older development workspace with different permissions may now be refused; retain it unchanged for independent review and recovery, do not automatically rewrite its ACL. Windows test results for this new source change are pending.
+
+### Actual release blockers
+
+- Production data directory and folder automation are not qualified or enabled. Design and review the production storage boundary, encryption and recovery custody before activation; synthetic folder rehearsal is not production proof.
+- No physical signed installer, verified clean-machine install/uninstall, independent security assessment or exact-artifact authorization. Do not extend simulation just for test counts. Preserve hold.
+- Desktop acceptance remains 0/56. Required cases cannot be marked passed by CI. After independent exact-artifact approval, execute the actual desktop workflows and clean-machine installation in a private isolated Windows environment.
+- Initial internal-only accounting/migration exclusions remain proposals, not owner-approved scope changes. No real accounting posting or actual Access migration qualification; final legal documents require counsel approval.
+- Current recovered supported schema remains 47, with 48/49 isolated only; no reconstruction of missing schema 54 by assumption. No merge, binary distribution or release authorization.
