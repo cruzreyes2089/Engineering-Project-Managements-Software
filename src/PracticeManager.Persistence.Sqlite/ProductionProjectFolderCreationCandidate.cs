@@ -40,7 +40,7 @@ internal static class ProductionProjectFolderCreationCandidate
   if(frozen.Any(x=>!allowed.Contains(x.Name)))throw new ArgumentException("Select only approved project folder names.");
   void VerifyWorkspace()
   {
-   var current=ProductionStorageBoundary.Review(Path.GetDirectoryName(layout.DataRoot)!,layout.ProjectRoot,layout.BackupRoot);
+   var current=ProductionStorageBoundary.ReviewForDailyUse(Path.GetDirectoryName(layout.DataRoot)!,layout.ProjectRoot,layout.BackupRoot);
    if(current.DatabasePath!=layout.DatabasePath||
       ProductionWorkspaceIdentityCandidate.VerifyExisting(current)!=expectedWorkspaceId)
     throw new ArgumentException("Workspace identity changed; folder setup stopped.");
