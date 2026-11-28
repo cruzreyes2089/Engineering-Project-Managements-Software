@@ -14,26 +14,32 @@ internal sealed class ProjectReportsWindow:Window
  readonly TextBlock ops=new(){TextWrapping=TextWrapping.Wrap},finance=new(){TextWrapping=TextWrapping.Wrap},closeout=new(){TextWrapping=TextWrapping.Wrap},status=new(){TextWrapping=TextWrapping.Wrap};
  public ProjectReportsWindow(LocalPractice service)
  {
-  this.service=service;var access=service.ReadProjectReportAccess();if(!access.Operations&&!access.Financial)throw new UnauthorizedAccessException();Title="Project reports — operational preview";Width=830;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(18)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Operational records, not accounting statements. Manager remains authoritative for posted revenue, cash, receivables and profit. CSV exports save fresh results to a new file; use protected local storage.",TextWrapping=TextWrapping.Wrap});projects.ItemsSource=service.SearchPendingProjects();head.Children.Add(projects);var filters=new WrapPanel();filters.Children.Add(start);filters.Children.Add(end);WorkWindowFields.Button(filters,"Generate",Refresh);if(service.CanReadFirmTimeMix())WorkWindowFields.Button(filters,"Firm time mix",()=>new FirmTimeMixWindow(service){Owner=this}.ShowDialog());head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);var tabs=new TabControl();
+  this.service=service;var access=service.ReadProjectReportAccess();if(!access.Operations&&!access.Financial)throw new UnauthorizedAccessException();Title="Reports";Width=830;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
+  var root=new DockPanel{Margin=new Thickness(18)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Review project progress and costs. Use Manager for actual invoices, cash and profit. CSV saves fresh results to protected local storage.",TextWrapping=TextWrapping.Wrap});projects.ItemsSource=service.SearchPendingProjects();projects.DisplayMemberPath="ReportLabel";head.Children.Add(new TextBlock{Text="Project"});head.Children.Add(projects);var filters=new WrapPanel();var extra=new WrapPanel();filters.Children.Add(new TextBlock{Text="From",VerticalAlignment=VerticalAlignment.Center});filters.Children.Add(start);filters.Children.Add(new TextBlock{Text="To",VerticalAlignment=VerticalAlignment.Center});filters.Children.Add(end);var generate=new Button{Content="View report",IsEnabled=false};filters.Children.Add(generate);if(service.CanReadFirmTimeMix())WorkWindowFields.Button(extra,"Firm time mix",()=>new FirmTimeMixWindow(service){Owner=this}.ShowDialog());head.Children.Add(filters);head.Children.Add(new Expander{Header="Other reports and project tools",Content=extra,IsExpanded=false});head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);var tabs=new TabControl();
   if(access.Operations){
    tabs.Items.Add(new TabItem{Header="Operations",Content=new ScrollViewer{Content=ops}});
-   WorkWindowFields.Button(filters,"Export operations CSV",()=>Export(false));
-   if(service.CanReadEmployeeTimeReport())WorkWindowFields.Button(filters,"Employee time detail",()=>new EmployeeTimeReportWindow(service){Owner=this}.ShowDialog());
-   WorkWindowFields.Button(filters,"Project effort (all dates)",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectEffortWindow(service,p.Id){Owner=this}.ShowDialog();});
-   if(service.Can("Projects.Budget.View"))WorkWindowFields.Button(filters,"Budget history",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectBudgetWindow(service,p.Id){Owner=this}.ShowDialog();});
-   if(service.IsDocumentAcceptance&&service.Can("Documents.View")&&service.Can("Administration.Manage"))WorkWindowFields.Button(filters,"Document register report",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new DocumentManagementReportWindow(service,p.Id){Owner=this}.ShowDialog();});
+   
+   if(service.CanReadEmployeeTimeReport())WorkWindowFields.Button(extra,"Employee time detail",()=>new EmployeeTimeReportWindow(service){Owner=this}.ShowDialog());
+   WorkWindowFields.Button(extra,"Project effort (all dates)",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectEffortWindow(service,p.Id){Owner=this}.ShowDialog();});
+   if(service.Can("Projects.Budget.View"))WorkWindowFields.Button(extra,"Budget history",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectBudgetWindow(service,p.Id){Owner=this}.ShowDialog();});
+   if(service.IsDocumentAcceptance&&service.Can("Documents.View")&&service.Can("Administration.Manage"))WorkWindowFields.Button(extra,"Document register report",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new DocumentManagementReportWindow(service,p.Id){Owner=this}.ShowDialog();});
    var closeoutTab=new TabItem{Header="Closeout review (all dates)",Content=new ScrollViewer{Content=closeout}};tabs.Items.Add(closeoutTab);
-   WorkWindowFields.Button(filters,"Review closeout (all dates)",()=>{tabs.SelectedItem=closeoutTab;RefreshCloseout();});
-   if(service.Can("Projects.Closeout"))WorkWindowFields.Button(filters,"Close / reopen project",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectLifecycleWindow(service,p.Id){Owner=this}.ShowDialog();tabs.SelectedItem=closeoutTab;RefreshCloseout();});
+   
+   if(service.Can("Projects.Closeout"))WorkWindowFields.Button(extra,"Close / reopen project",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectLifecycleWindow(service,p.Id){Owner=this}.ShowDialog();tabs.SelectedItem=closeoutTab;RefreshCloseout();});
   }
   if(access.Financial){
-   tabs.Items.Add(new TabItem{Header="Restricted financial preview",Content=new ScrollViewer{Content=finance}});
-   WorkWindowFields.Button(filters,"Export financial CSV",()=>Export(true));
+   tabs.Items.Add(new TabItem{Header="Project costs",Content=new ScrollViewer{Content=finance}});
+   
    if(access.Operations&&service.Can("Projects.Budget.View"))
-    WorkWindowFields.Button(filters,"Direct-cost scenario",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectCostScenarioWindow(service,p.Id){Owner=this}.ShowDialog();});
+    WorkWindowFields.Button(extra,"Direct-cost scenario",()=>{if(projects.SelectedItem is not PendingProject p){status.Text="Select project.";return;}new ProjectCostScenarioWindow(service,p.Id){Owner=this}.ShowDialog();});
   }
-  root.Children.Add(tabs);Content=root;void ClearReports(){ops.Text=finance.Text=closeout.Text="";status.Text="Generate report for selected project and dates.";}projects.SelectionChanged+=(_,_)=>ClearReports();start.SelectedDateChanged+=(_,_)=>ClearReports();end.SelectedDateChanged+=(_,_)=>ClearReports();
+  var export=new Button{Content="Export CSV",IsEnabled=false};filters.Children.Add(export);
+  bool IsCloseout()=>((tabs.SelectedItem as TabItem)?.Header as string)=="Closeout review (all dates)";
+  bool IsFinancial()=>((tabs.SelectedItem as TabItem)?.Header as string)=="Project costs";
+  void Update(){var selected=projects.SelectedItem is PendingProject;var dated=start.SelectedDate is DateTime a&&end.SelectedDate is DateTime b&&b>=a;generate.IsEnabled=selected&&(IsCloseout()||dated);export.IsEnabled=selected&&dated&&!IsCloseout();start.IsEnabled=end.IsEnabled=!IsCloseout();}
+  generate.Click+=(_,_)=>{if(IsCloseout())RefreshCloseout();else Refresh();};export.Click+=(_,_)=>{if(!IsCloseout())Export(IsFinancial());};
+  root.Children.Add(tabs);Content=root;void ClearReports(){ops.Text=finance.Text=closeout.Text="";status.Text="Select project and view report.";Update();}
+  projects.SelectionChanged+=(_,_)=>ClearReports();start.SelectedDateChanged+=(_,_)=>ClearReports();end.SelectedDateChanged+=(_,_)=>ClearReports();tabs.SelectionChanged+=(_,_)=>Update();Update();
  }
  (long Project,DateOnly Start,DateOnly End) CurrentFilter()
  {
