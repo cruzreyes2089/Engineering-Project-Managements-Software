@@ -28,9 +28,12 @@ RESERVED = frozenset(("CON", "PRN", "AUX", "NUL",
                       *(f"COM{i}" for i in range(1, 10)),
                       *(f"LPT{i}" for i in range(1, 10))))
 
+class PayloadValidationError(ValueError):
+    pass
+
 def require(condition, reason):
     if not condition:
-        raise ValueError(reason)
+        raise PayloadValidationError(reason)
 
 def unique_keys(pairs):
     out = {}
@@ -180,6 +183,11 @@ def verify_payload(raw, expected_hash, root):
                 hashed.update(chunk)
             require(identity(os.fstat(stream.fileno())) == identity(opened),
                     "Payload file changed while reading")
+        # Reopen via the original path and compare descriptor observations;
+        # on Windows this avoids comparing two incompatible stat interfaces.
+        with path.open("rb") as reopened:
+            require(identity(os.fstat(reopened.fileno())) == identity(opened),
+                    "Payload file identity changed on reopen")
         require(identity(plain(path, False)) == identity(before)
                 and count == row["bytes"] and hashed.hexdigest() == row["sha256"],
                 "Payload bytes do not match inventory")
@@ -201,7 +209,7 @@ def main():
     except (ValueError, OSError, UnicodeError, RecursionError) as exc:
         # Fixed validation messages identify the failed invariant. Never print
         # raw OS errors or JSON input, which may contain local paths/data.
-        print("Installer payload rejected: " + (str(exc) if type(exc) is ValueError else type(exc).__name__), file=sys.stderr)
+        print("Installer payload rejected: " + (str(exc) if isinstance(exc, PayloadValidationError) else type(exc).__name__), file=sys.stderr)
         return 2
     print(json.dumps(report, sort_keys=True))
     return 0
