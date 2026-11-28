@@ -293,6 +293,9 @@ internal static class WorkEntriesTests
   check(closures.Count(x=>x!=null)==1,"concurrent close records exactly one event");
   var closed=closures.Single(x=>x!=null)!;
   check(closed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).ProjectState=="OperationalClosed"&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="OperationalClosed","closeout status projected across register and report");
+  var closedPlanning=admin.ReadProjectPlanningSnapshot(project);
+  check(closedPlanning.State=="OperationalClosed"&&closedPlanning.Phases.Any(x=>x.Id==phase)&&closedPlanning.Tasks.Any(x=>x.Id==task&&x.ProjectState=="OperationalClosed"),"closed planning snapshot retains phases and matching task state");
+  Denied(()=>worker.ReadProjectPlanningSnapshot(project),"ordinary employee cannot read management planning snapshot");
   check(worker.ReadMyWork(day,day).Single().ProjectState=="OperationalClosed"&&admin.ReadProjectHandoff(project).HasAuthorization,"closeout retains task history and start authorization");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic stale closure",true),"stale closeout command rejected");
   Invalid(()=>admin.CreateProjectPhase(project,"After close",day,day),"closed project blocks phase creation");
@@ -322,6 +325,8 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.RecordProjectLifecycle(project,closed.Id,true,"Synthetic stale closure after reopen",true),"stale closure token cannot be reused after reopening");
   check(admin.ReadProjectLifecycleReview(project).History.First().Id==reopened.Id,"stale decision leaves latest lifecycle event unchanged");
   check(reopened.State=="Active"&&admin.ReadProjectLifecycle(project).Count==2&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="Active","explicit reopen restores active status with retained lifecycle history");
+  var reopenedPlanning=admin.ReadProjectPlanningSnapshot(project);
+  check(reopenedPlanning.State=="Active"&&reopenedPlanning.Tasks.All(x=>x.ProjectState=="Active"),"reopened planning snapshot reflects active state consistently");
   admin.CloseQualityItem(project,lateQa,"Synthetic resolved");
   var replacementTask=admin.CreateProjectTask(project,new(phase,employee,"After reopen",day,day,60));
   check(replacementTask>0,"reopened project permits new task plan");
