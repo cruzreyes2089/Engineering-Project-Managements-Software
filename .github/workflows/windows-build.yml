@@ -80,6 +80,9 @@ jobs:
         timeout-minutes: 10
         shell: pwsh
         run: python tools/migration/qualify_installed_dao.py --confirm-synthetic-ci
+      - name: Verify static self-contained Windows deployment layout (no execution)
+        shell: pwsh
+        run: ./tools/release/Test-PublishedWindowsLayout.ps1
       - name: Review direct and transitive NuGet dependencies
         shell: pwsh
         run: ./tools/security/Review-Dependencies.ps1
