@@ -19,3 +19,8 @@ tools/release/validate_install_payload.py verifies exact inventory JSON bytes ag
 ## Gate status
 
 G5 desktop acceptance: 56 procedures defined, none executed interactively. G6: synthetic prior-source upgrade and native recovery proven, installer not implemented or tested. G7: original browser dangerous-file hold remains; independent security/vendor review and exact signed release approval still required. Do not distribute, run the quarantined artifact, or change packaging to evade detection.
+
+
+## Milestone 10 — actual published byte verification
+
+The earlier layout-only report did not rehash the physical files. CI now passes the actual runner-local publish root and separately generated inventory digest to the read-only Python verifier. It validates the inventory, walks the bounded directory tree, rejects missing/extra files, unlisted directories, redirected entries and unsafe paths, rehashes every file in bounded chunks and checks observed file identity and size before/after reading. It repeats the tree census. A mismatch fails the build. No binary is copied, launched, signed, installed or uploaded. The reported payloadBytesMatchInventory flag is a same-run consistency check, not independent security evidence, a race-proof filesystem boundary or proof of binary authenticity. Independent artifact verification, physical installer, clean-machine qualification and release authorization remain outstanding. Regression tests use text fixtures, not executable binaries.
