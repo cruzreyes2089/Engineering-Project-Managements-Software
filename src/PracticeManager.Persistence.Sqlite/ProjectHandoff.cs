@@ -79,6 +79,24 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction();RequireProjectView(c,t);ProjectRow(c,t,project);return SetupReview(c,t,project);
  }
+ // Save only changed checklist rows together. Compare the full reviewed snapshot
+ // before any write; no partial updates or implicit authorization.
+ public ProjectSetupReview SaveProjectSetupChecklist(long project,IReadOnlyList<ProjectSetupItem> expected,IReadOnlyList<ProjectSetupItem> desired)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Projects.Setup");RequireProjectView(c,t);ProjectRow(c,t,project);
+  if(expected.Count!=SetupItems.Length||desired.Count!=SetupItems.Length||!expected.Select(x=>x.Item).SequenceEqual(SetupItems)||!desired.Select(x=>x.Item).SequenceEqual(SetupItems))throw new ArgumentException("Complete checklist snapshot required.");
+  var current=SetupReview(c,t,project);
+  if(!current.Items.SequenceEqual(expected))throw new ArgumentException("Checklist changed. Refresh before saving.");
+  var changes=desired.Where((x,i)=>x!=current.Items[i]).ToArray();
+  foreach(var item in changes){
+   var reason=Validation.Text(item.Note,1000,"Checklist evidence",true);
+   Exec(c,t,"INSERT INTO project_setup_items(project_id,item,complete,note,updated_by,updated_utc) VALUES($p,$i,$c,$n,$a,$u) ON CONFLICT(project_id,item) DO UPDATE SET complete=excluded.complete,note=excluded.note,updated_by=excluded.updated_by,updated_utc=excluded.updated_utc",("$p",project),("$i",item.Item),("$c",item.Complete?1:0),("$n",reason),("$a",actor),("$u",UtcNow()));
+   Audit(c,t,actor,"RecordSetupItem","Project",project);
+  }
+  var next=SetupReview(c,t,project);
+  if(changes.Length!=0)Exec(c,t,"UPDATE projects SET setup_state=$s WHERE id=$p",("$s",next.State),("$p",project));
+  t.Commit();return next;
+ }
  public ProjectSetupReview RecordProjectSetupItem(long project,string item,bool complete,string note,bool expectedComplete,string expectedNote)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Projects.Setup");RequireProjectView(c,t);ProjectRow(c,t,project);
