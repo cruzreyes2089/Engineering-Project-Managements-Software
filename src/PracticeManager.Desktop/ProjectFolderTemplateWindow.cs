@@ -17,7 +17,7 @@ internal sealed class ProjectFolderTemplateWindow:Window
  public ProjectFolderTemplateWindow(LocalPractice? service=null,long project=0,string? projectLabel=null)
  {
   this.service=service;this.project=project;this.projectLabel=projectLabel??"Selected project";
-  if(service!=null&&!service.IsDocumentAcceptance)throw new UnauthorizedAccessException();
+  if(service!=null&&!service.IsDocumentAcceptance&&!service.IsProductionAcceptance)throw new UnauthorizedAccessException();
   Title=service==null?"Project folder template — preview":"Project folders — synthetic test";Width=650;Height=720;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var head=new StackPanel();
   head.Children.Add(new TextBlock{Text=service==null?"Choose folders for your project. Consultant MEP belongs in Reference Documents. Preview only.":"Choose project folders to create in the dedicated synthetic test workspace. Existing files are preserved.",TextWrapping=TextWrapping.Wrap});
@@ -39,7 +39,9 @@ internal sealed class ProjectFolderTemplateWindow:Window
  {
   ready=false;create.IsEnabled=false;configuration=null;reference=null;choices.Clear();rows.Children.Clear();
   try{
-   if(service!=null){
+   if(service?.IsProductionAcceptance==true){
+    if(!service.Can("Projects.Setup")||!service.Can("Projects.View")||!service.Can("Clients.View"))throw new UnauthorizedAccessException();
+   }else if(service!=null){
     var currentConfiguration=service.ReviewAcceptanceFolderConfigurations().LastOrDefault();
     var currentReference=service.ReviewAcceptanceProjectFolders(project).LastOrDefault();
     if(!service.CanRegisterProjectDocuments(project)||!service.Can("Administration.Manage"))throw new UnauthorizedAccessException();
@@ -57,7 +59,7 @@ internal sealed class ProjectFolderTemplateWindow:Window
  {
   if(service==null||!ready||!create.IsEnabled)return;
   try{var selected=Items();var names=ProjectFolderTemplate.Preview(selected);if(MessageBox.Show(this,"Create the selected folders for "+projectLabel+" in the synthetic project workspace? Existing files remain unchanged.\n"+string.Join("\n",names),"Create project folders",MessageBoxButton.YesNo)!=MessageBoxResult.Yes)return;
-   var result=service.SetupAcceptanceProjectFolders(project,configuration?.Hash,reference?.Hash,selected,true);if(Load())preview.Text=$"{result.Created} created; {result.Existing} already present.\n{result.ProjectFolder}";else preview.Text="Folder setup recorded. Reload failed; do not repeat until reconciled. "+preview.Text;}
+   (string ProjectFolder,int Created,int Existing) result=service.IsProductionAcceptance?service.SetupProductionAcceptanceFolders(project,selected):service.SetupAcceptanceProjectFolders(project,configuration?.Hash,reference?.Hash,selected,true);if(Load())preview.Text=$"{result.Created} created; {result.Existing} already present.\n{result.ProjectFolder}";else preview.Text="Folder setup recorded. Reload failed; do not repeat until reconciled. "+preview.Text;}
   catch(UnauthorizedAccessException){ready=false;create.IsEnabled=false;configuration=null;reference=null;choices.Clear();rows.Children.Clear();preview.Text="Access denied. Reload before retrying.";}
   catch(ArgumentException e){ready=false;create.IsEnabled=false;preview.Text=e.Message+" Reload before retrying; earlier setup steps may remain.";}
   catch(Exception){ready=false;create.IsEnabled=false;preview.Text="Setup not confirmed. Some folders or records may exist. Reload and reconcile before retrying.";}
