@@ -318,6 +318,7 @@ internal static class WorkEntriesTests
   check(closures.Count(x=>x!=null)==1,"concurrent close records exactly one event");
   var closed=closures.Single(x=>x!=null)!;
   check(closed.State=="OperationalClosed"&&admin.ReadProjectCloseoutReview(project).ProjectState=="OperationalClosed"&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="OperationalClosed","closeout status projected across register and report");
+  check(admin.SearchPendingProjects("","OperationalClosed").Any(x=>x.Id==project)&&!admin.SearchPendingProjects("","Active").Any(x=>x.Id==project),"closed projects are included only in matching state filter");
   var closedPlanning=admin.ReadProjectPlanningSnapshot(project);
   check(closedPlanning.State=="OperationalClosed"&&closedPlanning.Phases.Any(x=>x.Id==phase)&&closedPlanning.Tasks.Any(x=>x.Id==task&&x.ProjectState=="OperationalClosed"),"closed planning snapshot retains phases and matching task state");
   Denied(()=>worker.ReadProjectPlanningSnapshot(project),"ordinary employee cannot read management planning snapshot");
