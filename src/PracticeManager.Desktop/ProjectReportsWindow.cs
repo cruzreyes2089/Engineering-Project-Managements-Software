@@ -15,7 +15,7 @@ internal sealed class ProjectReportsWindow:Window
  public ProjectReportsWindow(LocalPractice service)
  {
   this.service=service;var access=service.ReadProjectReportAccess();if(!access.Operations&&!access.Financial)throw new UnauthorizedAccessException();Title="Project reports — operational preview";Width=830;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(18)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Operational records, not accounting statements. Manager remains authoritative for posted revenue, cash, receivables and profit.",TextWrapping=TextWrapping.Wrap});projects.ItemsSource=service.SearchPendingProjects();head.Children.Add(projects);var filters=new WrapPanel();filters.Children.Add(start);filters.Children.Add(end);WorkWindowFields.Button(filters,"Generate",Refresh);if(service.CanReadFirmTimeMix())WorkWindowFields.Button(filters,"Firm time mix",()=>new FirmTimeMixWindow(service){Owner=this}.ShowDialog());head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);var tabs=new TabControl();
+  var root=new DockPanel{Margin=new Thickness(18)};var head=new StackPanel();head.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});head.Children.Add(new TextBlock{Text="Operational records, not accounting statements. Manager remains authoritative for posted revenue, cash, receivables and profit. CSV exports save fresh results to a new file; use protected local storage.",TextWrapping=TextWrapping.Wrap});projects.ItemsSource=service.SearchPendingProjects();head.Children.Add(projects);var filters=new WrapPanel();filters.Children.Add(start);filters.Children.Add(end);WorkWindowFields.Button(filters,"Generate",Refresh);if(service.CanReadFirmTimeMix())WorkWindowFields.Button(filters,"Firm time mix",()=>new FirmTimeMixWindow(service){Owner=this}.ShowDialog());head.Children.Add(filters);head.Children.Add(status);DockPanel.SetDock(head,Dock.Top);root.Children.Add(head);var tabs=new TabControl();
   if(access.Operations){
    tabs.Items.Add(new TabItem{Header="Operations",Content=new ScrollViewer{Content=ops}});
    WorkWindowFields.Button(filters,"Export operations CSV",()=>Export(false));
@@ -45,9 +45,7 @@ internal sealed class ProjectReportsWindow:Window
   try{
    var filter=CurrentFilter();
    var access=service.ReadProjectReportAccess();if(financial?!access.Financial:!access.Operations)throw new UnauthorizedAccessException();
-   var kind=financial?"restricted financial preview":"project operations";
-   if(MessageBox.Show(this,$"Export a fresh {kind} report for the selected project and dates? Values may differ from the displayed snapshot. Use protected local storage. This is not an accounting statement.","Project report export",MessageBoxButton.OKCancel,MessageBoxImage.Warning)!=MessageBoxResult.OK)return;
-   var picker=new SaveFileDialog{Title="Save confidential project report",FileName=financial?"CRC-project-financial.csv":"CRC-project-operations.csv",DefaultExt=".csv",Filter="CSV file (*.csv)|*.csv",AddExtension=true,OverwritePrompt=true};
+   var picker=new SaveFileDialog{Title=financial?"Export fresh financial CSV — protected local storage":"Export fresh operations CSV — protected local storage",FileName=financial?"CRC-project-financial.csv":"CRC-project-operations.csv",DefaultExt=".csv",Filter="CSV file (*.csv)|*.csv",AddExtension=true,OverwritePrompt=true};
    if(picker.ShowDialog(this)!=true)return;
    if(CurrentFilter()!=filter)throw new ArgumentException("Report filters changed. Review and retry.");
    if(!string.Equals(Path.GetExtension(picker.FileName),".csv",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Keep the .csv extension.");
