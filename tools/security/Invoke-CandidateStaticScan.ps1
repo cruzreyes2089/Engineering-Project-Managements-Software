@@ -60,32 +60,8 @@ try {
   # Defender CLI completion may precede publication of its Operational event.
   # Require a new matching start and finish, not merely any event 1001.
   $deadline = [Diagnostics.Stopwatch]::StartNew()
-  $resourcePattern = '(?im)^\s*Scan Resources:\s*folder:_' + [regex]::Escape($root) + '\s*
-  $finalStatus = Get-MpComputerStatus
-  if (-not $finalStatus.AntivirusEnabled -or -not $finalStatus.AMServiceEnabled -or -not $finalStatus.RealTimeProtectionEnabled -or $null -eq $finalStatus.AntivirusSignatureLastUpdated) {
-    throw 'BLOCKED: active protection not verified after scan.'
-  }
-  $finalAge = ((Get-Date) - $finalStatus.AntivirusSignatureLastUpdated).TotalHours
-  if ($finalAge -lt 0 -or $finalAge -gt 48) { throw 'BLOCKED: definitions not current after scan.' }
-  ./tools/security/Inventory-DevelopmentBuild.ps1
-  Write-Host 'Fresh candidate static scan completed; matching detection events absent and bytes unchanged. Not release approval.'
-} finally {
-  Pop-Location
-}
-
-  $idPattern = '(?im)^\s*Scan ID:\s*(\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\})\s*
-  $finalStatus = Get-MpComputerStatus
-  if (-not $finalStatus.AntivirusEnabled -or -not $finalStatus.AMServiceEnabled -or -not $finalStatus.RealTimeProtectionEnabled -or $null -eq $finalStatus.AntivirusSignatureLastUpdated) {
-    throw 'BLOCKED: active protection not verified after scan.'
-  }
-  $finalAge = ((Get-Date) - $finalStatus.AntivirusSignatureLastUpdated).TotalHours
-  if ($finalAge -lt 0 -or $finalAge -gt 48) { throw 'BLOCKED: definitions not current after scan.' }
-  ./tools/security/Inventory-DevelopmentBuild.ps1
-  Write-Host 'Fresh candidate static scan completed; matching detection events absent and bytes unchanged. Not release approval.'
-} finally {
-  Pop-Location
-}
-
+  $resourcePattern = '(?im)^[ \t]*Scan Resources:[ \t]*folder:_' + [regex]::Escape($root) + '[ \t]*\r?$'
+  $idPattern = '(?im)^[ \t]*Scan ID:[ \t]*(\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\})[ \t]*\r?$'
   $complete = $false
   do {
     try {
