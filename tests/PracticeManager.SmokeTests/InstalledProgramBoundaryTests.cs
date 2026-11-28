@@ -78,6 +78,15 @@ internal static class InstalledProgramBoundaryTests
   File.Delete(unexpected);
   InstalledVersionSelectionCandidate.SelectReviewedVersion(boundary,first,second);
   check(InstalledVersionSelectionCandidate.ReviewCurrent(boundary)==second,"verified replacement program selection recorded");
+  var activeExe=Path.Combine(boundary.VersionDirectory(second),"CRC.PracticeManager.exe");
+  var previousExe=Path.Combine(boundary.VersionDirectory(first),"CRC.PracticeManager.exe");
+  Refuse(()=>InstalledVersionSelectionCandidate.AcquireSelectedLaunchLease(boundary,previousExe),"previous installed executable cannot acquire launch lease");
+  using(InstalledVersionSelectionCandidate.AcquireSelectedLaunchLease(boundary,activeExe))
+  {
+   try{using var conflicting=boundary.AcquireExistingLease();throw new Exception("FAIL: installer acquired running application's lease");}
+   catch(IOException){check(true,"installed application lifetime blocks installer access");}
+  }
+  check(InstalledVersionSelectionCandidate.ReviewCurrent(boundary)==second,"installed application lease releases on disposal");
   check(Directory.Exists(boundary.VersionDirectory(first))&&Directory.EnumerateFiles(root,"previous-*.txt").Single() is string retained&&File.ReadAllText(retained)==first,"prior selection and payload retained");
   var pending=Path.Combine(root,"activation-pending.txt");
   File.WriteAllText(pending,first);
