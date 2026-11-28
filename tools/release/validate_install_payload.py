@@ -234,17 +234,45 @@ def render_nsis_payload_source(raw, expected_hash, root):
     lines.extend(("!macroend", ""))
     return "\n".join(lines)
 
+def write_nsis_payload_source(raw, expected_hash, root, destination):
+    """Write new source only; never compile, install or overwrite anything."""
+    source = render_nsis_payload_source(raw, expected_hash, root)
+    destination = Path(destination)
+    require(destination.name == "reviewed-payload.nsh", "Fixed NSIS include name required")
+    parent = destination.parent.resolve(strict=True)
+    payload = Path(root).resolve(strict=True)
+    require(parent != payload and payload not in parent.parents,
+            "NSIS source must remain outside the payload tree")
+    # An existing file, symlink or junction is not a writable destination.
+    for directory in (parent, *parent.parents):
+        st = directory.lstat()
+        require(stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode)
+                and not getattr(st, "st_file_attributes", 0) & 0x400,
+                "Redirected NSIS source directory")
+    target = parent / destination.name
+    with target.open("x", encoding="utf-8", newline="\n") as stream:
+        stream.write(source)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return target
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inventory", type=Path)
     parser.add_argument("--expected-sha256", required=True)
     parser.add_argument("--payload-root", type=Path, help="Read-only rehash of exact local output tree")
+    parser.add_argument("--nsis-source", type=Path, help="Write a new reviewed-payload.nsh outside the payload; never compile")
     args = parser.parse_args()
     try:
         with args.inventory.open("rb") as stream:
             raw = stream.read(LIMIT + 1)
         report = (verify_payload(raw, args.expected_sha256, args.payload_root)
                   if args.payload_root is not None else validate(raw, args.expected_sha256))
+        if args.nsis_source is not None:
+            require(args.payload_root is not None, "Exact payload root required for NSIS source")
+            write_nsis_payload_source(raw, args.expected_sha256, args.payload_root, args.nsis_source)
+            report["nsisSourceWritten"] = True
     except (ValueError, OSError, UnicodeError, RecursionError) as exc:
         # Fixed validation messages identify the failed invariant. Never print
         # raw OS errors or JSON input, which may contain local paths/data.
