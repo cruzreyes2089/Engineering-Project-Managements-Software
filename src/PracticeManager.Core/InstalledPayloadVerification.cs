@@ -37,7 +37,9 @@ public static class InstalledPayloadVerification
   if(value.ValueKind!=JsonValueKind.Number||!value.TryGetInt64(out var n))throw new ArgumentException("Invalid inventory number.");
   return n;
  }
- public static void Verify(InstalledProgramBoundary boundary,string expectedDigest)
+ internal sealed record VerifiedPayload(string Directory,IReadOnlyDictionary<string,(long Bytes,string Hash)> Files,IReadOnlyList<string> Subdirectories);
+ public static void Verify(InstalledProgramBoundary boundary,string expectedDigest)=>_=Review(boundary,expectedDigest);
+ internal static VerifiedPayload Review(InstalledProgramBoundary boundary,string expectedDigest)
  {
   var version=boundary.ReviewExistingVersion(expectedDigest);
   var manifests=LocalStoragePath.DirectoryPath(Path.Combine(boundary.ProgramRoot,"manifests"));
@@ -111,5 +113,6 @@ public static class InstalledPayloadVerification
    Require(stream.Length==pair.Value.Bytes&&Hash(stream)==pair.Value.Hash&&stream.Length==pair.Value.Bytes);
   }
   Census();
+  return new(version,rows,dirs.OrderByDescending(x=>x.Count(c=>c=='/')).ThenBy(x=>x,StringComparer.Ordinal).ToArray());
  }
 }
