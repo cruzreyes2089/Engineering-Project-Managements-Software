@@ -31,94 +31,14 @@ $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json)
 $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 # Capture exact checked-out source identity (PR checkout may be a merge commit).
 $commit = (& git rev-parse HEAD | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40} -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
-Write-Host "Build file count: $($files.Count)"
-Write-Host "Build total bytes: $total"
-Write-Host "Application Authenticode status: $($signature.Status)"
-Write-Host "Complete manifest SHA-256 (UTF-8 compact JSON, no newline): $digest"
-# Only the inventory JSON is passed to the independent static validator.
-# Exclusive temporary file; no executable copy or distribution.
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('crc-layout-' + [guid]::NewGuid().ToString('N') + '.json')
-$stream = [IO.File]::Open($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try {
-  try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-  & python tools/release/validate_install_payload.py $temp --expected-sha256 $digest
-  if ($LASTEXITCODE -ne 0) { throw 'Static installer layout validation failed.' }
-} finally {
-  Remove-Item -LiteralPath $temp -Force
-}
-Write-Host "BEGIN CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host $json
-Write-Host "END CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host 'Development build evidence only. Executable distribution suspended pending security review. No artifact upload.'
-) { throw 'Source commit identity unavailable.' }
+if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Source commit identity unavailable.' }
 $tree = (& git rev-parse 'HEAD^{tree}' | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $tree -notmatch '^[0-9a-f]{40} -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
-Write-Host "Build file count: $($files.Count)"
-Write-Host "Build total bytes: $total"
-Write-Host "Application Authenticode status: $($signature.Status)"
-Write-Host "Complete manifest SHA-256 (UTF-8 compact JSON, no newline): $digest"
-# Only the inventory JSON is passed to the independent static validator.
-# Exclusive temporary file; no executable copy or distribution.
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('crc-layout-' + [guid]::NewGuid().ToString('N') + '.json')
-$stream = [IO.File]::Open($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try {
-  try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-  & python tools/release/validate_install_payload.py $temp --expected-sha256 $digest
-  if ($LASTEXITCODE -ne 0) { throw 'Static installer layout validation failed.' }
-} finally {
-  Remove-Item -LiteralPath $temp -Force
-}
-Write-Host "BEGIN CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host $json
-Write-Host "END CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host 'Development build evidence only. Executable distribution suspended pending security review. No artifact upload.'
-) { throw 'Source tree identity unavailable.' }
+if ($LASTEXITCODE -ne 0 -or $tree -notmatch '^[0-9a-f]{40}$') { throw 'Source tree identity unavailable.' }
 $sdk = (& dotnet --version | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $sdk -notmatch '^10\.0\.\d+ -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
-Write-Host "Build file count: $($files.Count)"
-Write-Host "Build total bytes: $total"
-Write-Host "Application Authenticode status: $($signature.Status)"
-Write-Host "Complete manifest SHA-256 (UTF-8 compact JSON, no newline): $digest"
-# Only the inventory JSON is passed to the independent static validator.
-# Exclusive temporary file; no executable copy or distribution.
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('crc-layout-' + [guid]::NewGuid().ToString('N') + '.json')
-$stream = [IO.File]::Open($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try {
-  try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-  & python tools/release/validate_install_payload.py $temp --expected-sha256 $digest
-  if ($LASTEXITCODE -ne 0) { throw 'Static installer layout validation failed.' }
-} finally {
-  Remove-Item -LiteralPath $temp -Force
-}
-Write-Host "BEGIN CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host $json
-Write-Host "END CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host 'Development build evidence only. Executable distribution suspended pending security review. No artifact upload.'
-) { throw 'Expected stable SDK identity unavailable.' }
+if ($LASTEXITCODE -ne 0 -or $sdk -notmatch '^10\.0\.\d+$') { throw 'Expected stable SDK identity unavailable.' }
 $deps = Get-Content -LiteralPath (Join-Path $root 'CRC.PracticeManager.deps.json') -Raw | ConvertFrom-Json -ErrorAction Stop
 $target = $deps.runtimeTarget.name
-if ($target -notmatch '/win-x64 -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
-Write-Host "Build file count: $($files.Count)"
-Write-Host "Build total bytes: $total"
-Write-Host "Application Authenticode status: $($signature.Status)"
-Write-Host "Complete manifest SHA-256 (UTF-8 compact JSON, no newline): $digest"
-# Only the inventory JSON is passed to the independent static validator.
-# Exclusive temporary file; no executable copy or distribution.
-$temp = Join-Path ([IO.Path]::GetTempPath()) ('crc-layout-' + [guid]::NewGuid().ToString('N') + '.json')
-$stream = [IO.File]::Open($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-try {
-  try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
-  & python tools/release/validate_install_payload.py $temp --expected-sha256 $digest
-  if ($LASTEXITCODE -ne 0) { throw 'Static installer layout validation failed.' }
-} finally {
-  Remove-Item -LiteralPath $temp -Force
-}
-Write-Host "BEGIN CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host $json
-Write-Host "END CRC DEVELOPMENT BUILD INVENTORY"
-Write-Host 'Development build evidence only. Executable distribution suspended pending security review. No artifact upload.'
-) { throw 'Unexpected published runtime target.' }
+if ($target -notmatch '/win-x64$') { throw 'Unexpected published runtime target.' }
 $runtimeLibraries = @($deps.libraries.PSObject.Properties.Name | Where-Object { $_ -match '^(runtimepack\.|Microsoft\.(NETCore|WindowsDesktop)\.App\.Runtime\.)' } | Sort-Object)
 if ($runtimeLibraries.Count -lt 1) { throw 'Published runtime library identities unavailable.' }
 $entryHash = ($rows | Where-Object { $_.path -eq 'CRC.PracticeManager.exe' }).sha256
