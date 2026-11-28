@@ -29,3 +29,10 @@ For every subsequent source change retain commit SHA, branch/PR, exact CI checko
 - Do not add unnecessary features or simulations simply to increase test count. Combine related work and only seek owner input for essential decisions or authorized local acceptance.
 
 This document records evidence; it does not change application code, schema, or release authorization. It is isolated from the validated source candidate to avoid altering its exact revision.
+
+## Subsequent verified candidate — cycle 12D
+
+- PR #11 head 5bca534cd378f63259df57f09e521955ade22c80, Windows run https://github.com/cruzreyes2089/Engineering-Project-Managements-Software/actions/runs/46097211804: passed 2212 native checks and 151 Python tests; zero compiler warnings/errors, dependency review passed, 409 files / 151072713 bytes, layout inventory SHA-256 f9aa22a01958c44a0cf07b720c4c708915878e8031848f663291dcf26d13e619. Unsigned, not independently verified, no distribution. Prior-source upgrade #57 passed; DAO #56 blocked.
+- This supersedes PR #10 as verified development baseline. Normal schema 47 and isolated schemas 48/49 unchanged. No schema 54 recovery.
+- Source review confirms acceptance-only folder creation service already exists (dedicated synthetic root, reviewed plan, existing directory preservation, audit). No production or shared storage qualification. CRC template defaults unchanged.
+- PR #12 head 27dc15dd154de8b35f4db131b1eb40f7a09b3e08 contains shared reserved-device path checks plus 16 additional synthetic assertions. Exact-revision CI pending. No production changes or release approval.
