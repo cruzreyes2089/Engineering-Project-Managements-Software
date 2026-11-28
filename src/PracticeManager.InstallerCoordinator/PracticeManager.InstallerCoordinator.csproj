@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <OutputType>Exe</OutputType>
+  <AssemblyName>CRC.InstallerCoordinator</AssemblyName>
+  <UseAppHost>false</UseAppHost>
+  <IsPublishable>false</IsPublishable>
+ </PropertyGroup>
+ <ItemGroup><ProjectReference Include="../PracticeManager.Core/PracticeManager.Core.csproj"/></ItemGroup>
+</Project>
