@@ -10,6 +10,7 @@ public sealed partial class LocalPractice
 {
  public RecoveryCopyResult CreateRecoveryCopy(string destination)
  {
+  var generation=sessionGeneration;
   var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
   if(!string.Equals(Path.GetExtension(target),".db",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Choose a new .db recovery-copy file.");
   var folder=Path.GetDirectoryName(target)??throw new ArgumentException("Choose an existing folder.");
@@ -33,7 +34,7 @@ public sealed partial class LocalPractice
     // SQLite backup API takes a consistent database image, including committed journal data.
     c.BackupDatabase(copy);
     using(var t=copy.BeginTransaction(deferred:false)){
-     if(Require(copy,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
+     if(generation!=sessionGeneration||Require(copy,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
      _=HistoricalRows(copy,t); // Refuse incomplete or inconsistent sealed archive before publishing.
      if(Convert.ToInt64(Scalar(copy,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Recovery schema changed.");
      if(schema>=48){EffortBudgetMigrationCandidate.VerifyLayout(copy,t);budget=EffortBudgetStore.VerifyDatabase(copy,t);}
@@ -58,7 +59,7 @@ public sealed partial class LocalPractice
     stream.Position=0;hash=Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
    }
    using(var t=c.BeginTransaction(deferred:false)){
-    if(Require(c,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
+    if(generation!=sessionGeneration||Require(c,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
     if(Convert.ToInt64(Scalar(c,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Recovery source schema changed.");
     Audit(c,t,actor,"RecoveryCopyPrepared","Firm",1);
     t.Commit();
