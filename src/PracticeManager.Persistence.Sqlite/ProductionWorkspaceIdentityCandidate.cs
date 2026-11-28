@@ -63,6 +63,32 @@ internal static class ProductionWorkspaceIdentityCandidate
      Scalar(c,tx,"SELECT workspace_id FROM production_workspace_identity WHERE singleton=1") is not string actual||actual!=expected)
    throw new ArgumentException("Production database identity or schema changed.");
  }
+ // Explicit schema-specific review for isolated upgrade/recovery qualification.
+ // Normal startup and existing recovery routes retain their schema-47 gate.
+ // The caller must supply independently retained workspace identity and roots.
+ internal static void VerifyMigrationIdentity(SqliteConnection c,SqliteTransaction tx,string expected,
+  ProductionStorageBoundary layout,int expectedSchema,bool recovery)
+ {
+  if(expectedSchema is <47 or >49||!Guid.TryParseExact(expected,"N",out var parsed)||
+     parsed==Guid.Empty||parsed.ToString("N")!=expected||
+     Convert.ToInt64(Scalar(c,tx,"PRAGMA application_id"))!=(recovery?RecoveryApplicationId:ApplicationId)||
+     Convert.ToInt64(Scalar(c,tx,"PRAGMA user_version"))!=expectedSchema||
+     Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='production_workspace_identity'"))!=1||
+     Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM production_workspace_identity"))!=1||
+     Scalar(c,tx,"SELECT workspace_id FROM production_workspace_identity WHERE singleton=1") is not string actual||actual!=expected)
+   throw new ArgumentException("Migration workspace identity or schema requires review.");
+  VerifyConfiguredRoots(c,tx,layout);
+  if(expectedSchema>=48)
+  {
+   EffortBudgetMigrationCandidate.VerifyLayout(c,tx);
+   _=EffortBudgetStore.VerifyDatabase(c,tx);
+  }
+  if(expectedSchema==49)
+  {
+   DocumentRegisterMigrationCandidate.VerifyLayout(c,tx);
+   _=DocumentRegisterVerification.Verify(c,tx);
+  }
+ }
  // The roots are fixed when the fixture is created. No caller-provided override,
  // silent path adoption, or implicit settings repair during reopen.
  internal static void VerifyConfiguredRoots(SqliteConnection c,SqliteTransaction? tx,ProductionStorageBoundary layout)
