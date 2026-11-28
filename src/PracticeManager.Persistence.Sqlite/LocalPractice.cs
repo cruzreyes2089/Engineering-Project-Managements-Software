@@ -16,6 +16,8 @@ public sealed partial class LocalPractice
    throw new ArgumentException("Unexpected production fixture identity.");
   return new LocalPractice(layout,expectedIdentity);
  }
+ internal static LocalPractice ReopenProductionFixture(string localAppData,string expectedIdentity)
+  =>OpenProductionFixture(ProductionWorkspaceIdentityCandidate.ReadStoredLayout(localAppData,expectedIdentity),expectedIdentity);
  private LocalPractice(ProductionStorageBoundary layout,string expectedIdentity)
  {
   productionFixtureLayout=layout;productionFixtureIdentity=expectedIdentity;
@@ -677,7 +679,11 @@ public sealed partial class LocalPractice
    if(Convert.ToInt64(Scalar(c,null,"PRAGMA foreign_keys"))!=1||
       Scalar(c,null,"PRAGMA trusted_schema") is not long trusted||trusted!=0)
     throw new InvalidOperationException("Required SQLite connection safeguards unavailable.");
-   if(productionFixtureLayout!=null)ProductionWorkspaceIdentityCandidate.VerifyConnectionIdentity(c,null,productionFixtureIdentity!);
+   if(productionFixtureLayout!=null)
+   {
+    ProductionWorkspaceIdentityCandidate.VerifyConnectionIdentity(c,null,productionFixtureIdentity!);
+    ProductionWorkspaceIdentityCandidate.VerifyConfiguredRoots(c,null,productionFixtureLayout);
+   }
    else if(Convert.ToInt64(Scalar(c,null,"PRAGMA application_id"))==0x43524350)
     throw new InvalidOperationException("Production identity candidate cannot be opened by the development application.");
    return c;
