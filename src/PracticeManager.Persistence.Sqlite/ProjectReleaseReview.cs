@@ -14,6 +14,15 @@ public sealed partial class LocalPractice
 {
  // Not an issuance authorization or delivery event. No restricted documents,
  // contracts, native CAD files or generated agreement/invoice copies.
+ public IReadOnlyList<ProjectDocument> ReadReleaseReviewCandidates(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);
+  RequireDocuments(c,t,true);RequireAdministration(c,t);RequireReleaseReviewEligibility(c,t,project);
+  using var q=Command(c,t,DocumentProjection+" WHERE d.project_id=$p AND d.classification='Production' AND d.category IN ('Drawings','Calculations','Reports') AND lower(substr(d.file_name,-4))='.pdf' AND NOT EXISTS(SELECT 1 FROM project_documents n WHERE n.supersedes_id=d.id) ORDER BY d.id DESC LIMIT 501",("$p",project));
+  using var r=q.ExecuteReader();var rows=new List<ProjectDocument>();
+  while(r.Read()){if(rows.Count==500)throw new ArgumentException("Release candidate register exceeds 500 rows.");rows.Add(DocumentRow(r));}
+  return rows.AsReadOnly();
+ }
  public ProjectReleaseReviewPackage PrepareProjectReleaseReview(long project,IReadOnlyList<ReleaseReviewSelection> selection,
   string purpose,string recipient,string reviewNote,bool confirmed)
  {
