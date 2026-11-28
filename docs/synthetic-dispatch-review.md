@@ -1,0 +1,5 @@
+# Synthetic dispatch outcome classification
+
+Offline review classifier models the boundary after a possible network send. Tests exercise missing durable attempt, timeout after possible commit, truncated response, unexpected statuses including 4xx/409/5xx, missing readback, duplicate/conflicting or absent records, and contradictory send observations. Even a successful 201 plus complete independent recovery match can only reach manual confirmation review. None of the results marks an actual transaction posted, authorizes retry, clears a hold or performs a network call.
+
+No transport or operational journal wiring; this is not an end-to-end transport test. When a response GUID is supplied it must equal the independently matched external GUID, which must be present even if the response omitted it. Caller-supplied results are not trusted provider evidence; actual acquisition and recovery wiring remain outstanding. No response status is assumed to prove non-commit. No native API write implementation or executable distribution.
