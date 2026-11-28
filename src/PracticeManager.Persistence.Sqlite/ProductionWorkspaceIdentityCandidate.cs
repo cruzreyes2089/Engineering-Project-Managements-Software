@@ -12,9 +12,10 @@ internal static class ProductionWorkspaceIdentityCandidate
  const int ApplicationId=0x43524350; // CRCP
  const int BaseSchema=47;
  static string Marker(Guid id)=>MarkerPrefix+id.ToString("N");
- static string ReadMarker(ProductionStorageBoundary layout)
+ static string ReadMarker(ProductionStorageBoundary layout)=>ReadMarkerFile(layout.IdentityMarkerPath);
+ static string ReadMarkerFile(string path)
  {
-  using var stream=new FileStream(layout.IdentityMarkerPath,FileMode.Open,FileAccess.Read,FileShare.Read);
+  using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
   if(stream.Length!=MarkerPrefix.Length+32)throw new ArgumentException("Production workspace identity marker is invalid.");
   var bytes=new byte[(int)stream.Length];stream.ReadExactly(bytes);
   var value=Encoding.ASCII.GetString(bytes);
@@ -52,6 +53,34 @@ internal static class ProductionWorkspaceIdentityCandidate
      Scalar(c,tx,"SELECT workspace_id FROM production_workspace_identity WHERE singleton=1") is not string actual||actual!=expected)
    throw new ArgumentException("Production database identity or schema changed.");
  }
+ // The roots are fixed when the fixture is created. No caller-provided override,
+ // silent path adoption, or implicit settings repair during reopen.
+ internal static void VerifyConfiguredRoots(SqliteConnection c,SqliteTransaction? tx,ProductionStorageBoundary layout)
+ {
+  if(Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM production_storage_settings"))!=1||
+    Scalar(c,tx,"SELECT project_root FROM production_storage_settings WHERE singleton=1") is not string projects||projects!=layout.ProjectRoot||
+    Scalar(c,tx,"SELECT backup_root FROM production_storage_settings WHERE singleton=1") is not string backup||backup!=layout.BackupRoot)
+   throw new ArgumentException("Stored workspace locations require review.");
+ }
+ internal static ProductionStorageBoundary ReadStoredLayout(string localAppData,string expectedIdentity)
+ {
+  var data=ProductionStorageBoundary.ReviewExistingDataDirectory(localAppData);
+  var marker=Path.Combine(data,"production-workspace.txt");
+  if(ReadMarkerFile(marker)!=expectedIdentity)throw new ArgumentException("Unexpected workspace identity.");
+  var path=LocalStoragePath.FilePath(Path.Combine(data,"practice.db"),mustExist:true,rejectSidecars:true);
+  using var c=Connection(path,SqliteOpenMode.ReadOnly);
+  using var tx=c.BeginTransaction(deferred:true);
+  VerifyConnectionIdentity(c,tx,expectedIdentity);
+  if(Convert.ToInt64(Scalar(c,tx,"SELECT count(*) FROM production_storage_settings"))!=1||
+     Scalar(c,tx,"SELECT project_root FROM production_storage_settings WHERE singleton=1") is not string projects||
+     Scalar(c,tx,"SELECT backup_root FROM production_storage_settings WHERE singleton=1") is not string backup)
+   throw new ArgumentException("Stored workspace locations require review.");
+  var layout=ProductionStorageBoundary.Review(localAppData,projects,backup);
+  VerifyConfiguredRoots(c,tx,layout);
+  tx.Commit();
+  VerifyMarkerAndLayout(layout,expectedIdentity);
+  return layout;
+ }
  internal static string VerifyExisting(ProductionStorageBoundary layout)
  {
   layout.VerifyExistingPrivateDataLayout();
@@ -61,6 +90,7 @@ internal static class ProductionWorkspaceIdentityCandidate
   using var c=Connection(layout.DatabasePath,SqliteOpenMode.ReadOnly);
   using var tx=c.BeginTransaction(deferred:true);
   VerifyConnectionIdentity(c,tx,id);
+  VerifyConfiguredRoots(c,tx,layout);
   tx.Commit();
   layout.VerifyExistingPrivateDataLayout();
   if(ReadMarker(layout)!=id)throw new ArgumentException("Production workspace identity changed during review.");
@@ -92,6 +122,13 @@ internal static class ProductionWorkspaceIdentityCandidate
     throw new ArgumentException("Reserved database is not a fresh base schema.");
    Execute(c,tx,"CREATE TABLE production_workspace_identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1),workspace_id TEXT NOT NULL CHECK(length(workspace_id)=32))");
    Execute(c,tx,"INSERT INTO production_workspace_identity(singleton,workspace_id) VALUES(1,$id)",identity.ToString("N"));
+   Execute(c,tx,"CREATE TABLE production_storage_settings(singleton INTEGER PRIMARY KEY CHECK(singleton=1),project_root TEXT NOT NULL CHECK(length(project_root)>0),backup_root TEXT NOT NULL CHECK(length(backup_root)>0))");
+   using(var settings=c.CreateCommand())
+   {
+    settings.Transaction=tx;settings.CommandText="INSERT INTO production_storage_settings(singleton,project_root,backup_root) VALUES(1,$projects,$backup)";
+    settings.Parameters.AddWithValue("$projects",layout.ProjectRoot);settings.Parameters.AddWithValue("$backup",layout.BackupRoot);
+    settings.ExecuteNonQuery();
+   }
    Execute(c,tx,$"PRAGMA application_id={ApplicationId}");
    tx.Commit();
   }
