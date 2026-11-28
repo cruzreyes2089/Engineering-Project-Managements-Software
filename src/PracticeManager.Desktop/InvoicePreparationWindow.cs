@@ -15,13 +15,13 @@ internal sealed class InvoicePreparationWindow:Window
  readonly DatePicker issue=new(){SelectedDate=DateTime.Today},due=new(){SelectedDate=DateTime.Today.AddDays(30)};
  readonly TextBlock policyText=new(){TextWrapping=TextWrapping.Wrap},selectionText=new(){TextWrapping=TextWrapping.Wrap};
  readonly List<(Button Button,Func<bool> Allowed)> actions=new();
- BillingPolicy? loadedPolicy;long? loadedProject;bool refreshing;
+ BillingPolicy? loadedPolicy;long? loadedProject;bool refreshing,selecting;TabControl? invoiceTabs;TabItem? savedTab;
  public InvoicePreparationWindow(LocalPractice service)
  {
   this.service=service;Title="Invoice preparation — internal drafts";Width=1120;Height=700;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var h=new StackPanel();h.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});h.Children.Add(new TextBlock{Text="Internal drafts only. Manager remains the accounting authority. A draft number is not an issued invoice; approval neither sends nor posts it.",TextWrapping=TextWrapping.Wrap});h.Children.Add(status);DockPanel.SetDock(h,Dock.Top);root.Children.Add(h);var tabs=new TabControl();
-  if(service.Can("Billing.Invoices.View"))tabs.Items.Add(new TabItem{Header="Invoice drafts",Content=BuildInvoices()});
-  if(service.Can("Billing.Rates"))tabs.Items.Add(new TabItem{Header="Restricted employee rates",Content=BuildRates()});
+  if(service.Can("Billing.Invoices.View")&&service.Can("Projects.View")&&service.Can("Clients.View"))tabs.Items.Add(new TabItem{Header="Invoice drafts",Content=BuildInvoices()});
+  if(service.Can("Billing.Rates")&&service.Can("Employees.View"))tabs.Items.Add(new TabItem{Header="Restricted employee rates",Content=BuildRates()});
   root.Children.Add(tabs);Content=root;
  }
  void Run(Action a){try{a();}catch(UnauthorizedAccessException){ClearInvoices();rates.ItemsSource=null;status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){ClearInvoices();rates.ItemsSource=null;status.Text="Operation failed. Refresh before retrying.";}}
@@ -56,12 +56,12 @@ internal sealed class InvoicePreparationWindow:Window
   candidates.SelectionMode=DataGridSelectionMode.Extended;
   WorkWindowFields.Columns(candidates,("Date","Date"),("Employee","Employee"),("Kind","Kind"),("Description","Description"),("Minutes","Minutes"),("Bill rate USD/h","BillingRate"),("Line USD","Amount"),("Status","Status"));
   WorkWindowFields.Columns(drafts,("Draft","Number"),("Date","InvoiceDate"),("Due","DueDate"),("Total USD","Total"),("State","State"),("Reconciliation hold","ReconciliationHold"));
-  var tabs=new TabControl();
+  var tabs=new TabControl();invoiceTabs=tabs;
   var preparation=new DockPanel();var prepareHead=new StackPanel();
   prepareHead.Children.Add(new TextBlock{Text="2. Select eligible work or enter a fixed-fee line",FontWeight=FontWeights.SemiBold});
-  var dates=new WrapPanel();dates.Children.Add(new TextBlock{Text="Draft date",Margin=new Thickness(4,8,4,0)});dates.Children.Add(issue);dates.Children.Add(new TextBlock{Text="Due date",Margin=new Thickness(4,8,4,0)});dates.Children.Add(due);prepareHead.Children.Add(dates);
+  var dates=new WrapPanel();dates.Children.Add(new TextBlock{Text="Draft date",Margin=new Thickness(4,8,4,0)});dates.Children.Add(issue);dates.Children.Add(new TextBlock{Text="Due date",Margin=new Thickness(4,8,4,0)});dates.Children.Add(due);prepareHead.Children.Add(dates);prepareHead.Children.Add(new TextBlock{Text="Review the proposed due date against the actual contract. The initial 30-day suggestion is not a verified contract term.",TextWrapping=TextWrapping.Wrap});
   var prepareBar=new WrapPanel();
-  Add(prepareBar,"Select eligible work",()=>{candidates.UnselectAll();foreach(var row in candidates.Items.OfType<InvoiceCandidate>().Where(x=>x.Status=="Eligible"&&x.Amount.HasValue).Take(200))candidates.SelectedItems.Add(row);},()=>Edit()&&loadedPolicy!=null&&candidates.Items.OfType<InvoiceCandidate>().Any(x=>x.Status=="Eligible"));
+  Add(prepareBar,"Select eligible work (max 200)",()=>{var eligible=candidates.Items.OfType<InvoiceCandidate>().Where(x=>x.Status=="Eligible"&&x.Amount.HasValue).ToArray();selecting=true;try{candidates.UnselectAll();foreach(var row in eligible.Take(200))candidates.SelectedItems.Add(row);}finally{selecting=false;UpdateActions();}if(eligible.Length>200)status.Text="First 200 eligible records selected. Remaining eligible records are not included; review before creating draft.";},()=>Edit()&&loadedPolicy!=null&&candidates.Items.OfType<InvoiceCandidate>().Any(x=>x.Status=="Eligible"));
   Add(prepareBar,"Create draft",Create,()=>Edit()&&loadedPolicy!=null&&(loadedPolicy.Mode!="Hourly"||candidates.SelectedItems.Count>0)&&candidates.SelectedItems.Count<=200&&candidates.SelectedItems.Cast<InvoiceCandidate>().All(x=>x.Status=="Eligible"&&x.Amount.HasValue));
   prepareHead.Children.Add(prepareBar);prepareHead.Children.Add(selectionText);DockPanel.SetDock(prepareHead,Dock.Top);preparation.Children.Add(prepareHead);preparation.Children.Add(candidates);
   tabs.Items.Add(new TabItem{Header="Prepare draft",Content=preparation});
@@ -71,19 +71,19 @@ internal sealed class InvoicePreparationWindow:Window
   Add(reviewBar,"Approve draft",()=>Decide(true),()=>Approve()&&Draft()?.State=="Draft");
   Add(reviewBar,"Cancel unsent draft",()=>Decide(false),()=>Edit()&&Draft()?.State=="Draft");
   Add(reviewBar,"Export approved CSV",Export,()=>Approved()&&service.Can("Billing.Invoices.Export"));
-  Add(reviewBar,"Save review DOCX",()=>{var d=SelectedDraft();ReviewDocumentSave.Save(this,service.PrepareInvoiceReviewDocx(Project(),d.Id,d.PayloadHash));},Selected);
+  Add(reviewBar,"Save review DOCX",()=>{var d=SelectedDraft();ReviewDocumentSave.Save(this,service.PrepareInvoiceReviewDocx(Project(),d.Id,d.PayloadHash));},()=>Approved()&&service.Can("Billing.Invoices.Export"));
   var more=new Menu{VerticalAlignment=VerticalAlignment.Center};var advanced=new MenuItem{Header="Advanced controls"};more.Items.Add(advanced);
   void MenuAction(string label,Action action,Func<bool> allowed){var item=new MenuItem{Header=label};advanced.Items.Add(item);item.Click+=(_,_)=>Run(()=>{if(!allowed())throw new ArgumentException("Select an eligible draft.");action();});advanced.SubmenuOpened+=(_,_)=>{try{item.IsEnabled=allowed();}catch(Exception){item.IsEnabled=false;}};}
-  MenuAction("Compare Manager candidate",()=>{var d=SelectedDraft();new InvoiceCandidateWindow(service,Project(),d){Owner=this}.ShowDialog();},()=>Selected()&&service.CanCompareInvoiceCandidate());
+  MenuAction("Compare Manager candidate",()=>{var d=SelectedDraft();new InvoiceCandidateWindow(service,Project(),d){Owner=this}.ShowDialog();},()=>Approved()&&service.CanCompareInvoiceCandidate());
   MenuAction("Place reconciliation hold",Hold,()=>Edit()&&Approve()&&Approved());
   MenuAction("View hold history",HoldEvidence,Selected);
   MenuAction("Independently release hold",ReleaseHold,()=>Edit()&&Approve()&&Draft()?.State=="Approved"&&Draft()?.ReconciliationHold==true);
   MenuAction("Review document history",()=>{var d=SelectedDraft();var project=Project();new ReviewDocumentHistoryWindow(()=>service.ReadInvoiceReviewDocuments(project,d.Id),r=>service.RetrieveInvoiceReviewDocument(project,d.Id,r.Id,r.Sha256)){Owner=this}.ShowDialog();},Selected);
   reviewBar.Children.Add(more);reviewHead.Children.Add(reviewBar);DockPanel.SetDock(reviewHead,Dock.Top);review.Children.Add(reviewHead);review.Children.Add(drafts);
-  tabs.Items.Add(new TabItem{Header="Saved drafts",Content=review});p.Children.Add(tabs);
+  savedTab=new TabItem{Header="Saved drafts",Content=review};tabs.Items.Add(savedTab);p.Children.Add(tabs);
   projects.SelectionChanged+=(_,_)=>Run(RefreshInvoices);
   issue.SelectedDateChanged+=(_,_)=>{if(!refreshing&&projects.SelectedItem!=null)Run(RefreshInvoices);};
-  candidates.SelectionChanged+=(_,_)=>UpdateActions();drafts.SelectionChanged+=(_,_)=>UpdateActions();
+  candidates.SelectionChanged+=(_,_)=>{if(!selecting)UpdateActions();};drafts.SelectionChanged+=(_,_)=>UpdateActions();
   if(projectList.Length==1)projects.SelectedIndex=0;else UpdateActions();
   return p;
  }
@@ -119,7 +119,7 @@ internal sealed class InvoicePreparationWindow:Window
  }
  void Create()
  {
-  var project=Project();var date=WorkWindowFields.Day(issue);var deadline=WorkWindowFields.Day(due);var ids=candidates.SelectedItems.Cast<InvoiceCandidate>().Select(x=>x.SourceId).ToArray();var p=new StackPanel{Margin=new Thickness(16)};p.Children.Add(new TextBlock{Text=$"{ids.Length} selected work sources. Optional fixed-fee line. Review selection before recording.",TextWrapping=TextWrapping.Wrap});var description=Field(p,"Fixed-fee description (optional)");var amount=Field(p,"Fixed-fee USD amount (optional)");if(loadedPolicy?.Mode=="Hourly"){description.IsEnabled=amount.IsEnabled=false;}var key=Guid.NewGuid();Dialog("Create internal draft",p,()=>{IReadOnlyList<FixedFeeInput> fees=string.IsNullOrWhiteSpace(amount.Text)?Array.Empty<FixedFeeInput>():new[]{new FixedFeeInput(description.Text,Money(amount))};service.CreateInvoiceDraft(new(key,project,date,deadline,fees,ids));});RefreshInvoices();
+  var project=Project();var date=WorkWindowFields.Day(issue);var deadline=WorkWindowFields.Day(due);var ids=candidates.SelectedItems.Cast<InvoiceCandidate>().Select(x=>x.SourceId).ToArray();var p=new StackPanel{Margin=new Thickness(16)};p.Children.Add(new TextBlock{Text=$"{ids.Length} selected work sources. Draft date: {date:yyyy-MM-dd}. Proposed due date: {deadline:yyyy-MM-dd}. Review before recording.",TextWrapping=TextWrapping.Wrap});TextBox? description=null,amount=null;if(loadedPolicy?.Mode!="Hourly"){description=Field(p,"Fixed-fee description (optional)");amount=Field(p,"Fixed-fee USD amount (optional)");}var key=Guid.NewGuid();long? created=null;Dialog("Create internal draft",p,()=>{IReadOnlyList<FixedFeeInput> fees=amount==null||string.IsNullOrWhiteSpace(amount.Text)?Array.Empty<FixedFeeInput>():new[]{new FixedFeeInput(description!.Text,Money(amount))};created=service.CreateInvoiceDraft(new(key,project,date,deadline,fees,ids));});if(created.HasValue){RefreshInvoices();drafts.SelectedItem=drafts.Items.OfType<InvoiceDraftSummary>().SingleOrDefault(x=>x.Id==created.Value);if(invoiceTabs!=null&&savedTab!=null)invoiceTabs.SelectedItem=savedTab;status.Text="Internal draft recorded. Review before approval."; }
  }
  InvoiceDraftSummary Selected()=>drafts.SelectedItem as InvoiceDraftSummary??throw new ArgumentException("Select draft.");
  void ViewDraft(){var d=Selected();var detail=service.ReadInvoiceDraft(Project(),d.Id);var g=WorkWindowFields.Grid();WorkWindowFields.Columns(g,("Kind","Kind"),("Description","Description"),("Minutes","Minutes"),("Rate","BillingRate"),("Amount","Amount"));g.ItemsSource=detail.Lines;new Window{Owner=this,Title=$"{d.Number} — {d.State}{(detail.Summary.ReconciliationHold?" — HOLD":"")} — {d.Total:C2}",Width=820,Height=440,Content=g,WindowStartupLocation=WindowStartupLocation.CenterOwner}.ShowDialog();}
