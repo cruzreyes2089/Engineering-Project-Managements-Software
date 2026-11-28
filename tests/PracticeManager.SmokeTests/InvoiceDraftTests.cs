@@ -62,6 +62,14 @@ internal static class InvoiceDraftTests
   Invalid(()=>s.RetrieveInvoiceReviewDocument(project,next,doc.Id,"wrong"),"wrong invoice document hash denied");
   var csv=s.ExportInvoiceDraftCsv(project,next,nextDetail.Summary.PayloadHash);
   check(csv.Contains("NOT AN ISSUED INVOICE")&&csv.Contains("295.34")&&!csv.Contains("35.58"),"export labeled internal and omits cost rate");
+  var exportBytes=System.Text.Encoding.UTF8.GetBytes("\uFEFF"+csv);
+  var exportHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(exportBytes));
+  var exportPath=Path.Combine(Path.GetDirectoryName(path)!,"synthetic-invoice-draft-export.csv");
+  VerifiedDocumentFile.Save(exportPath,".csv",exportBytes,exportHash);
+  check(File.ReadAllBytes(exportPath).SequenceEqual(exportBytes),"verified invoice CSV preserves exact Excel-compatible bytes");
+  Invalid(()=>VerifiedDocumentFile.Save(exportPath,".csv",exportBytes,exportHash),"invoice CSV refuses overwrite");
+  if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(exportPath),"invoice CSV has restricted file ACL");
+
   check(SafeCsv.Text(" =SUM(1,2)").StartsWith("\"'")&&SafeCsv.Text("quote\"").Contains("\"\""),"CSV protects formula text and quotes");
   var marker=Guid.NewGuid();var externalCustomer=Guid.NewGuid();var externalInvoice=Guid.NewGuid();var business=new{name="CRC ACCOUNTING TEST"};var reference="SYNTHETIC-INVOICE-REVIEW";
   string Reply(string request){
