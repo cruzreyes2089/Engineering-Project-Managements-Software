@@ -118,8 +118,14 @@ public static class InstalledVersionSelectionCandidate
   else
   {
    var retained=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"previous-"+Guid.NewGuid().ToString("N")+".txt"),mustExist:false,mustBeNew:true,rejectSidecars:true);
-   File.Replace(staged,active,retained,false);
-   if(Read(boundary,Path.GetFileName(retained))!=previous)throw new InvalidOperationException("Prior selection requires review.");
+   // Windows File.Replace may merge the destination DACL with the source
+   // DACL. Use two same-directory no-overwrite moves while the exclusive
+   // lease and durable pending record forbid every cooperative startup.
+   // The two moves are not atomic together; an interruption requires review.
+   File.Move(active,retained,false);
+   if(Read(boundary,Path.GetFileName(retained))!=previous||Current(boundary)!=null)
+    throw new InvalidOperationException("Prior selection requires review.");
+   File.Move(staged,active,false);
   }
   if(Read(boundary,ActiveName)!=candidate||Read(boundary,IntentName)!=candidate)
    throw new InvalidOperationException("Program selection requires review.");
