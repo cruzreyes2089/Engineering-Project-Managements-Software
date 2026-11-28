@@ -93,6 +93,7 @@ internal static class ProjectHandoffTests
   var starts=await Task.WhenAll(Task.Run(()=>s.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic")),Task.Run(()=>peer.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic")));
   check(starts.Count(x=>x=="Active")==1&&starts.Count(x=>x=="AlreadyActive")==1,"concurrent start exactly once");
   check(s.ReadProjectHandoff(project).HasAuthorization&&s.SearchPendingProjects().Single().State=="Active","authorized state persisted");
+  check(s.ReadProjectDashboardCounts()==(0L,1L),"dashboard reflects authorized active project");
   check(s.ReadProjectDocuments(project,false).All(x=>x.Classification=="Restricted"&&x.Category=="Contracts"),"project start does not require ordinary production document registration; required declarations remain protected");
   Invalid(()=>s.RecordSignedAgreement(project,hash,"new.pdf",bytes,"Synthetic",true),"active project cannot silently replace agreement");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Agreements.View'");
