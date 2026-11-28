@@ -289,7 +289,7 @@ public static class InstalledVersionSelectionCandidate
   RequireUnregistered(boundary);
   StageUnderLease(boundary,expectedPrevious,candidate,extractedDirectory,inventoryBytes);
  }
- static void ReviewStagePreconditions(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
+ static InstalledPayloadVerification.VerifiedPayload ReviewStagePreconditions(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
  {
   var previous=Current(boundary);
   if(previous!=expectedPrevious||candidate==previous)throw new ArgumentException("Program selection changed.");
@@ -298,21 +298,21 @@ public static class InstalledVersionSelectionCandidate
   var source=LocalStoragePath.DirectoryPath(extractedDirectory);
   if(ProjectFolderPolicy.Overlaps(source,boundary.ProgramRoot))
    throw new ArgumentException("Use separate isolated extraction directory.");
-  _=InstalledPayloadVerification.ReviewTree(source,inventoryBytes,candidate);
+  var payload=InstalledPayloadVerification.ReviewTree(source,inventoryBytes,candidate);
   var versions=LocalStoragePath.DirectoryPath(boundary.VersionsRoot);
   var manifests=LocalStoragePath.DirectoryPath(Path.Combine(boundary.ProgramRoot,"manifests"));
   if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(versions)||!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(manifests))
    throw new ArgumentException("Program storage permissions require review.");
   _=LocalStoragePath.FilePath(Path.Combine(manifests,candidate+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
   if(Exists(target))throw new ArgumentException("Version already exists; no replacement permitted.");
+  return payload;
  }
  static void StageUnderLease(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
  {
   var raw=inventoryBytes.ToArray();
-  ReviewStagePreconditions(boundary,expectedPrevious,candidate,extractedDirectory,raw);
+  var payload=ReviewStagePreconditions(boundary,expectedPrevious,candidate,extractedDirectory,raw);
   var target=boundary.VersionDirectory(candidate);
-  var source=LocalStoragePath.DirectoryPath(extractedDirectory);
-  var payload=InstalledPayloadVerification.ReviewTree(source,raw,candidate);
+  var source=payload.Directory;
   var manifestPath=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"manifests",candidate+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
   WriteNew(boundary,InstallIntent,candidate);
   WorkspaceConfidentiality.EnsureWorkspaceDirectory(target);
