@@ -240,6 +240,11 @@ internal static class InstalledProgramBoundaryTests
    check(stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime).Inventory==extracted.Digest,"sealed handoff binds exact reviewed release evidence");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence with {Commit=new string('d',40)},handoffTime),"handoff refuses different source revision");
    Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime.AddMinutes(2)),"handoff refuses expired release evidence");
+   Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,envelopeHelperHash,"not-a-pin"),"executable review rejects invalid publisher pin");
+   Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,expectedDigest,expectedDigest),"executable review rejects incorrect artifact bytes");
+   Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,envelopeHelperHash,expectedDigest),"Windows trust refuses unsigned synthetic artifact");
+   Refuse(()=>stagingReservation.ReviewAuthenticHandoff(envelopeEvidence,reservedHelper,reservedHelper,expectedDigest,handoffTime),"authentic handoff rejects overlapping artifact paths");
+   check(InstallerCoordinatorCandidate.Run(new[]{"--install"})==3,"authenticity candidate does not change release hold");
    Refuse(()=>stagingReservation.SealForReview(),"sealed reservation cannot be overwritten");
    File.AppendAllText(reservedHelper,"tamper");
    Refuse(()=>stagingReservation.ReviewSealed(),"sealed reservation rejects changed helper");
