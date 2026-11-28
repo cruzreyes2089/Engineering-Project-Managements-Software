@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Security.Cryptography;
 using Microsoft.Win32;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,30 +15,40 @@ internal sealed class InvoicePreparationWindow:Window
  readonly DataGrid candidates=WorkWindowFields.Grid(),drafts=WorkWindowFields.Grid(),rates=WorkWindowFields.Grid();
  readonly DatePicker issue=new(){SelectedDate=DateTime.Today},due=new(){SelectedDate=DateTime.Today.AddDays(30)};
  readonly TextBlock policyText=new(){TextWrapping=TextWrapping.Wrap};
+ readonly Dictionary<string,Button> actions=new();bool hasPolicy,canEdit,canApprove,canExport,canCompare;
  public InvoicePreparationWindow(LocalPractice service)
  {
-  this.service=service;Title="Operational invoice preparation — no posting";Width=1120;Height=700;WindowStartupLocation=WindowStartupLocation.CenterOwner;
-  var root=new DockPanel{Margin=new Thickness(16)};var h=new StackPanel();h.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});h.Children.Add(new TextBlock{Text="Internal drafts only. Manager remains the accounting authority. A draft number is not an issued invoice; approval neither sends nor posts it.",TextWrapping=TextWrapping.Wrap});h.Children.Add(status);DockPanel.SetDock(h,Dock.Top);root.Children.Add(h);var tabs=new TabControl();
+  this.service=service;Title="Invoice drafts";Width=1120;Height=700;WindowStartupLocation=WindowStartupLocation.CenterOwner;
+  var root=new DockPanel{Margin=new Thickness(16)};var h=new StackPanel();h.Children.Add(new TextBlock{Text=Title,FontSize=24,FontWeight=FontWeights.SemiBold});h.Children.Add(new TextBlock{Text="Prepare and review draft invoices here. Issue invoices and record payments in Manager.",TextWrapping=TextWrapping.Wrap});h.Children.Add(status);DockPanel.SetDock(h,Dock.Top);root.Children.Add(h);var tabs=new TabControl();
   if(service.Can("Billing.Invoices.View"))tabs.Items.Add(new TabItem{Header="Invoice drafts",Content=BuildInvoices()});
   if(service.Can("Billing.Rates"))tabs.Items.Add(new TabItem{Header="Restricted employee rates",Content=BuildRates()});
   root.Children.Add(tabs);Content=root;
  }
- void Run(Action a){try{a();}catch(UnauthorizedAccessException){status.Text="Access denied.";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
+ void Run(Action a){try{a();}catch(UnauthorizedAccessException){status.Text="Access denied.";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){hasPolicy=false;policyText.Text="";candidates.ItemsSource=drafts.ItemsSource=rates.ItemsSource=null;status.Text="Operation failed. Refresh before retrying.";}finally{UpdateActions();}}
  long Project()=>projects.SelectedItem is PendingProject p?p.Id:throw new ArgumentException("Select active project.");
  long Employee()=>employees.SelectedItem is EmployeeRecord e?e.Id:throw new ArgumentException("Select employee.");
  UIElement BuildInvoices()
  {
-  var p=new DockPanel();var head=new StackPanel();projects.ItemsSource=service.SearchPendingProjects().Where(x=>x.State=="Active").ToArray();head.Children.Add(projects);head.Children.Add(policyText);var bar=new WrapPanel();bar.Children.Add(new TextBlock{Text="Draft date"});bar.Children.Add(issue);bar.Children.Add(new TextBlock{Text="Due date"});bar.Children.Add(due);
-  WorkWindowFields.Button(bar,"Record policy",()=>Run(Policy));WorkWindowFields.Button(bar,"Refresh",()=>Run(RefreshInvoices));WorkWindowFields.Button(bar,"Create draft",()=>Run(Create));WorkWindowFields.Button(bar,"View selected draft",()=>Run(ViewDraft));if(service.CanCompareInvoiceCandidate())WorkWindowFields.Button(bar,"Compare Manager candidate",()=>Run(()=>{var d=Selected();new InvoiceCandidateWindow(service,Project(),d){Owner=this}.ShowDialog();}));WorkWindowFields.Button(bar,"Approve draft",()=>Run(()=>Decide(true)));WorkWindowFields.Button(bar,"Cancel unsent draft",()=>Run(()=>Decide(false)));if(service.Can("Billing.Invoices.Edit")&&service.Can("Billing.Invoices.Approve"))WorkWindowFields.Button(bar,"Hold approved draft",()=>Run(Hold));WorkWindowFields.Button(bar,"Hold history",()=>Run(HoldEvidence));if(service.Can("Billing.Invoices.Edit")&&service.Can("Billing.Invoices.Approve"))WorkWindowFields.Button(bar,"Independently release hold",()=>Run(ReleaseHold));WorkWindowFields.Button(bar,"Export approved CSV",()=>Run(Export));WorkWindowFields.Button(bar,"Save review DOCX",()=>Run(()=>{var d=Selected();var project=Project();ReviewDocumentSave.Save(this,"invoice-review.docx",()=>service.PrepareInvoiceReviewDocx(project,d.Id,d.PayloadHash));}));WorkWindowFields.Button(bar,"Review document history",()=>Run(()=>{var d=Selected();var p=Project();new ReviewDocumentHistoryWindow(()=>service.ReadInvoiceReviewDocuments(p,d.Id),r=>service.RetrieveInvoiceReviewDocument(p,d.Id,r.Id,r.Sha256)){Owner=this}.ShowDialog();}));head.Children.Add(bar);DockPanel.SetDock(head,Dock.Top);p.Children.Add(head);
-  candidates.SelectionMode=DataGridSelectionMode.Extended;WorkWindowFields.Columns(candidates,("Source","SourceId"),("Date","Date"),("Employee","Employee"),("Kind","Kind"),("Description","Description"),("Minutes","Minutes"),("Bill rate USD/h","BillingRate"),("Line USD","Amount"),("Status","Status"));
+  var p=new DockPanel();var head=new StackPanel();projects.ItemsSource=service.SearchPendingProjects().Where(x=>x.State=="Active").ToArray();canEdit=service.Can("Billing.Invoices.Edit");canApprove=service.Can("Billing.Invoices.Approve");canExport=service.Can("Billing.Invoices.Export");canCompare=service.CanCompareInvoiceCandidate();head.Children.Add(new TextBlock{Text="Project"});head.Children.Add(projects);head.Children.Add(policyText);var bar=new WrapPanel();bar.Children.Add(new TextBlock{Text="Draft date"});bar.Children.Add(issue);bar.Children.Add(new TextBlock{Text="Due date"});bar.Children.Add(due);
+  void Add(WrapPanel panel,string key,string label,Action action){var b=new Button{Content=label,Margin=new Thickness(2),IsEnabled=false};b.Click+=(_,_)=>Run(action);panel.Children.Add(b);actions.Add(key,b);}
+  Add(bar,"policy","Set billing terms",Policy);WorkWindowFields.Button(bar,"Refresh",()=>Run(RefreshInvoices));Add(bar,"create","New draft",Create);Add(bar,"view","View draft",ViewDraft);Add(bar,"approve","Approve",()=>Decide(true));Add(bar,"export","Export CSV",Export);head.Children.Add(bar);
+  var extra=new WrapPanel();Add(extra,"cancel","Cancel unsent draft",()=>Decide(false));Add(extra,"hold","Place on hold",Hold);Add(extra,"history","Hold history",HoldEvidence);Add(extra,"release","Release hold",ReleaseHold);
+  if(canCompare)Add(extra,"compare","Compare Manager candidate",()=>{var d=Selected();new InvoiceCandidateWindow(service,Project(),d){Owner=this}.ShowDialog();});
+  Add(extra,"word","Save review copy (Word)",()=>{var d=Selected();var project=Project();ReviewDocumentSave.Save(this,"invoice-review.docx",()=>service.PrepareInvoiceReviewDocx(project,d.Id,d.PayloadHash));});
+  Add(extra,"documents","Review copy history",()=>{var d=Selected();var project=Project();new ReviewDocumentHistoryWindow(()=>service.ReadInvoiceReviewDocuments(project,d.Id),r=>service.RetrieveInvoiceReviewDocument(project,d.Id,r.Id,r.Sha256)){Owner=this}.ShowDialog();});
+  head.Children.Add(new Expander{Header="Other invoice actions",Content=extra,IsExpanded=false});
+  DockPanel.SetDock(head,Dock.Top);p.Children.Add(head);
+  candidates.SelectionMode=DataGridSelectionMode.Extended;WorkWindowFields.Columns(candidates,("Source","SourceId"),("Date","Date"),("Employee","Employee"),("Kind","Kind"),("Description","Description"),("Minutes","Minutes"),("Bill rate USD/h","BillingRate"),("Line USD","Amount"),("Status","Status"));candidates.Columns[0].Visibility=Visibility.Collapsed;
   WorkWindowFields.Columns(drafts,("Draft","Number"),("Date","InvoiceDate"),("Due","DueDate"),("Total USD","Total"),("State","State"),("Reconciliation hold","ReconciliationHold"));
-  var split=new Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition());Grid.SetRow(candidates,0);Grid.SetRow(drafts,1);split.Children.Add(candidates);split.Children.Add(drafts);p.Children.Add(split);projects.SelectionChanged+=(_,_)=>Run(RefreshInvoices);return p;
+  var split=new Grid();split.RowDefinitions.Add(new RowDefinition());split.RowDefinitions.Add(new RowDefinition());Grid.SetRow(candidates,0);Grid.SetRow(drafts,1);split.Children.Add(candidates);split.Children.Add(drafts);p.Children.Add(split);projects.SelectionChanged+=(_,_)=>Run(RefreshInvoices);drafts.SelectionChanged+=(_,_)=>UpdateActions();candidates.SelectionChanged+=(_,_)=>UpdateActions();issue.SelectedDateChanged+=(_,_)=>{candidates.ItemsSource=null;hasPolicy=false;UpdateActions();status.Text="Refresh for the new draft date.";};due.SelectedDateChanged+=(_,_)=>UpdateActions();UpdateActions();return p;
  }
+ void UpdateActions(){if(actions.Count==0)return;var d=drafts.SelectedItem as InvoiceDraftSummary;var selected=projects.SelectedItem is PendingProject;var dated=issue.SelectedDate is DateTime a&&due.SelectedDate is DateTime b&&b>=a;void Set(string key,bool value){if(actions.TryGetValue(key,out var button))button.IsEnabled=value;}
+  Set("policy",selected&&canEdit&&!hasPolicy&&policyText.Text=="No reviewed billing policy.");Set("create",selected&&canEdit&&hasPolicy&&dated&&candidates.SelectedItems.Cast<InvoiceCandidate>().All(x=>x.Status=="Eligible"));Set("view",d!=null);Set("approve",canApprove&&d?.State=="Draft");Set("cancel",canEdit&&d?.State=="Draft");Set("hold",canEdit&&canApprove&&d is {State:"Approved",ReconciliationHold:false});Set("release",canEdit&&canApprove&&d is {State:"Approved",ReconciliationHold:true});Set("history",d!=null);Set("export",canExport&&d is {State:"Approved",ReconciliationHold:false});Set("word",canExport&&d is {State:"Approved",ReconciliationHold:false});Set("documents",canExport&&d?.State=="Approved");Set("compare",canCompare&&d!=null);}
  void RefreshInvoices()
  {
-  candidates.ItemsSource=drafts.ItemsSource=null;var project=Project();var policy=service.ReadBillingPolicy(project);
+  hasPolicy=false;policyText.Text="";candidates.ItemsSource=drafts.ItemsSource=null;UpdateActions();var project=Project();var policy=service.ReadBillingPolicy(project);
   policyText.Text=policy==null?"No reviewed billing policy.":$"{policy.Mode} • fixed limit {policy.FixedLimit:C2} • total cap {(policy.TotalLimit.HasValue?policy.TotalLimit.Value.ToString("C2"):"not set")} • expenses {(policy.Expenses?"allowed":"not allowed")}";
-  drafts.ItemsSource=service.ReadInvoiceDrafts(project);if(policy!=null)candidates.ItemsSource=service.ReadInvoiceCandidates(project,WorkWindowFields.Day(issue));status.Text="";
+  drafts.ItemsSource=service.ReadInvoiceDrafts(project);if(policy!=null){candidates.ItemsSource=service.ReadInvoiceCandidates(project,WorkWindowFields.Day(issue));hasPolicy=true;}UpdateActions();status.Text="";
  }
  static TextBox Field(StackPanel panel,string label,string value=""){panel.Children.Add(new TextBlock{Text=label});var x=new TextBox{Text=value,MaxLength=1000};panel.Children.Add(x);return x;}
  static decimal Money(TextBox box)=>decimal.TryParse(box.Text,NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var d)?d:throw new ArgumentException("Enter USD amount as 1200.00.");
@@ -80,9 +91,9 @@ internal sealed class InvoicePreparationWindow:Window
  }
  void Export()
  {
-  var d=Selected();var picker=new SaveFileDialog{FileName=d.Number+".csv",Filter="CSV file (*.csv)|*.csv",DefaultExt=".csv",OverwritePrompt=true};if(picker.ShowDialog(this)!=true)return;
+  var d=Selected();var project=Project();var picker=new SaveFileDialog{FileName=d.Number+".csv",Filter="CSV file (*.csv)|*.csv",DefaultExt=".csv",OverwritePrompt=true};if(picker.ShowDialog(this)!=true)return;
   if(!string.Equals(Path.GetExtension(picker.FileName),".csv",StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Use .csv extension.");
-  var data=service.ExportInvoiceDraftCsv(Project(),d.Id,d.PayloadHash);using var stream=new FileStream(picker.FileName,FileMode.CreateNew,FileAccess.Write,FileShare.None);using var writer=new StreamWriter(stream,new UTF8Encoding(true));writer.Write(data);writer.Flush();stream.Flush(true);status.Text="Approved internal draft export saved. Not an issued invoice or posting.";
+  _=LocalStoragePath.FilePath(picker.FileName,mustExist:false,mustBeNew:true,rejectSidecars:true);if(Project()!=project)throw new ArgumentException("Project selection changed.");var data=service.ExportInvoiceDraftCsv(project,d.Id,d.PayloadHash);var bytes=Encoding.UTF8.GetBytes("\uFEFF"+data);try{VerifiedDocumentFile.Save(picker.FileName,".csv",bytes,Convert.ToHexString(SHA256.HashData(bytes)));}finally{CryptographicOperations.ZeroMemory(bytes);}status.Text="Approved internal draft export saved. Not an issued invoice or posting.";
  }
  UIElement BuildRates()
  {
