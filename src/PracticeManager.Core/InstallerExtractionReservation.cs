@@ -107,6 +107,24 @@ internal sealed class InstallerExtractionReservation : IDisposable
   Require(expected==evidence&&now.ToUnixTimeSeconds()>=evidence.NotBeforeUnix&&now.ToUnixTimeSeconds()<evidence.ExpiresUnix);
   return ReviewSealed();
  }
+ // Integrated review, never execution. Require a single independently pinned
+ // publisher for all three executable artifacts in this candidate policy.
+ internal InstallerExtractionEvidence.Witness ReviewAuthenticHandoff(InstallerReleaseEvidence.Evidence expected,
+  string packagePath,string coordinatorPath,string independentlyTrustedPublisherSha256,DateTimeOffset now)
+ {
+  var first=ReviewForHandoff(expected,now);
+  var package=LocalStoragePath.FilePath(packagePath,mustExist:true,rejectSidecars:true);
+  var coordinator=LocalStoragePath.FilePath(coordinatorPath,mustExist:true,rejectSidecars:true);
+  var helper=LocalStoragePath.FilePath(Path.Combine(Envelope,"CRC.Uninstall.exe"),mustExist:true,rejectSidecars:true);
+  Require(!string.Equals(package,coordinator,StringComparison.OrdinalIgnoreCase)&&
+   !ProjectFolderPolicy.Overlaps(root,package)&&!ProjectFolderPolicy.Overlaps(root,coordinator));
+  InstallerExecutableAuthenticity.Review(package,expected.PackageSha256,independentlyTrustedPublisherSha256);
+  InstallerExecutableAuthenticity.Review(coordinator,expected.CoordinatorSha256,independentlyTrustedPublisherSha256);
+  InstallerExecutableAuthenticity.Review(helper,expected.Plan.UninstallerSha256,independentlyTrustedPublisherSha256);
+  var second=ReviewForHandoff(expected,now);
+  Require(first==second);
+  return second;
+ }
  public void Dispose()
  {
   if(disposed)return;
