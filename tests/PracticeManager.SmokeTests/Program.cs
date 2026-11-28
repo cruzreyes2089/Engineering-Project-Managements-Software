@@ -25,6 +25,18 @@ try{
  }
  DevelopmentWorkspaceTests.Run(Path.GetDirectoryName(path)!,Check);
  var s=new LocalPractice(path);
+ // Inspect actual private application connection, not an independently configured test connection.
+ var openMethod=typeof(LocalPractice).GetMethod("Open",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)
+   ??throw new InvalidOperationException("Application connection factory unavailable.");
+ for(int connectionIndex=0;connectionIndex<2;connectionIndex++)
+ {
+  using var guarded=(SqliteConnection)(openMethod.Invoke(s,null)??throw new InvalidOperationException("No application connection."));
+  using var pragma=guarded.CreateCommand();
+  pragma.CommandText="PRAGMA foreign_keys";
+  Check(Convert.ToInt64(pragma.ExecuteScalar())==1,"application connection enforces foreign keys");
+  pragma.CommandText="PRAGMA trusted_schema";
+  Check(pragma.ExecuteScalar() is long trusted&&trusted==0,"application connection disables trusted schema");
+ }
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open(); using var version=db.CreateCommand(); version.CommandText="SELECT sqlite_version()"; var native=Version.Parse(Convert.ToString(version.ExecuteScalar())!); Console.WriteLine($"SQLite runtime: {native}"); Check(native>=new Version(3,50,2),"native SQLite meets GHSA-2m69-gcr7-jv3q fixed-version floor");}
   const string pw="Synthetic-test-passphrase-0001";
  Check(!s.IsInitialized(),"empty first run");
