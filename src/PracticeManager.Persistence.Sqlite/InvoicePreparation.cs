@@ -164,6 +164,16 @@ public sealed partial class LocalPractice
   foreach(var l in lines)Exec(c,t,"INSERT INTO invoice_draft_lines(draft_id,source_id,line_type,description,minutes,rate_cents,amount_cents) VALUES($d,$s,$k,$n,$m,$r,$a)",("$d",id),("$s",l.SourceId),("$k",l.Kind),("$n",l.Description),("$m",l.Minutes),("$r",l.BillingRate.HasValue?BillingCents(l.BillingRate.Value):null),("$a",BillingCents(l.Amount,true)));
   Audit(c,t,actor,"Create","InvoiceDraft",id);t.Commit();return id;
  }
+ // Read-only UI preflight; the mutation independently rechecks permissions,
+ // payload, state and owner eligibility in its own immediate transaction.
+ public bool InvoiceApprovalRequiresOwnerConfirmation(long project,long id,string expectedHash)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);var actor=RequireInvoices(c,t,"Billing.Invoices.Approve");ProjectRow(c,t,project);
+  var draft=InvoiceDetail(c,t,project,id);if(draft.Summary.PayloadHash!=expectedHash||draft.Summary.State!="Draft")throw new ArgumentException("Draft changed or no longer awaits approval. Refresh.");
+  if(!Equals(Scalar(c,t,"SELECT created_by FROM invoice_drafts WHERE id=$i",("$i",id)),actor))return false;
+  if(!OwnerPolicy(c,t,actor).Enabled)throw new UnauthorizedAccessException("Independent approval required; owner exception unavailable.");
+  return true;
+ }
  public string DecideInvoiceDraft(long project,long id,string expectedHash,bool approve,string note,bool confirmOwnerException=false)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireInvoices(c,t,approve?"Billing.Invoices.Approve":"Billing.Invoices.Edit");ProjectRow(c,t,project);
