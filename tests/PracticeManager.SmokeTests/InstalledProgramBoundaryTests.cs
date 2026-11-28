@@ -236,6 +236,10 @@ internal static class InstalledProgramBoundaryTests
    File.Copy(envelopeHelper,reservedHelper,false);
    check(stagingReservation.SealForReview().PayloadFiles==17,"protected reservation seals exact verified envelope");
    check(stagingReservation.ReviewSealed().Inventory==extracted.Digest,"sealed reservation can be reverified under held lease");
+   var handoffTime=DateTimeOffset.FromUnixTimeSeconds(1900000000);
+   check(stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime).Inventory==extracted.Digest,"sealed handoff binds exact reviewed release evidence");
+   Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence with {Commit=new string('d',40)},handoffTime),"handoff refuses different source revision");
+   Refuse(()=>stagingReservation.ReviewForHandoff(envelopeEvidence,handoffTime.AddMinutes(2)),"handoff refuses expired release evidence");
    Refuse(()=>stagingReservation.SealForReview(),"sealed reservation cannot be overwritten");
    File.AppendAllText(reservedHelper,"tamper");
    Refuse(()=>stagingReservation.ReviewSealed(),"sealed reservation rejects changed helper");
