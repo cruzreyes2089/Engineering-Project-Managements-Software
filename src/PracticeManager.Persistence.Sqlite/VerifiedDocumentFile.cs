@@ -22,7 +22,7 @@ public static class VerifiedDocumentFile
    using(var read=new FileStream(stage.FilePath,FileMode.Open,FileAccess.Read,FileShare.Read))
     if(read.Length!=frozen.LongLength||!string.Equals(Convert.ToHexString(SHA256.HashData(read)),expectedHash,StringComparison.OrdinalIgnoreCase))
      throw new InvalidOperationException("Staged document content mismatch.");
-   stage.Publish();
+   stage.Publish(frozen.LongLength,expectedHash);
   }
   finally{CryptographicOperations.ZeroMemory(frozen);}
  }
