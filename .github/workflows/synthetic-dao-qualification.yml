@@ -1,0 +1,63 @@
+name: Synthetic DAO qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/migration/**'
+      - 'src/PracticeManager.Persistence.Sqlite/**'
+      - 'tests/PracticeManager.SmokeTests/**'
+      - '.github/workflows/synthetic-dao-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-dao:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Probe preinstalled DAO providers without database access
+        id: dao
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = '$ErrorActionPreference="Stop"; try { $engine=New-Object -ComObject DAO.DBEngine.120; if ($null -eq $engine) { exit 2 }; [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($engine); exit 0 } catch { exit 2 }'
+          $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
+          $available = @()
+          foreach ($mode in @('64','32')) {
+            $dir = if ($mode -eq '64') { 'System32' } else { 'SysWOW64' }
+            $ps = Join-Path $env:SystemRoot "$dir/WindowsPowerShell/v1.0/powershell.exe"
+            if (-not (Test-Path -LiteralPath $ps -PathType Leaf)) { continue }
+            & $ps -NoProfile -NonInteractive -EncodedCommand $encoded
+            if ($LASTEXITCODE -eq 0) { $available += $mode; Write-Host "Preinstalled DAO activation: $mode-bit available" }
+            else { Write-Host "Preinstalled DAO activation: $mode-bit unavailable" }
+          }
+          if ($available.Count -eq 0) {
+            Write-Host '::error::BLOCKED: no preinstalled DAO.DBEngine.120 provider. No synthetic DAO test executed; no installer or policy bypass attempted.'
+            exit 2
+          }
+          "bitness=$($available -join ',')" >> $env:GITHUB_OUTPUT
+      - name: Build native synthetic smoke harness
+        shell: pwsh
+        run: |
+          dotnet build tests/PracticeManager.SmokeTests/PracticeManager.SmokeTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Native harness build failed' }
+      - name: Qualify synthetic DAO and exact native readback
+        shell: pwsh
+        env:
+          DAO_BITNESS: ${{ steps.dao.outputs.bitness }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($mode in ($env:DAO_BITNESS -split ',')) {
+            if ($mode -notin @('32','64')) { throw 'Invalid provider probe result' }
+            Write-Host "Qualifying synthetic cases using $mode-bit DAO"
+            python tools/migration/qualify_synthetic_crm.py --confirm-synthetic --dao-bitness $mode --native-smoke
+            if ($LASTEXITCODE -ne 0) { throw "Synthetic DAO qualification did not pass for $mode-bit" }
+          }

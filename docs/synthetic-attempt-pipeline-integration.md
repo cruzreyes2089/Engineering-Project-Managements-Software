@@ -1,0 +1,3 @@
+# Durable offline attempt integration
+
+The in-memory provider tests now exercise the same durable attempt state service, full-wire approval, witness creation, independent synthetic readback and review. An uncertain timeout after a simulated commit prevents the next attempt; it is not bypassed to run another scenario. The standalone response-identity negative tests remain. The service derives recovery findings from the stored full-wire fingerprint and supplied synthetic sweeps instead of trusting the caller's positive classification. Sweeps are still caller-supplied synthetic evidence; not authenticated live acquisition. The safeguards screen displays separate attempt history counts. No real transport, retry, production permission, executable release or local upgrade.
