@@ -223,6 +223,7 @@ internal static class InstalledProgramBoundaryTests
   using(var stagingReservation=InstallerExtractionReservation.Create(reservationParent,envelopeEvidence))
   {
    Refuse(()=>InstallerExtractionReservation.Create(reservationParent,envelopeEvidence),"existing extraction reservation refuses concurrent adoption");
+   check(CrossProcessInstallerProbe.Observe(parent,"reservation")==10,"independent process cannot open held extraction reservation");
    Refuse(()=>stagingReservation.SealForReview(),"incomplete extraction cannot be sealed");
    var reservedPayload=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(stagingReservation.Envelope,"payload"));
    foreach(var input in Directory.EnumerateFiles(envelopePayload,"*",SearchOption.AllDirectories))
@@ -258,6 +259,7 @@ internal static class InstalledProgramBoundaryTests
    {
     heldArtifact.ReviewBytes();
     check(true,"artifact lease verifies exact bytes and open handle permissions");
+    check(CrossProcessInstallerProbe.Observe(parent,"artifact")==10,"independent process cannot open held synthetic artifact for writing");
     try{using var writer=new FileStream(reservedHelper,FileMode.Open,FileAccess.Write,FileShare.ReadWrite);throw new Exception("FAIL: held artifact accepted writer");}
     catch(IOException){check(true,"held artifact denies competing write open");}
     try{File.Move(reservedHelper,reservedHelper+".moved");throw new Exception("FAIL: held artifact accepted rename");}
@@ -266,6 +268,7 @@ internal static class InstalledProgramBoundaryTests
     check(true,"artifact identity remains intact under held read lease");
    }
    check(File.Exists(reservedHelper),"artifact lease disposal retains original file");
+   check(CrossProcessInstallerProbe.Observe(parent,"artifact")==11,"independent process can open synthetic artifact after lease disposal without writing");
    Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,envelopeHelperHash,"not-a-pin"),"executable review rejects invalid publisher pin");
    Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,expectedDigest,expectedDigest),"executable review rejects incorrect artifact bytes");
    Refuse(()=>InstallerExecutableAuthenticity.Review(reservedHelper,envelopeHelperHash,expectedDigest),"Windows trust refuses unsigned synthetic artifact");
@@ -276,6 +279,7 @@ internal static class InstalledProgramBoundaryTests
    Refuse(()=>stagingReservation.ReviewSealed(),"sealed reservation rejects changed helper");
    check(File.Exists(reservedHelper),"failed handoff review preserves staged evidence");
   }
+  check(CrossProcessInstallerProbe.Observe(parent,"reservation")==11,"independent process can observe retained lock file after disposal");
   Refuse(()=>InstallerExtractionReservation.Create(reservationParent,envelopeEvidence),"released reservation remains review-only and cannot be adopted");
   var interruptedParent=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(parent,"interrupted-reservation-fixture"));
   using(var interrupted=InstallerExtractionReservation.Create(interruptedParent,envelopeEvidence))
