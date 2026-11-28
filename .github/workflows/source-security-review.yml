@@ -1,0 +1,64 @@
+name: Zero-cost source security review
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [milestone-12/free-codeql-review, milestone-12/scan-finding-review]
+permissions:
+  contents: read
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            runner: windows-latest
+            build: manual
+          - language: python
+            runner: ubuntu-latest
+            build: none
+          - language: actions
+            runner: ubuntu-latest
+            build: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: global.json
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build }}
+          queries: security-extended
+      - name: Compile desktop and smoke-test source for C# extraction (no execution or publish)
+        if: matrix.language == 'csharp'
+        shell: pwsh
+        run: |
+          dotnet build src/PracticeManager.Desktop/PracticeManager.Desktop.csproj -c Release --no-incremental
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop compilation failed.' }
+          dotnet build tests/PracticeManager.SmokeTests/PracticeManager.SmokeTests.csproj -c Release --no-incremental
+          if ($LASTEXITCODE -ne 0) { throw 'Smoke-test compilation failed.' }
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: /language:${{ matrix.language }}/build:${{ matrix.build }}
+          upload-database: false
+          output: "${{ runner.temp }}/crc-source-sarif"
+      - name: Summarize scanner findings (no source snippets or secrets)
+        env:
+          REPORT_DIR: ${{ runner.temp }}/crc-source-sarif
+          SCAN_LANGUAGE: ${{ matrix.language }}
+        shell: bash
+        run: python tools/security/summarize_codeql.py "$REPORT_DIR" "$SCAN_LANGUAGE"
