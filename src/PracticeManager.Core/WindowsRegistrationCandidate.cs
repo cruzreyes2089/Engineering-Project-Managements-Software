@@ -113,6 +113,17 @@ internal static class WindowsRegistrationCandidate
   WriteFreshKey(parent,entry);
   return entry;
  }
+ // The caller holds the shared program lease and persistent operation intent.
+ // Never delete an unexpected shortcut or unrelated registry key.
+ internal static void RemoveOwnedRegistration(InstalledProgramBoundary boundary,RegistryKey parent,string shortcutDirectory,Registration entry)
+ {
+  VerifyOwnedRegistration(boundary,parent,shortcutDirectory,entry);
+  var path=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,ShortcutName),mustExist:true,rejectSidecars:true);
+  Require(FileHash(path)==entry.ShortcutHash);
+  File.Delete(path);
+  Require(!Exists(path));
+  RemoveOwnedKey(parent,entry);
+ }
  // Existing registration is verified against the independently retained
  // receipt, not merely the current registry values or file name.
  internal static void VerifyOwnedRegistration(InstalledProgramBoundary boundary,RegistryKey parent,string shortcutDirectory,Registration entry)
@@ -120,7 +131,8 @@ internal static class WindowsRegistrationCandidate
   Require(boundary.VerifyInitializedLayout()==entry.Identity&&boundary.ProgramRoot==entry.ProgramRoot);
   var directory=boundary.ReviewExistingVersion(entry.Version);
   Require(entry.Executable==Path.Combine(directory,"CRC.PracticeManager.exe")&&entry.Uninstaller==Path.Combine(boundary.ProgramRoot,"CRC.Uninstall.exe"));
-  Require(IsDigest(entry.UninstallerHash)&&IsDigest(entry.ShortcutHash)&&FileHash(entry.Uninstaller)==entry.UninstallerHash);
+  var uninstaller=LocalStoragePath.FilePath(entry.Uninstaller,mustExist:true,rejectSidecars:true);
+  Require(IsDigest(entry.UninstallerHash)&&IsDigest(entry.ShortcutHash)&&WorkspaceConfidentiality.HasWorkspaceFileAcl(uninstaller)&&FileHash(uninstaller)==entry.UninstallerHash);
   var path=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,ShortcutName),mustExist:true,rejectSidecars:true);
   Require(FileHash(path)==entry.ShortcutHash);
   VerifyShortcut(path,entry.Executable,directory);
