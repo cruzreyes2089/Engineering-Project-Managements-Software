@@ -49,6 +49,33 @@ public sealed partial class LocalPractice
   ) x JOIN users u ON u.id=x.actor ORDER BY x.recorded_utc DESC,x.kind,x.record_id DESC LIMIT 501");
   using var r=q.ExecuteReader();var rows=new List<OwnerDecisionEvidence>();while(r.Read()){if(rows.Count==500)throw new ArgumentException("Self-decision history exceeds development limit.");long? policy=r.IsDBNull(6)?null:r.GetInt64(6);rows.Add(new(r.GetString(0),r.GetInt64(1),r.GetString(2),r.GetString(3),r.GetString(4),r.GetString(5),policy,policy.HasValue?"Recorded under exception":"Unmarked historical self-decision — review required"));}return rows.AsReadOnly();
  }
+ // Read-only decision preflight, with the same view/decision grants as the
+ // mutation. The mutation remains authoritative and checks eligibility again.
+ public bool WorkReviewRequiresOwnerConfirmation(long id,bool approved,bool overhead=false)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);var actor=RequireWorkReview(c,t,"Work.Review");
+  var source=overhead?"SELECT submitted_by FROM overhead_time WHERE id=$i":"SELECT submitted_by FROM work_submissions WHERE id=$i";
+  var review=overhead?"SELECT decision FROM overhead_reviews WHERE submission_id=$i":"SELECT decision FROM work_reviews WHERE submission_id=$i";
+  var invalidation=overhead?"SELECT submission_id FROM overhead_invalidations WHERE submission_id=$i":"SELECT submission_id FROM work_invalidations WHERE submission_id=$i";
+  if(Scalar(c,t,source,("$i",id)) is not long owner||Scalar(c,t,review,("$i",id))!=null||Scalar(c,t,invalidation,("$i",id))!=null)throw new ArgumentException("Record no longer awaits review. Refresh.");
+  return OwnerConfirmationRequired(c,t,actor,owner,approved);
+ }
+ public bool WorkClassificationRequiresOwnerConfirmation(long id)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);var actor=RequireWorkReview(c,t,"Billing.Classify");
+  if(Scalar(c,t,"SELECT submitted_by FROM work_submissions WHERE id=$i",("$i",id)) is not long owner||
+    !Equals(Scalar(c,t,"SELECT decision FROM work_reviews WHERE submission_id=$i",("$i",id)),"Approved")||
+    Scalar(c,t,"SELECT submission_id FROM work_invalidations WHERE submission_id=$i",("$i",id))!=null||
+    Scalar(c,t,"SELECT classification FROM work_billing_classifications WHERE submission_id=$i",("$i",id))!=null)
+   throw new ArgumentException("Record no longer awaits classification. Refresh.");
+  return OwnerConfirmationRequired(c,t,actor,owner,true);
+ }
+ private static bool OwnerConfirmationRequired(SqliteConnection c,SqliteTransaction t,long actor,long submitter,bool allowedAction)
+ {
+  if(actor!=submitter)return false;
+  if(!allowedAction||!OwnerPolicy(c,t,actor).Enabled)throw new UnauthorizedAccessException("Independent review required; owner exception unavailable for this decision.");
+  return true;
+ }
  private static long RequireOwnerException(SqliteConnection c,SqliteTransaction t,long actor,bool explicitlyConfirmed)
  {
   if(!explicitlyConfirmed)throw new UnauthorizedAccessException("Self approval requires explicit owner exception confirmation.");
