@@ -84,7 +84,7 @@ public static class InstalledVersionSelectionCandidate
   var raw=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(receipt);
   using(var stream=new FileStream(receiptPath,FileMode.CreateNew,FileAccess.Write,FileShare.None))
   {stream.Write(raw);stream.Flush(true);}
-  if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(receiptPath))throw new ArgumentException("Registration receipt permissions require review.");
+  if(ReadRegistration(boundary,expectedVersion)!=receipt)throw new ArgumentException("Registration receipt changed.");
   WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
   if(Read(boundary,"registration-pending.txt")!=expectedVersion||Current(boundary)!=expectedVersion)
    throw new ArgumentException("Registration outcome requires review.");
@@ -138,19 +138,41 @@ public static class InstalledVersionSelectionCandidate
  [System.Runtime.Versioning.SupportedOSPlatform("windows")]
  static WindowsRegistrationCandidate.Registration ReadRegistration(InstalledProgramBoundary boundary,string version)
  {
-  var path=LocalStoragePath.FilePath(ReceiptPath(boundary),mustExist:true,rejectSidecars:true);
+  var receipt=ReadReceiptFile(ReceiptPath(boundary));
+  if(receipt.Version!=version||receipt.Identity!=boundary.VerifyInitializedLayout())throw new ArgumentException("Registration identity changed.");
+  return receipt;
+ }
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ static WindowsRegistrationCandidate.Registration ReadReceiptFile(string file)
+ {
+  var path=LocalStoragePath.FilePath(file,mustExist:true,rejectSidecars:true);
   if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(path))throw new ArgumentException("Registration receipt requires review.");
   using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
   if(stream.Length is <=0 or >16384)throw new ArgumentException("Registration receipt requires review.");
   var bytes=new byte[(int)stream.Length];stream.ReadExactly(bytes);
-  var receipt=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(bytes)??throw new ArgumentException("Registration receipt requires review.");
-  if(receipt.Version!=version||receipt.Identity!=boundary.VerifyInitializedLayout())throw new ArgumentException("Registration identity changed.");
+  WindowsRegistrationCandidate.Registration receipt;
+  try
+  {
+   receipt=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(bytes)
+    ??throw new ArgumentException("Registration receipt requires review.");
+  }
+  catch(System.Text.Json.JsonException ex){throw new ArgumentException("Registration receipt requires review.",ex);}
+  // Only accept the exact format emitted by this version of the writer.
+  // Extra or duplicate members, alternate encodings and ambiguous null fields
+  // are not silently adopted. This is local consistency, not authentication.
+  if(!bytes.SequenceEqual(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(receipt))||
+   new[]{receipt.Identity,receipt.Version,receipt.ProgramRoot,receipt.Executable,receipt.Uninstaller,receipt.UninstallerHash,receipt.ShortcutHash}.Any(string.IsNullOrEmpty))
+   throw new ArgumentException("Registration receipt requires review.");
   return receipt;
  }
- static void ArchiveRegistration(InstalledProgramBoundary boundary)
+ [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+ static void ArchiveRegistration(InstalledProgramBoundary boundary,WindowsRegistrationCandidate.Registration expected)
  {
+  if(ReadRegistration(boundary,expected.Version)!=expected)throw new ArgumentException("Registration receipt changed.");
   var retained=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"registration-history-"+Guid.NewGuid().ToString("N")+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
   File.Move(ReceiptPath(boundary),retained,false);
+  if(ReadReceiptFile(retained)!=expected||Exists(ReceiptPath(boundary)))
+   throw new ArgumentException("Registration history requires review.");
  }
  [System.Runtime.Versioning.SupportedOSPlatform("windows")]
  internal static void UpgradeRegisteredInstallation(InstalledProgramBoundary boundary,string expectedPrevious,string candidate,
@@ -161,13 +183,14 @@ public static class InstalledVersionSelectionCandidate
   if(Current(boundary)!=expectedPrevious)throw new ArgumentException("Selected program changed.");
   var receipt=ReadRegistration(boundary,expectedPrevious);
   WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
-  // Validate source before starting the transaction. Keep one outer pending
-  // record across code selection, registration replacement and readback.
-  _=InstalledPayloadVerification.ReviewTree(LocalStoragePath.DirectoryPath(extractedDirectory),inventoryBytes,candidate);
+  // Complete non-mutating preflight before starting the transaction. Keep
+  // one outer pending record across staging, selection and registration.
+  var raw=inventoryBytes.ToArray();
+  ReviewStagePreconditions(boundary,expectedPrevious,candidate,extractedDirectory,raw);
   WriteNew(boundary,"registration-pending.txt",candidate);
-  StageUnderLease(boundary,expectedPrevious,candidate,extractedDirectory,inventoryBytes);
+  StageUnderLease(boundary,expectedPrevious,candidate,extractedDirectory,raw);
   WindowsRegistrationCandidate.RemoveOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
-  ArchiveRegistration(boundary);
+  ArchiveRegistration(boundary,receipt);
   var replacement=WindowsRegistrationCandidate.RegisterFresh(boundary,candidate,receipt.UninstallerHash,parent,shortcutDirectory);
   var path=LocalStoragePath.FilePath(ReceiptPath(boundary),mustExist:false,mustBeNew:true,rejectSidecars:true);
   using(var stream=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None))
@@ -188,7 +211,7 @@ public static class InstalledVersionSelectionCandidate
   WindowsRegistrationCandidate.VerifyOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
   WriteNew(boundary,"registration-pending.txt",expectedActive);
   WindowsRegistrationCandidate.RemoveOwnedRegistration(boundary,parent,shortcutDirectory,receipt);
-  ArchiveRegistration(boundary);
+  ArchiveRegistration(boundary,receipt);
   var removed=RemoveUnderLease(boundary,expectedActive);
   if(Current(boundary)!=null||Read(boundary,"registration-pending.txt")!=expectedActive)throw new ArgumentException("Removal registration requires review.");
   File.Delete(Path.Combine(boundary.ProgramRoot,"registration-pending.txt"));
@@ -266,7 +289,7 @@ public static class InstalledVersionSelectionCandidate
   RequireUnregistered(boundary);
   StageUnderLease(boundary,expectedPrevious,candidate,extractedDirectory,inventoryBytes);
  }
- static void StageUnderLease(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
+ static void ReviewStagePreconditions(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
  {
   var previous=Current(boundary);
   if(previous!=expectedPrevious||candidate==previous)throw new ArgumentException("Program selection changed.");
@@ -275,14 +298,22 @@ public static class InstalledVersionSelectionCandidate
   var source=LocalStoragePath.DirectoryPath(extractedDirectory);
   if(ProjectFolderPolicy.Overlaps(source,boundary.ProgramRoot))
    throw new ArgumentException("Use separate isolated extraction directory.");
-  var raw=inventoryBytes.ToArray();
-  var payload=InstalledPayloadVerification.ReviewTree(source,raw,candidate);
+  _=InstalledPayloadVerification.ReviewTree(source,inventoryBytes,candidate);
   var versions=LocalStoragePath.DirectoryPath(boundary.VersionsRoot);
   var manifests=LocalStoragePath.DirectoryPath(Path.Combine(boundary.ProgramRoot,"manifests"));
   if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(versions)||!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(manifests))
    throw new ArgumentException("Program storage permissions require review.");
-  var manifestPath=LocalStoragePath.FilePath(Path.Combine(manifests,candidate+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  _=LocalStoragePath.FilePath(Path.Combine(manifests,candidate+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
   if(Exists(target))throw new ArgumentException("Version already exists; no replacement permitted.");
+ }
+ static void StageUnderLease(InstalledProgramBoundary boundary,string? expectedPrevious,string candidate,string extractedDirectory,byte[] inventoryBytes)
+ {
+  var raw=inventoryBytes.ToArray();
+  ReviewStagePreconditions(boundary,expectedPrevious,candidate,extractedDirectory,raw);
+  var target=boundary.VersionDirectory(candidate);
+  var source=LocalStoragePath.DirectoryPath(extractedDirectory);
+  var payload=InstalledPayloadVerification.ReviewTree(source,raw,candidate);
+  var manifestPath=LocalStoragePath.FilePath(Path.Combine(boundary.ProgramRoot,"manifests",candidate+".json"),mustExist:false,mustBeNew:true,rejectSidecars:true);
   WriteNew(boundary,InstallIntent,candidate);
   WorkspaceConfidentiality.EnsureWorkspaceDirectory(target);
   if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(target)||Directory.EnumerateFileSystemEntries(target).Any())
