@@ -18,6 +18,7 @@ public sealed partial class LocalPractice
   var parent=Path.GetDirectoryName(session)!;
   if(Path.GetFileName(parent)!="CRC Practice Manager DOCUMENT ACCEPTANCE"||Path.GetFileName(db)!="practice-document-acceptance.db")
    throw new UnauthorizedAccessException("Synthetic folder workspace unavailable.");
+  _=RestrictedSyntheticDirectory(parent,false);_=RestrictedSyntheticDirectory(session,false);
   var marker=LocalStoragePath.FilePath(Path.Combine(session,"document-acceptance-session.txt"),mustExist:true,rejectSidecars:true);
   using(var stream=new FileStream(marker,FileMode.Open,FileAccess.Read,FileShare.Read))
   {
@@ -123,7 +124,7 @@ public sealed partial class LocalPractice
  public IReadOnlyList<string> CreateAcceptanceFolders(long project,string expectedFolder,string expectedConfiguration,IReadOnlyList<ProjectFolderTemplateItem> selected,string planHash,bool confirmed)
  {
   if(!confirmed)throw new ArgumentException("Explicit directory creation confirmation required.");
-  RequireDocumentAcceptance();var frozen=selected.ToArray();using var c=Open();
+  RequireDocumentAcceptance();var frozen=selected.ToArray();var generation=sessionGeneration;using var c=Open();
   long actor;
   using(var request=c.BeginTransaction(deferred:false))
   {
@@ -133,8 +134,9 @@ public sealed partial class LocalPractice
   }
   using var t=c.BeginTransaction(deferred:false);
   var current=ReviewCreation(c,t,project,expectedFolder,expectedConfiguration,frozen,true);
-  if(current.Actor!=actor||current.Plan.Hash!=planHash)throw new ArgumentException("Creation plan or authorization changed; review again.");
+  if(generation!=sessionGeneration||current.Actor!=actor||current.Plan.Hash!=planHash)throw new ArgumentException("Creation plan or authorization changed; review again.");
   var created=FolderCreationRehearsal.Execute(current.Config,current.Folder.RelativePath,c.DataSource,frozen,planHash,true);
+  if(generation!=sessionGeneration||RequireDocuments(c,t,true)!=actor||RequireAdministration(c,t)!=actor)throw new UnauthorizedAccessException("Creation outcome requires reconciliation.");
   Audit(c,t,actor,"AcceptanceFolderCreationCompleted","Project",project);t.Commit();
   return created;
  }
