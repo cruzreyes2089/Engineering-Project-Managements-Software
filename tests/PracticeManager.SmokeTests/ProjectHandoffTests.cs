@@ -80,8 +80,26 @@ internal static class ProjectHandoffTests
   check(concern.Disposition=="Hold","recorded project screening reports effective hold for participant concern");
   check(s.ReadProjectConflictStatus(project)=="Hold","declared concern cannot be cleared by no answers");
   s.RecordPartyDeclaration(project,currentParty,s.ReadPartyDeclarations(project,currentParty).First().Id,revised,d2.Hash,"ReviewedNoConflict","Synthetic resolution",true);
-  s.RecordConflictReview(project,concern.Id,screen,true,s.ReadPartyEvidenceRevision(project));
+  var renewed=s.RecordConflictReview(project,concern.Id,screen,true,s.ReadPartyEvidenceRevision(project));
   check(s.ReadProjectConflictStatus(project)=="Clear","fresh review after concern resolution");
+  var priorReview=s.ReadPartyDeclarations(project,currentParty).First();
+  var priorRevision=s.ReadPartyEvidenceRevision(project);var priorDocs=s.ReadProjectDocuments(project,false).Count;
+  var attachment="%PDF-1.7\nNew synthetic declaration\n%%EOF"u8.ToArray();
+  Invalid(()=>s.AttachPartyDeclaration(project,currentParty,priorReview.Id,Guid.NewGuid(),"new-declaration.pdf",attachment,false),"attachment requires explicit confirmation");
+  Invalid(()=>s.AttachPartyDeclaration(project,currentParty,null,Guid.NewGuid(),"new-declaration.pdf",attachment,true),"attachment rejects stale declaration review");
+  check(s.ReadProjectDocuments(project,false).Count==priorDocs&&s.ReadProjectConflictStatus(project)=="Clear","rejected attachment leaves evidence and clearance unchanged");
+  Sql("CREATE TRIGGER test_attachment_abort BEFORE INSERT ON party_declaration_reviews WHEN NEW.decision='Unverified' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END");
+  try{s.AttachPartyDeclaration(project,currentParty,priorReview.Id,Guid.NewGuid(),"new-declaration.pdf",attachment,true);throw new Exception("FAIL: attachment rollback");}catch(SqliteException){check(s.ReadProjectDocuments(project,false).Count==priorDocs&&s.ReadPartyEvidenceRevision(project)==priorRevision&&s.ReadProjectConflictStatus(project)=="Clear","attachment and unverified event roll back together");}
+  Sql("DROP TRIGGER test_attachment_abort");
+  var attached=s.AttachPartyDeclaration(project,currentParty,priorReview.Id,Guid.NewGuid(),"new-declaration.pdf",attachment,true);
+  var unverified=s.ReadPartyDeclarations(project,currentParty).First();
+  check(unverified.DocumentId==attached&&unverified.CurrentStatus=="Unverified"&&s.ReadProjectConflictStatus(project)=="Hold"&&s.ReadPartyEvidenceRevision(project)==priorRevision+1,"attachment immediately holds previous clearance without claiming signed review");
+  check(s.AuthorizeProjectStart(project,hash,b.Id,b.PdfHash,true,"Synthetic")=="ConflictReviewRequired","unverified attachment prevents start");
+  s.RecordPartyDeclaration(project,currentParty,unverified.Id,attached,unverified.DocumentHash,"ReviewedNoConflict","Reviewed replacement",true);
+  check(s.ReadProjectConflictStatus(project)=="Hold","review of attachment alone cannot restore clearance");
+  s.RecordConflictReview(project,renewed.Id,screen,true,s.ReadPartyEvidenceRevision(project));
+  check(s.ReadProjectConflictStatus(project)=="Clear","renewed project screening restores clearance");
+
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Documents.Restricted'");
   Denied(()=>s.ReadPartyDeclarations(project,currentParty),"restricted declaration evidence protected");
   Sql("UPDATE role_permissions SET allowed=1 WHERE permission_code='Documents.Restricted'");
