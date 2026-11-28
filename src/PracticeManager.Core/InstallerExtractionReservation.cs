@@ -99,6 +99,14 @@ internal sealed class InstallerExtractionReservation : IDisposable
   Require(ReadBounded(Path.Combine(root,ReadyName)).SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(witness)));
   return witness;
  }
+ // Same-process handoff review only; the exclusive reservation stays open.
+ // The caller must use separately verified release evidence. A receipt is
+ // not a substitute for signature validation or execution authorization.
+ internal InstallerExtractionEvidence.Witness ReviewForHandoff(InstallerReleaseEvidence.Evidence expected,DateTimeOffset now)
+ {
+  Require(expected==evidence&&now.ToUnixTimeSeconds()>=evidence.NotBeforeUnix&&now.ToUnixTimeSeconds()<evidence.ExpiresUnix);
+  return ReviewSealed();
+ }
  public void Dispose()
  {
   if(disposed)return;
