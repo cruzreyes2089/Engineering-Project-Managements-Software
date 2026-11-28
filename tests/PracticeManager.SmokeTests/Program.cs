@@ -43,6 +43,16 @@ try{
  }
  DevelopmentWorkspaceTests.Run(Path.GetDirectoryName(path)!,Check);
  var s=new LocalPractice(path);
+ // Inspect the actual service connection factory, not an independently configured test connection.
+ var connectionFactory=typeof(LocalPractice).GetMethod("Open",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+ for(var attempt=0;attempt<2;attempt++){
+  using var guarded=(SqliteConnection)connectionFactory.Invoke(s,null)!;
+  using var pragma=guarded.CreateCommand();
+  pragma.CommandText="PRAGMA trusted_schema";
+  Check(Convert.ToInt64(pragma.ExecuteScalar()??-1)==0,"service connection disables trusted schema");
+  pragma.CommandText="PRAGMA foreign_keys";
+  Check(Convert.ToInt64(pragma.ExecuteScalar()??-1)==1,"service connection enforces foreign keys");
+ }
  using(var db=new SqliteConnection($"Data Source={path}")){db.Open(); using var version=db.CreateCommand(); version.CommandText="SELECT sqlite_version()"; var native=Version.Parse(Convert.ToString(version.ExecuteScalar())!); Console.WriteLine($"SQLite runtime: {native}"); Check(native>=new Version(3,50,2),"native SQLite meets GHSA-2m69-gcr7-jv3q fixed-version floor");}
   const string pw="Synthetic-test-passphrase-0001";
  Check(!s.IsInitialized(),"empty first run");
