@@ -6,7 +6,8 @@ namespace PracticeManager.Core;
 public static class LocalStoragePath
 {
  static readonly string[] Sidecars=["-wal","-shm","-journal"];
- static readonly Regex Reserved=new(@"^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])$",RegexOptions.IgnoreCase|RegexOptions.CultureInvariant);
+ static readonly Regex Reserved=new(@"^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$",RegexOptions.IgnoreCase|RegexOptions.CultureInvariant);
+ internal static bool IsReservedWindowsName(string component)=>Reserved.IsMatch(component.Split('.')[0].TrimEnd(' '));
  public static string Normalize(string path)
  {
   if(string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path))throw new ArgumentException("Use a fully qualified local storage path.");
@@ -14,7 +15,7 @@ public static class LocalStoragePath
   if(OperatingSystem.IsWindows()&&(root.Length!=3||root[1]!=':'||!char.IsAsciiLetter(root[0])||new DriveInfo(root).DriveType!=DriveType.Fixed))
    throw new ArgumentException("Use a local fixed drive; network and device paths are not supported.");
   foreach(var part in path[root.Length..].Split(new[]{Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar},StringSplitOptions.RemoveEmptyEntries))
-   if(part is "." or ".."||part.EndsWith(' ')||part.EndsWith('.')||part.Contains(':')||Reserved.IsMatch(part.Split('.')[0])||part.IndexOfAny(Path.GetInvalidFileNameChars())>=0)
+   if(part is "." or ".."||part.EndsWith(' ')||part.EndsWith('.')||part.Contains(':')||IsReservedWindowsName(part)||part.IndexOfAny(Path.GetInvalidFileNameChars())>=0)
     throw new ArgumentException("Unsafe local storage path component.");
   return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
  }
