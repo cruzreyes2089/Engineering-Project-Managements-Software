@@ -7,7 +7,7 @@ public static class LocalStoragePath
 {
  static readonly string[] Sidecars=["-wal","-shm","-journal"];
  static readonly Regex Reserved=new(@"^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$",RegexOptions.IgnoreCase|RegexOptions.CultureInvariant);
- internal static bool IsReservedWindowsName(string component)=>Reserved.IsMatch(component.Split('.')[0].TrimEnd(' '));
+ public static bool IsReservedWindowsName(string component)=>Reserved.IsMatch(component.Split('.')[0].TrimEnd(' '));
  public static string Normalize(string path)
  {
   if(string.IsNullOrWhiteSpace(path)||!Path.IsPathFullyQualified(path))throw new ArgumentException("Use a fully qualified local storage path.");
