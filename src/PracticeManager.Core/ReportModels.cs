@@ -7,6 +7,19 @@ public sealed record ProjectCloseoutReview(string ProjectNumber,string ProjectSt
  public bool HasUnresolvedOperationalItems=>SetupState!="Complete"||OpenTasks!=0||OpenQualityItems!=0||PendingScopeDecisions!=0||PendingTimeSubmissions!=0||PendingExpenseSubmissions!=0;
  public bool CanRequestClose=>ProjectState=="Active"&&ConflictStatus=="Clear"&&!HasUnresolvedOperationalItems;
  public bool CanRequestReopen=>ProjectState=="OperationalClosed"&&ConflictStatus=="Clear";
+ public IReadOnlyList<string> ClosureBlockers()
+ {
+  var items=new List<string>();
+  if(ProjectState!="Active")items.Add("Project is not operationally active.");
+  if(ConflictStatus!="Clear")items.Add("Resolve current conflict clearance.");
+  if(SetupState!="Complete")items.Add("Complete project setup.");
+  if(OpenTasks!=0)items.Add($"Resolve open tasks ({OpenTasks}).");
+  if(OpenQualityItems!=0)items.Add($"Resolve QA/QC items ({OpenQualityItems}).");
+  if(PendingScopeDecisions!=0)items.Add($"Decide pending scope changes ({PendingScopeDecisions}).");
+  if(PendingTimeSubmissions!=0)items.Add($"Review pending time submissions ({PendingTimeSubmissions}).");
+  if(PendingExpenseSubmissions!=0)items.Add($"Review pending expense submissions ({PendingExpenseSubmissions}).");
+  return items.AsReadOnly();
+ }
 }
 public sealed record ProjectFinancialReport(string ProjectNumber,DateOnly Start,DateOnly End,long ApprovedMinutes,long BillableMinutes,long NonbillableMinutes,long UnclassifiedMinutes,decimal? EstimatedLaborCost,int MissingCostRates,decimal ApprovedExpenseCost,decimal DraftValue,decimal ApprovedInternalDraftValue,decimal CancelledDraftValue,decimal HeldApprovedDraftValue=0,int HeldApprovedDraftCount=0)
 {
