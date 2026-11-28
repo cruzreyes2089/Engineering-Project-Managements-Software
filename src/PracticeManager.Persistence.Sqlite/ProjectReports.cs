@@ -42,6 +42,12 @@ public sealed partial class LocalPractice
   Exec(c,t,"INSERT INTO project_lifecycle_events(project_id,state,note,actor_id,recorded_utc) VALUES($p,$s,$n,$a,$u)",("$p",project),("$s",state),("$n",reason),("$a",actor),("$u",utc));
   var id=Last(c,t);Audit(c,t,actor,close?"OperationalClose":"OperationalReopen","Project",project);t.Commit();return new(id,project,state,reason,actor,utc);
  }
+ public (bool Operations,bool Financial) ReadProjectReportAccess()
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);
+  bool Allowed(params string[] grants){try{RequireProjectView(c,t);foreach(var grant in grants)Require(c,t,grant);return true;}catch(UnauthorizedAccessException){return false;}}
+  return (Allowed("Reports.Operations"),Allowed("Reports.Financial","Billing.Invoices.View","Billing.Rates"));
+ }
  private long RequireReport(SqliteConnection c,SqliteTransaction t,string grant)
  {RequireProjectView(c,t);return Require(c,t,grant);}
  public ProjectCloseoutReview ReadProjectCloseoutReview(long project)
