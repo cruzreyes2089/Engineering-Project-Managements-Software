@@ -229,6 +229,19 @@ internal static class ProductionStorageBoundaryTests
    session.Service.Bootstrap("Synthetic desktop acceptance","admin",pw,"CL");
    var reopened=ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",session.SessionId});
    check(reopened.Service.IsInitialized()&&reopened.Service.Login("admin",pw),"explicit acceptance reopens original company");
+   void MigrationDenied(Action action,string label)
+   {
+    try{action();}catch(UnauthorizedAccessException){check(true,label);return;}
+    throw new Exception("FAIL: "+label);
+   }
+   check(reopened.Service.Can("Administration.LegacyCrmImport")&&reopened.Service.Can("Administration.HistoricalProjectImport"),"production acceptance administrator retains migration grants without enabling deferred capability");
+   var emptyTransfer=Array.Empty<byte>();var invalidDigest=new string('0',64);
+   MigrationDenied(()=>reopened.Service.PreviewLegacyCrm(emptyTransfer),"production acceptance refuses legacy CRM preview before parsing");
+   MigrationDenied(()=>reopened.Service.ImportLegacyCrm(emptyTransfer,invalidDigest,true,"Synthetic"),"production acceptance refuses direct legacy CRM import");
+   check(!reopened.Service.CanImportHistoricalProjects(),"production acceptance reports historical import disabled");
+   MigrationDenied(()=>reopened.Service.PreviewHistoricalProjects(emptyTransfer,emptyTransfer,emptyTransfer,invalidDigest,invalidDigest,invalidDigest,invalidDigest),"production acceptance refuses direct historical archive preview");
+   MigrationDenied(()=>reopened.Service.ImportHistoricalProjects(emptyTransfer,emptyTransfer,emptyTransfer,invalidDigest,invalidDigest,invalidDigest,invalidDigest,true,"Synthetic"),"production acceptance refuses direct historical archive import");
+   check(reopened.Service.ReadLegacyCrmHistory()==null&&reopened.Service.ReadHistoricalProjects().Count==0,"deferred import preserves empty mapping and archive read access");
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",Guid.NewGuid().ToString("N")}),"unknown acceptance session refused without creation");
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,Array.Empty<string>()),"implicit acceptance startup refused");
    Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session","../other"}),"invalid acceptance session refused");

@@ -16,6 +16,7 @@ public sealed partial class LocalPractice
     }
     private long RequireHistoricalImport(SqliteConnection c,SqliteTransaction t)
     {
+        RequireLegacyMigrationAvailable();
         var actor=RequireAdministration(c,t);RequireHistoricalView(c,t);
         Require(c,t,"Administration.HistoricalProjectImport");return actor;
     }

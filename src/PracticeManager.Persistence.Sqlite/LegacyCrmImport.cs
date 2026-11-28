@@ -8,6 +8,12 @@ public sealed record LegacyCrmMappingEvidence(string Kind,string LegacyId,string
 public sealed record LegacyCrmHistory(string Sha256,int Clients,int Contacts,string ReviewNote,string ImportedUtc,long ImportedBy,IReadOnlyList<LegacyCrmMappingEvidence> Mappings);
 public sealed partial class LocalPractice
 {
+ // Fresh-firm production candidate excludes unqualified legacy transfer.
+ // Existing mapping history remains readable with the original grants.
+ private void RequireLegacyMigrationAvailable()
+ {
+  if(productionFixtureLayout!=null)throw new UnauthorizedAccessException("Legacy migration is deferred for the initial release.");
+ }
  private long RequireLegacyCrm(SqliteConnection c,SqliteTransaction t)
  {
   var actor=RequireAdministration(c,t);foreach(var grant in new[]{"Administration.LegacyCrmImport","Clients.View","Clients.Edit","Contacts.View","Contacts.Edit"})Require(c,t,grant);return actor;
@@ -21,6 +27,7 @@ public sealed partial class LocalPractice
  }
  public LegacyCrmPreview PreviewLegacyCrm(byte[] data)
  {
+  RequireLegacyMigrationAvailable();
   using var c=Open();using var t=c.BeginTransaction();RequireLegacyCrm(c,t);var p=LegacyCrmTransfer.Parse(data);
   return new(p.Sha256,p.Clients.Count,p.Contacts.Count,p.DuplicateNameGroups,p.DuplicateNumberGroups,LegacyCrmTarget(c,t,p.Sha256));
  }
@@ -53,6 +60,7 @@ public sealed partial class LocalPractice
  }
  public LegacyCrmImportResult ImportLegacyCrm(byte[] data,string expectedHash,bool explicitlyConfirmed,string reviewNote)
  {
+  RequireLegacyMigrationAvailable();
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=RequireLegacyCrm(c,t);var p=LegacyCrmTransfer.Parse(data);
   if(p.Sha256!=expectedHash||!explicitlyConfirmed)throw new ArgumentException("Exact preview hash and explicit import confirmation required.");
   var note=Validation.Text(reviewNote,1000,"Reviewed source mapping and counts",true);var status=LegacyCrmTarget(c,t,p.Sha256);
