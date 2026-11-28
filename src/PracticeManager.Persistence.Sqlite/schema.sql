@@ -1,0 +1,13 @@
+CREATE TABLE firms(id INTEGER PRIMARY KEY CHECK(id=1), name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 150),client_prefix TEXT NOT NULL CHECK(length(client_prefix) BETWEEN 1 AND 10));
+CREATE TABLE roles(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+CREATE TABLE permissions(code TEXT PRIMARY KEY);
+CREATE TABLE role_permissions(role_id INTEGER NOT NULL REFERENCES roles(id),permission_code TEXT NOT NULL REFERENCES permissions(code),allowed INTEGER NOT NULL CHECK(allowed IN (0,1)), PRIMARY KEY(role_id,permission_code));
+CREATE TABLE users(id INTEGER PRIMARY KEY, username TEXT NOT NULL, normalized_username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,role_id INTEGER NOT NULL REFERENCES roles(id),active INTEGER NOT NULL CHECK(active IN (0,1)),failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK(failed_attempts>=0),locked_until INTEGER NOT NULL DEFAULT 0,force_password_change INTEGER NOT NULL DEFAULT 0 CHECK(force_password_change IN(0,1)));
+CREATE TABLE sequences(name TEXT PRIMARY KEY,next_value INTEGER NOT NULL CHECK(next_value>0));
+CREATE TABLE clients(id INTEGER PRIMARY KEY,client_no TEXT NOT NULL UNIQUE,client_type TEXT NOT NULL CHECK(client_type IN('Individual / Homeowner','Business / Company','Contractor / Developer','Architect / Designer','Property Manager / HOA','Government / Public Agency','Other')),company_name TEXT NOT NULL DEFAULT '',first_name TEXT NOT NULL DEFAULT '',last_name TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',phone TEXT NOT NULL DEFAULT '',address1 TEXT NOT NULL DEFAULT '',address2 TEXT NOT NULL DEFAULT '',city TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT '',zip TEXT NOT NULL DEFAULT '',notes TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'Active' CHECK(status IN('Active','Inactive')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,CHECK(length(trim(company_name||first_name||last_name))>0));
+CREATE TABLE contacts(id INTEGER PRIMARY KEY,client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,first_name TEXT NOT NULL DEFAULT '',last_name TEXT NOT NULL DEFAULT '',title TEXT NOT NULL DEFAULT '',email TEXT NOT NULL DEFAULT '',phone TEXT NOT NULL DEFAULT '',is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0,1)),CHECK(length(trim(first_name||last_name))>0));
+CREATE UNIQUE INDEX ux_primary_contact ON contacts(client_id) WHERE is_primary=1;
+CREATE INDEX ix_contacts_client ON contacts(client_id);
+CREATE INDEX ix_clients_company ON clients(company_name);
+CREATE TABLE audit_events(id INTEGER PRIMARY KEY,actor_id INTEGER REFERENCES users(id),action TEXT NOT NULL,entity TEXT NOT NULL,entity_id INTEGER,occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+PRAGMA user_version=1;
