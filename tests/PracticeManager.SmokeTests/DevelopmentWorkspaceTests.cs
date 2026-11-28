@@ -25,6 +25,8 @@ internal static class DevelopmentWorkspaceTests
   if(OperatingSystem.IsWindows())VerifyStartupAcl(root,normal,one,check);
   var resumed=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!});
   check(resumed==one&&new LocalPractice(resumed.DatabasePath).IsInitialized(),"exact acceptance session may be reopened");
+  check(one.RevalidateExisting(root)==one&&normal.RevalidateExisting(root)==normal,"session renewal resolves same existing workspace");
+  Invalid(()=>two.RevalidateExisting(root),"session renewal cannot create missing acceptance database");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",Guid.NewGuid().ToString("N")}),"unknown acceptance session cannot initialize silently");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!.ToUpperInvariant()}),"noncanonical session identifier rejected");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",Guid.Empty.ToString("N")}),"empty session identifier rejected");
@@ -88,6 +90,8 @@ internal static class DevelopmentWorkspaceTests
   }
   RefuseBroadDirectory(Path.GetDirectoryName(normal.DatabasePath)!,()=>DevelopmentWorkspace.Resolve(root,Array.Empty<string>()),"development startup refuses broadened directory permissions");
   RefuseBroadDirectory(session,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"reopen refuses broadened acceptance session permissions");
+  RefuseBroadDirectory(session,()=>one.RevalidateExisting(root),"session renewal refuses broadened acceptance permissions");
+  RefuseBroadDirectory(Path.GetDirectoryName(normal.DatabasePath)!,()=>normal.RevalidateExisting(root),"session renewal refuses broadened development permissions");
   var count=Directory.EnumerateDirectories(acceptanceRoot).Count();
   RefuseBroadDirectory(acceptanceRoot,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"}),"new acceptance refuses broadened root permissions");
   check(Directory.EnumerateDirectories(acceptanceRoot).Count()==count,"unqualified root creates no new acceptance session");
