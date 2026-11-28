@@ -22,17 +22,17 @@ internal sealed class ProjectLifecycleWindow:Window
   Content=new ScrollViewer{Content=panel,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
   close.Click+=(_,_)=>Record(true);reopen.Click+=(_,_)=>Record(false);Refresh();
  }
- void Refresh()
+ void Refresh(bool clearReason=false)
  {
-  loaded=false;expected=null;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";note.Clear();
+  loaded=false;expected=null;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";if(clearReason)note.Clear();
   try{
    var review=service.ReadProjectLifecycleReview(project);var r=review.Snapshot;var events=review.History;history.ItemsSource=events;expected=events.FirstOrDefault()?.Id;
    summary.Text=$"{r.ProjectNumber} — {r.ProjectState}\nSetup: {r.SetupState}; conflict: {r.ConflictStatus}\nOutstanding tasks: {r.OpenTasks}; QA: {r.OpenQualityItems}; scope: {r.PendingScopeDecisions}\nPending time: {r.PendingTimeSubmissions}; expenses: {r.PendingExpenseSubmissions}";
    close.IsEnabled=r.CanRequestClose;reopen.IsEnabled=r.CanRequestReopen;loaded=true;
-   status.Text=r.ProjectState=="Active"&&!r.CanRequestClose?"Resolve outstanding setup, conflict or operational items shown above before closing.":
+   status.Text=r.ProjectState=="Active"&&!r.CanRequestClose?string.Join("\n",r.ClosureBlockers()):
     r.ProjectState=="OperationalClosed"&&!r.CanRequestReopen?"Resolve current conflict clearance before requesting reopening.":
     "Current operational snapshot. Service rechecks authorization and evidence before recording.";
-  }catch(UnauthorizedAccessException){status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Lifecycle unavailable.";}
+  }catch(UnauthorizedAccessException){note.Clear();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Lifecycle unavailable.";}
  }
  void Record(bool closing)
  {
@@ -40,7 +40,7 @@ internal sealed class ProjectLifecycleWindow:Window
   if(string.IsNullOrWhiteSpace(note.Text)){status.Text="Enter the decision evidence or reason before confirming.";note.Focus();return;}
   var question=closing?"Record operational closure? This does not settle invoices or release contractual obligations.":"Explicitly reopen this project for operational work subject to current controls?";
   if(MessageBox.Show(this,question,"Confirm lifecycle decision",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
-  try{var result=service.RecordProjectLifecycle(project,expected,closing,note.Text,true);Refresh();status.Text="Recorded: "+result.State;}
-  catch(UnauthorizedAccessException){Refresh();status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;loaded=false;close.IsEnabled=reopen.IsEnabled=false;}catch(Exception){loaded=false;close.IsEnabled=reopen.IsEnabled=false;status.Text="Decision unavailable. Refresh before retrying.";}
+  try{var result=service.RecordProjectLifecycle(project,expected,closing,note.Text,true);Refresh(true);if(loaded)status.Text="Recorded: "+result.State;else status.Text="Decision recorded; current review unavailable. Refresh before further action.";}
+  catch(UnauthorizedAccessException){Refresh(true);loaded=false;close.IsEnabled=reopen.IsEnabled=false;history.ItemsSource=null;summary.Text="";status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;loaded=false;close.IsEnabled=reopen.IsEnabled=false;}catch(Exception){loaded=false;close.IsEnabled=reopen.IsEnabled=false;status.Text="Decision unavailable. Refresh before retrying.";}
  }
 }
