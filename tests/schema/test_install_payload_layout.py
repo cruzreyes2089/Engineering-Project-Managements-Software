@@ -131,6 +131,31 @@ class InstallPayloadByteTests(unittest.TestCase):
         self.assertFalse(result["installerExecuted"])
         self.assertFalse(result["artifactBytesIndependentlyVerified"])
 
+    def test_nsis_source_includes_only_exact_verified_files(self):
+        source = m.render_nsis_payload_source(self.raw, self.hash, self.root)
+        rows = json.loads(self.raw)["files"]
+        expected = ['  File "${CRC_PAYLOAD_ROOT}\\' + row["path"].replace("/", "\\") + '"'
+                    for row in sorted(rows, key=lambda row: row["path"])]
+        self.assertEqual([line for line in source.splitlines() if line.startswith("  File ")], expected)
+        self.assertEqual(source.count("  IfFileExists "), len(rows))
+        self.assertIn("SetOverwrite off", source)
+        self.assertIn('SetOutPath "$CrcStageRoot\\fr"', source)
+        self.assertNotIn("File /r", source)
+        self.assertNotIn("Exec", source)
+        self.assertIn(self.hash, source)
+        self.assertEqual(source, m.render_nsis_payload_source(self.raw, self.hash, self.root))
+
+    def test_nsis_source_refuses_modified_or_extra_payload(self):
+        path = self.root / "hostfxr.dll"
+        old = path.read_bytes()
+        path.write_bytes(b"x" * len(old))
+        with self.assertRaises(ValueError):
+            m.render_nsis_payload_source(self.raw, self.hash, self.root)
+        path.write_bytes(old)
+        (self.root / "extra.dll").write_bytes(b"unexpected")
+        with self.assertRaises(ValueError):
+            m.render_nsis_payload_source(self.raw, self.hash, self.root)
+
     def test_descriptor_change_rejected(self):
         original = m.os.fstat
         calls = 0
