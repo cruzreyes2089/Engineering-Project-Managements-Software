@@ -15,10 +15,11 @@ Development source; not production-ready. The native C#/.NET, WPF and SQLite app
 
 ## Roadmap
 
-- 04A: establish repository governance and a safe source import process.
-- 04B: import the reviewed native baseline, verify Windows compilation, tests and startup.
-- 04C: assess accounting-provider feasibility using a synthetic sandbox.
-- Resume feature development after foundation acceptance.
+1. [Stage 1: internal operational application](docs/stage-1-release-scope.md) — current owner-approved priority; qualification pending.
+2. Stage 2: qualified legacy migration and Manager integration.
+3. Stage 3: network operation, commercial licensing and distribution.
+
+See the [Stage 1 operating guide](docs/stage-1-operating-guide.md), [installation contract](docs/stage-1-installation-contract.md), and [acceptance plan](docs/desktop-release-acceptance-plan.md). All are development and qualification references, not authorization to execute or distribute a held build.
 
 ## Contributing
 
