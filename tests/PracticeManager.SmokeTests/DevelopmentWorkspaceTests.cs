@@ -22,7 +22,7 @@ internal static class DevelopmentWorkspaceTests
   if(OperatingSystem.IsWindows())VerifyWindowsAcl(root,normal,one,check);
   var store=new LocalPractice(one.DatabasePath);check(!store.IsInitialized(),"acceptance store begins empty");
   store.Bootstrap("Synthetic acceptance firm","acceptance-admin","Synthetic-acceptance-passphrase-001","QA");
-  if(OperatingSystem.IsWindows())VerifyStartupAcl(root,normal,one,check);
+  if(OperatingSystem.IsWindows()){VerifyStartupAcl(root,normal,one,check);VerifyWorkspaceFiles(root,normal,one,check);}
   var resumed=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!});
   check(resumed==one&&new LocalPractice(resumed.DatabasePath).IsInitialized(),"exact acceptance session may be reopened");
   check(one.RevalidateExisting(root)==one&&normal.RevalidateExisting(root)==normal,"session renewal resolves same existing workspace");
@@ -96,6 +96,39 @@ internal static class DevelopmentWorkspaceTests
   RefuseBroadDirectory(acceptanceRoot,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"}),"new acceptance refuses broadened root permissions");
   check(Directory.EnumerateDirectories(acceptanceRoot).Count()==count,"unqualified root creates no new acceptance session");
   RefuseBroadDirectory(acceptanceRoot,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"reopen refuses broadened acceptance root permissions");
+ }
+ [SupportedOSPlatform("windows")]
+ static void VerifyWorkspaceFiles(string root,DevelopmentWorkspace normal,DevelopmentWorkspace one,Action<bool,string> check)
+ {
+  var marker=Path.Combine(Path.GetDirectoryName(one.DatabasePath)!,"acceptance-session.txt");
+  check(WorkspaceConfidentiality.HasWorkspaceFileAcl(marker)&&WorkspaceConfidentiality.HasWorkspaceFileAcl(normal.DatabasePath)&&WorkspaceConfidentiality.HasWorkspaceFileAcl(one.DatabasePath),"workspace files inherit only qualified principals");
+  void RefuseBroadFile(string path,Action resolve,string label)
+  {
+   var file=new FileInfo(path);var original=file.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
+   var changed=file.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
+   changed.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid,null),FileSystemRights.Read,AccessControlType.Allow));
+   file.SetAccessControl(changed);
+   try
+   {
+    var before=file.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm();
+    var rejected=false;try{resolve();}catch(ArgumentException){rejected=true;}
+    check(rejected,label);
+    check(before.SequenceEqual(file.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm()),"file refusal leaves existing ACL unchanged");
+   }
+   finally
+   {
+    var restored=new FileSecurity();restored.SetSecurityDescriptorBinaryForm(original.GetSecurityDescriptorBinaryForm(),AccessControlSections.Access);file.SetAccessControl(restored);
+    check(WorkspaceConfidentiality.HasWorkspaceFileAcl(path),"synthetic file fixture restores qualified access");
+   }
+  }
+  RefuseBroadFile(normal.DatabasePath,()=>normal.RevalidateExisting(root),"development renewal refuses broadened database file ACL");
+  RefuseBroadFile(marker,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"acceptance reopen refuses broadened marker ACL");
+  RefuseBroadFile(one.DatabasePath,()=>one.RevalidateExisting(root),"acceptance renewal refuses broadened database ACL");
+  var side=normal.DatabasePath+"-wal";File.WriteAllText(side,"Synthetic sidecar fixture");
+  try{check(normal.RevalidateExisting(root)==normal,"qualified existing sidecar accepted");
+      RefuseBroadFile(side,()=>normal.RevalidateExisting(root),"development renewal refuses broadened sidecar ACL");
+      check(File.ReadAllText(side)=="Synthetic sidecar fixture","sidecar contents unchanged after refusal");}
+  finally{File.Delete(side);}
  }
  [SupportedOSPlatform("windows")]
  static void VerifyWindowsAcl(string root,DevelopmentWorkspace normal,DevelopmentWorkspace one,Action<bool,string> check)
