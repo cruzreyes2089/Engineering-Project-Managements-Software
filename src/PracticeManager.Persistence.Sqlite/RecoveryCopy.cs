@@ -27,6 +27,9 @@ public sealed partial class LocalPractice
   using(var file=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None)){}
    using(var copy=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=temporary,ForeignKeys=true,Pooling=false,DefaultTimeout=10}.ToString())){
     copy.Open();
+    Exec(copy,null,"PRAGMA trusted_schema=OFF");
+    if(Convert.ToInt64(Scalar(copy,null,"PRAGMA foreign_keys"))!=1||Scalar(copy,null,"PRAGMA trusted_schema") is not long trusted||trusted!=0)
+     throw new InvalidOperationException("Required recovery connection safeguards unavailable.");
     // SQLite backup API takes a consistent database image, including committed journal data.
     c.BackupDatabase(copy);
     using(var t=copy.BeginTransaction(deferred:false)){
@@ -50,7 +53,9 @@ public sealed partial class LocalPractice
    }
    string hash;long bytes;
    using(var stream=new FileStream(temporary,FileMode.Open,FileAccess.ReadWrite,FileShare.None)){
-    stream.Flush(true);bytes=stream.Length;stream.Position=0;hash=Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+    stream.Flush(true);bytes=stream.Length;
+    if(bytes<512||bytes>4L*1024*1024*1024)throw new InvalidOperationException("Recovery copy outside supported restore size (512 bytes–4 GiB).");
+    stream.Position=0;hash=Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
    }
    using(var t=c.BeginTransaction(deferred:false)){
     if(Require(c,t,"Administration.RecoveryCopy")!=actor)throw new UnauthorizedAccessException();
@@ -58,7 +63,7 @@ public sealed partial class LocalPractice
     Audit(c,t,actor,"RecoveryCopyPrepared","Firm",1);
     t.Commit();
    }
-   stage.Publish();
+   stage.Publish(bytes,hash);
    return new(target,hash,bytes);
  }
 }
