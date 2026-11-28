@@ -8,6 +8,19 @@ public sealed partial class LocalPractice
  readonly string connectionString; readonly bool budgetAcceptance; readonly bool documentAcceptance; long? userId; DateTimeOffset expires; long sessionGeneration; long sessionCredentialRevision; long sessionStarted; long sessionLastActivity;
  static readonly string[] Grants=["Clients.View","Clients.Edit","Contacts.View","Contacts.Edit","Accounting.Connection.Test","Accounting.Connection.Manage","Accounting.Customers.Map","Accounting.Identity.Manage","Accounting.Directory.Sync","Accounting.Posting.Rehearse","Accounting.Posting.RehearseApprove","Accounting.WireDraft.Prepare","Accounting.WireDraft.Approve","Accounting.WireDraft.Rehearse","Engagements.View","Engagements.Edit","Engagements.Issue","Engagements.Accept","Projects.View","Agreements.Record","Agreements.View","Projects.Authorize","Projects.Setup","Administration.Manage","Employees.View","Employees.Edit","Projects.Plan","Work.Own","Work.Review","Billing.Classify","Documents.View","Documents.Record","Documents.Restricted","QA.View","QA.Edit","QA.Close","Scope.Authorize","Billing.Rates","Billing.Invoices.View","Billing.Invoices.Edit","Billing.Invoices.Approve","Billing.Invoices.Export","Reports.Operations","Reports.Financial","Administration.RecoveryCopy","Compliance.View","Compliance.Record","Compliance.Policy","Engagements.Export","Administration.LegacyCrmImport","Projects.Closeout","Work.Correct","HistoricalProjects.View","Administration.HistoricalProjectImport"];
  public LocalPractice(string path):this(path,false){}
+ // The desktop calls this only for a resolver-identified new default DEV
+ // directory. Reserve the database name exclusively before SQLite opens it.
+ public static LocalPractice InitializeDefaultDevelopmentWorkspace(string localAppData,DevelopmentWorkspace workspace)
+ {
+  if(workspace.IsAcceptance)throw new ArgumentException("Default development workspace required.");
+  var root=LocalStoragePath.DirectoryPath(localAppData);
+  var folder=LocalStoragePath.DirectoryPath(Path.Combine(root,"CRC Practice Manager DEV"));
+  var path=LocalStoragePath.FilePath(Path.Combine(folder,"practice-dev.db"),mustExist:false,mustBeNew:true,rejectSidecars:true);
+  if(workspace.DatabasePath!=path||OperatingSystem.IsWindows()&&!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(folder))throw new ArgumentException("New development workspace identity or permissions changed.");
+  using(var reserve=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None)){}
+  if(OperatingSystem.IsWindows()&&!WorkspaceConfidentiality.HasWorkspaceFileAcl(path))throw new ArgumentException("New development database permissions require review.");
+  return new LocalPractice(path,false,existingOnly:true);
+ }
  public static LocalPractice ReopenDevelopmentWorkspace(string localAppData,DevelopmentWorkspace workspace)
  {
   if(workspace.IsBudgetAcceptance||workspace.IsDocumentAcceptance)throw new ArgumentException("Use the exact synthetic acceptance opener.");
