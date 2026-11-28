@@ -2,6 +2,8 @@
 import argparse
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 import re
 import sys
@@ -95,15 +97,98 @@ def validate(raw, expected_hash):
             "artifactBytesIndependentlyVerified": False, "installerExecuted": False,
             "securityApproved": False, "releaseAuthorized": False}
 
+def verify_payload(raw, expected_hash, root):
+    """Read actual published bytes against the exact inventory, never execute.
+    Trusted, quiescent CI filesystem only; not a race-resistant sandbox or
+    independent security attestation.
+    """
+    report = validate(raw, expected_hash)
+    manifest = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys)
+    expected = {row["path"]: row for row in manifest["files"]}
+    allowed_dirs = {"/".join(path.split("/")[:i])
+                    for path in expected for i in range(1, len(path.split("/")))}
+    root = Path(os.path.abspath(root))
+
+    def plain(path, directory):
+        st = path.lstat()
+        require(not stat.S_ISLNK(st.st_mode)
+                and not getattr(st, "st_file_attributes", 0) & 0x400,
+                "Redirected payload entry")
+        require(stat.S_ISDIR(st.st_mode) if directory else stat.S_ISREG(st.st_mode),
+                "Unexpected payload entry type")
+        return st
+
+    # Reject redirected ancestors before walking. This is a point-in-time check.
+    for parent in reversed(root.parents):
+        plain(parent, True)
+    plain(root, True)
+
+    def inventory_tree():
+        found = set()
+        pending = [(root, "")]
+        entries = 0
+        while pending:
+            directory, prefix = pending.pop()
+            plain(directory, True)
+            with os.scandir(directory) as children:
+                for child in children:
+                    entries += 1
+                    require(entries <= MAX_FILES * 8, "Payload entry limit exceeded")
+                    relative = prefix + child.name
+                    path_parts(relative)
+                    path = Path(child.path)
+                    st = path.lstat()
+                    if stat.S_ISDIR(st.st_mode):
+                        plain(path, True)
+                        require(relative in allowed_dirs, "Unexpected payload directory")
+                        pending.append((path, relative + "/"))
+                    else:
+                        plain(path, False)
+                        require(relative in expected and relative not in found,
+                                "Unexpected payload file")
+                        found.add(relative)
+        require(found == set(expected), "Missing payload file")
+        return found
+
+    def identity(st):
+        return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+    inventory_tree()
+    for name, row in expected.items():
+        path = root.joinpath(*path_parts(name))
+        for parent in reversed(path.parents):
+            plain(parent, True)
+        before = plain(path, False)
+        require(before.st_size == row["bytes"], "Payload file size mismatch")
+        hashed = hashlib.sha256()
+        count = 0
+        with path.open("rb") as stream:
+            require(identity(os.fstat(stream.fileno())) == identity(before),
+                    "Payload file changed before reading")
+            while chunk := stream.read(1024 * 1024):
+                count += len(chunk)
+                require(count <= row["bytes"], "Payload file grew during reading")
+                hashed.update(chunk)
+            require(identity(os.fstat(stream.fileno())) == identity(before),
+                    "Payload file changed while reading")
+        require(identity(plain(path, False)) == identity(before)
+                and count == row["bytes"] and hashed.hexdigest() == row["sha256"],
+                "Payload bytes do not match inventory")
+    inventory_tree()
+    report["payloadBytesMatchInventory"] = True
+    return report
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inventory", type=Path)
     parser.add_argument("--expected-sha256", required=True)
+    parser.add_argument("--payload-root", type=Path, help="Read-only rehash of exact local output tree")
     args = parser.parse_args()
     try:
         with args.inventory.open("rb") as stream:
             raw = stream.read(LIMIT + 1)
-        report = validate(raw, args.expected_sha256)
+        report = (verify_payload(raw, args.expected_sha256, args.payload_root)
+                  if args.payload_root is not None else validate(raw, args.expected_sha256))
     except (ValueError, OSError, UnicodeError, RecursionError):
         print("Installer layout rejected; inspect trusted inventory locally.", file=sys.stderr)
         return 2
