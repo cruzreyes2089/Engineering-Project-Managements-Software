@@ -239,8 +239,8 @@ def write_nsis_payload_source(raw, expected_hash, root, destination):
     source = render_nsis_payload_source(raw, expected_hash, root)
     destination = Path(destination)
     require(destination.name == "reviewed-payload.nsh", "Fixed NSIS include name required")
-    parent = destination.parent.resolve(strict=True)
-    payload = Path(root).resolve(strict=True)
+    parent = Path(os.path.abspath(destination.parent))
+    payload = Path(os.path.abspath(root))
     require(parent != payload and payload not in parent.parents,
             "NSIS source must remain outside the payload tree")
     # An existing file, symlink or junction is not a writable destination.
