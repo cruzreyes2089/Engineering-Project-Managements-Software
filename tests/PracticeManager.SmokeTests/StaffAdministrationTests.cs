@@ -58,6 +58,10 @@ internal static class StaffAdministrationTests
   Invalid(()=>s.ReadEmployeeLicenseExpiry(DateOnly.MaxValue,30),"overflowing license horizon rejected");
   var denied=new LocalPractice(path);Denied(()=>denied.ReadEmployeeLicenseExpiry(day),"unauthenticated expiry review denied");
   check(replacement.Login("synthetic-engineer","Synthetic-permanent-0002"),"staff login for license review");
+  Denied(()=>replacement.ReadOwnWorkProfileStatus(),"profile status requires own work grant");
+  s.SetStaffGrant(role.Id,"Work.Own",true,false);
+  check(replacement.ReadOwnWorkProfileStatus()==("Active",false),"linked staff sees own profile status without employee directory grant");
+  Denied(()=>replacement.CreateOwnEmployeeProfile(new("Synthetic","Duplicate","","",true)),"ordinary staff cannot create own account binding");
   Denied(()=>replacement.ReadEmployeeLicenseExpiry(day),"missing employee grant denies expiry review");
   Denied(()=>replacement.ReadLicenseReminderCounts(day),"dashboard reminder counts require employee view grant");
   s.SetStaffGrant(role.Id,"Employees.View",true,false);
@@ -77,6 +81,7 @@ internal static class StaffAdministrationTests
   Invalid(()=>s.RenewEmployeeLicense(employee,license.Id,license.Revision,day),"stale license renewal rejected");
   s.EditEmployee(employee,e.Revision,new(e.First,e.Last,e.Email,e.Title,false));check(!s.ReadEmployees().Single(x=>x.Id==employee).Active,"employee status persisted");
   Invalid(()=>s.CreateEmployeeLicense(employee,"CA","Other","SYNTHETIC2",day),"inactive employee cannot receive license");
+  check(replacement.ReadOwnWorkProfileStatus()==("Inactive",false),"inactive profile cannot enable own work");
   check(!s.ReadEmployees().Single(x=>x.Id==employee).ToString().Contains("password",StringComparison.OrdinalIgnoreCase),"employee view has no credentials or rates");
  }
 }
