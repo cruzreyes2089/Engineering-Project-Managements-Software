@@ -161,6 +161,27 @@ internal static class ProductionStorageBoundaryTests
    File.Delete(workflow.DatabasePath);
    Refuse(()=>service.IsInitialized(),"missing database not recreated by fixture service");
    check(!File.Exists(workflow.DatabasePath),"fixture service preserves missing database state");
+   var offlineProfile=Directory.CreateDirectory(Path.Combine(root,"offline-profile")).FullName;
+   var offlineProjects=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"offline-projects"));
+   var offlineBackup=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"offline-backup"));
+   var offline=ProductionStorageBoundary.Review(offlineProfile,offlineProjects,offlineBackup);
+   var offlineId=ProductionWorkspaceIdentityCandidate.InitializeNewFixture(offline);
+   check(offline.VerifyBackupDestination()==offlineBackup,"available protected backup destination qualifies for path review");
+   Directory.Delete(offlineBackup);
+   Refuse(()=>offline.VerifyBackupDestination(),"missing backup destination refused at backup time");
+   check(!LocalPractice.ReopenProductionFixture(offlineProfile,offlineId).IsInitialized(),"offline backup does not prevent normal database reopen");
+   var offlineMade=ProductionProjectFolderCreationCandidate.CreateFixtureFolders(offline,offlineId,"PRJ-000001",ProjectFolderTemplate.Defaults);
+   check(offlineMade.Created==9&&!Directory.Exists(offlineBackup),"offline backup does not prevent project folder creation or cause replacement");
+   Refuse(()=>ProductionStorageBoundary.ReviewForDailyUse(offlineProfile,offlineProjects,offlineProjects),"offline policy retains overlap rejection");
+   Refuse(()=>ProductionStorageBoundary.ReviewForDailyUse(offlineProfile,offlineProjects,Path.Combine(root,"..","invalid")),"offline policy rejects ambiguous path");
+   Refuse(()=>ProductionStorageBoundary.ReviewForDailyUse(offlineProfile,offlineProjects,@"\\server\share\backup"),"offline policy rejects UNC path");
+   Refuse(()=>ProductionStorageBoundary.ReviewForDailyUse(offlineProfile,offlineProjects,Path.GetPathRoot(offlineBackup)!),"offline policy rejects drive root");
+   File.WriteAllText(offlineBackup,"not a backup directory");
+   Refuse(()=>offline.VerifyBackupDestination(),"backup file collision refused");
+   check(File.ReadAllText(offlineBackup)=="not a backup directory","backup collision remains unchanged");
+   File.Delete(offlineBackup);
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(offlineBackup);
+   check(offline.VerifyBackupDestination()==offlineBackup,"restored protected backup path qualifies without settings change");
   }
  }
 }
