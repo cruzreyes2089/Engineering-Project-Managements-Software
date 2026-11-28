@@ -1,13 +1,15 @@
 # Desktop and release acceptance execution plan
 
-**Status: not executed.** Source regression baseline 25122753f95a91239778135375c9df6ce3810620, schema 46, Windows run 45951746285 (22 Python tests + 1618 native checks; zero compiler errors/warnings). This is a procedural companion to the unchanged legacy acceptance register, not a substitute for interactive acceptance or a release certificate. No executable is approved for distribution.
+**Status: not executed.** Verified historical source regression baseline f40527f490a576e40f777062014be2fcb4cb61fc, schema 54, Windows run 46091633837 (110 Python tests + 2310 native checks; zero compiler errors/warnings). Later revisions require their own evidence. This is a procedural companion to the unchanged legacy acceptance register, not a substitute for interactive acceptance or a release certificate. No executable is approved for distribution.
 
 ## Prerequisites and fixture
 
 - Independent release-security review must authorize execution of the exact build before any desktop test. Use a dedicated clean Windows VM or isolated profile, no real project files, credentials or production database. Disable network for internal workflow acceptance. Do not bypass any security warning.
-- Use the separately labeled synthetic acceptance workspace, record session ID, exact source commit and approved executable hash. Use synthetic firm, two clients and projects, distinct employee and reviewer accounts, test-only agreement PDFs and no actual external transactions. Record dates, contractual caps, rates, approved time and expense amounts before comparing reports.
+- Use the separately labeled synthetic acceptance workspace, record session ID, exact source commit and approved complete deployment inventory SHA-256 (not merely the executable hash). Use synthetic firm, two clients and projects, distinct employee and reviewer accounts, test-only agreement PDFs and no actual external transactions. Record dates, contractual caps, rates, approved time and expense amounts before comparing reports.
 - Desktop steps use available controls; service/fault injection, accounting, migration and installer procedures require their corresponding controlled harness or qualified adapter. A missing capability is Blocked, not Pass. A source regression result alone is not a desktop result. Deferred scope must be explicitly accepted by owner; never erase a requirement.
 - Keep individual test evidence, raw observations, reviewer and actual results privately. Record test ID, environment, artifact SHA256, commit, acceptance session, fixture ID, observed result, evidence reference, date, result (Pass/Fail/Blocked/Not run), and defect ID if applicable. A Pass requires all original acceptance invariants; partial evidence cannot close the original row.
+
+The private acceptance CLI requires the exact compact UTF-8 inventory via `--inventory` and its independently retained complete digest via `--artifact-sha256`. Both inventory and evidence remain outside the checkout. The optional `--stage1` report retains all 49 master results, with mixed and deferred scope separately visible. This verifies inventory bytes and structure, not installed file contents, evidence authenticity, signature or security approval.
 
 ## Procedures covering all 42 original acceptance scenarios
 

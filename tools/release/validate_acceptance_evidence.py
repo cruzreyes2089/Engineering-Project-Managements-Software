@@ -114,20 +114,38 @@ def load(path):
     require(len(raw) <= LIMIT, "Evidence file exceeds size limit")
     return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys)
 
+def verify_candidate_inventory(path, expected_digest):
+    # Import locally so existing structure-only consumers remain independent.
+    from validate_build_inventory import read, validate as validate_inventory
+    inventory_path = Path(path).resolve()
+    require(not inventory_path.is_relative_to(ROOT.resolve()), "Inventory must remain outside the checkout")
+    return validate_inventory(read(inventory_path), expected_digest)
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--artifact-sha256", required=True)
+    parser.add_argument("--artifact-sha256", required=True, help="Complete deployment inventory SHA-256")
+    parser.add_argument("--inventory", required=True, type=Path, help="Private exact compact UTF-8 deployment inventory")
+    parser.add_argument("--stage1", action="store_true", help="Summarize Stage 1 scope without granting release authority")
     parser.add_argument("--initialize", action="store_true", help="Create an empty private manifest; never overwrite")
     args = parser.parse_args()
     try:
         private_path = args.manifest.resolve()
         require(not private_path.is_relative_to(ROOT.resolve()), "Evidence must remain outside the checkout")
         ids = scenario_ids(ROOT / "docs/legacy-acceptance-register.csv")
+        inventory = verify_candidate_inventory(args.inventory, args.artifact_sha256)
+        require(private_path != args.inventory.resolve(), "Evidence and inventory must be separate files")
         if args.initialize:
             initialize(private_path, ids, args.commit, args.artifact_sha256)
-        result = validate(load(private_path), ids, args.commit, args.artifact_sha256)
+        manifest = load(private_path)
+        result = validate(manifest, ids, args.commit, args.artifact_sha256)
+        if args.stage1:
+            from stage1_acceptance_scope import summarize
+            result = summarize(manifest, args.commit, args.artifact_sha256)
+        result["inventoryStructureValid"] = inventory["structureValid"]
+        result["actualFilesRehashed"] = False
+        result["evidenceAuthenticityVerified"] = False
     except (ValueError, OSError, UnicodeError, RecursionError, csv.Error):
         print("Acceptance evidence rejected; inspect private input locally.", file=sys.stderr)
         return 2
