@@ -5,6 +5,11 @@ public sealed partial class LocalPractice
 {
  // Current recorded expiration dates for active employees only.
  // No assertion about regulatory standing, required licenses, or historic status.
+ public (int Expired,int DueToday,int Upcoming) ReadLicenseReminderCounts(DateOnly asOf)
+ {
+  var review=ReadEmployeeLicenseExpiry(asOf,30);
+  return (review.Expired,review.DueToday,review.Upcoming);
+ }
  public LicenseExpiryReview ReadEmployeeLicenseExpiry(DateOnly asOf,int horizonDays=30)
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Employees.View");
