@@ -19,10 +19,15 @@ internal static class ProjectHandoffTests
   Invalid(()=>s.RecordSignedAgreement(project,"wrong","test.pdf",bytes,"Synthetic",true),"agreement binds accepted snapshot");
   Invalid(()=>s.RecordSignedAgreement(project,hash,"../test.pdf",bytes,"Synthetic",true),"agreement rejects path");
   Invalid(()=>s.RecordSignedAgreement(project,hash,"test.pdf",new byte[10],"Synthetic",true),"agreement rejects non-PDF header");
-  var a=s.RecordSignedAgreement(project,hash,"test.pdf",bytes,"Synthetic review",true);
+  var a=s.RecordReviewedAgreement(project,hash,null,"test.pdf",bytes,"Synthetic review",true);
   check(s.RecordSignedAgreement(project,hash,"test.pdf",bytes,"Synthetic review",true).Id==a.Id,"agreement registration idempotent");
   check(s.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,false,"")== "NotAuthorized"&&s.ReadProjectHandoff(project).State=="Pending","declining authorization leaves Pending");
-  var b=s.RecordSignedAgreement(project,hash,"replacement.pdf","%PDF-1.7\nReplacement synthetic fixture\n%%EOF"u8.ToArray(),"Synthetic replacement review",true);
+  var replacement="%PDF-1.7\nReplacement synthetic fixture\n%%EOF"u8.ToArray();
+  Invalid(()=>s.RecordReviewedAgreement(project,hash,null,"replacement.pdf",replacement,"Stale empty agreement",true),"reviewed agreement refuses stale initial attachment");
+  var b=s.RecordReviewedAgreement(project,hash,a.Id,"replacement.pdf",replacement,"Synthetic replacement review",true);
+  Invalid(()=>s.RecordReviewedAgreement(project,hash,a.Id,"third.pdf","%PDF-1.7\nThird synthetic fixture\n%%EOF"u8.ToArray(),"Stale predecessor",true),"reviewed agreement refuses stale replacement");
+  check(s.ReadProjectHandoff(project).CurrentAgreement==b,"stale replacement leaves current agreement intact");
+  check(s.RecordReviewedAgreement(project,hash,b.Id,"replacement.pdf",replacement,"Repeated current review",true).Id==b.Id,"reviewed agreement same current PDF remains idempotent");
   check(s.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")== "AgreementEvidenceMismatch","stale agreement cannot authorize");
   Invalid(()=>s.RecordSignedAgreement(project,hash,"test.pdf",bytes,"Synthetic",true),"superseded copy cannot silently return");
   check(s.AuthorizeProjectStart(project,hash,b.Id,"wrong",true,"Synthetic")== "AgreementEvidenceMismatch","wrong stored file hash blocked");
