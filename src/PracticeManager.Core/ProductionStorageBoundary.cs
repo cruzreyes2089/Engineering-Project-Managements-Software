@@ -63,14 +63,23 @@ public sealed class ProductionStorageBoundary
 
  // This is deliberately read-only. It does not authenticate a workspace by
  // filename alone, inspect SQLite, or certify the selected backup media.
- public void VerifyExistingPrivateDataLayout()
+ public void VerifyExistingPrivateDataLayout()=>VerifyDataDirectory(DataRoot);
+ // Fixed data location only; does not discover or adopt alternative workspaces.
+ public static string ReviewExistingDataDirectory(string localAppData)
+ {
+  var profile=LocalStoragePath.DirectoryPath(localAppData);
+  var data=Path.Combine(profile,"CRC Practice Manager DATA");
+  VerifyDataDirectory(data);
+  return data;
+ }
+ static void VerifyDataDirectory(string dataRoot)
  {
   if(!OperatingSystem.IsWindows())throw new PlatformNotSupportedException("Windows production storage required.");
-  LocalStoragePath.DirectoryPath(DataRoot);
-  if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(DataRoot))
+  LocalStoragePath.DirectoryPath(dataRoot);
+  if(!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(dataRoot))
    throw new ArgumentException("Practice data directory permissions require review.");
-  var marker=LocalStoragePath.FilePath(IdentityMarkerPath,mustExist:true,rejectSidecars:true);
-  var database=LocalStoragePath.FilePath(DatabasePath,mustExist:true);
+  var marker=LocalStoragePath.FilePath(Path.Combine(dataRoot,"production-workspace.txt"),mustExist:true,rejectSidecars:true);
+  var database=LocalStoragePath.FilePath(Path.Combine(dataRoot,"practice.db"),mustExist:true);
   foreach(var entry in new[]{marker,database})
    if(!WorkspaceConfidentiality.HasWorkspaceFileAcl(entry))
     throw new ArgumentException("Practice data file permissions require review.");
