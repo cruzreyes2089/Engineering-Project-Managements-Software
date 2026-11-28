@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("payload", ROOT / "tools/release/validate_install_payload.py")
@@ -98,3 +99,65 @@ class InstallPayloadLayoutTests(unittest.TestCase):
         oversized = b" " * (m.LIMIT+1)
         with self.assertRaises(ValueError):
             m.validate(oversized, hashlib.sha256(oversized).hexdigest())
+
+class InstallPayloadByteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / "payload"
+        self.root.mkdir()
+        rows = []
+        for name in sorted(m.REQUIRED | {"fr/PresentationFramework.resources.dll"}):
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = ("Synthetic text fixture " + name).encode()
+            path.write_bytes(data)
+            rows.append({"path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        self.raw = json.dumps({"format": "CRC-Development-Build-Inventory-v1",
+                               "architecture": "win-x64", "files": rows,
+                               "fileCount": len(rows), "bytes": sum(x["bytes"] for x in rows)}).encode()
+        self.hash = hashlib.sha256(self.raw).hexdigest()
+
+    def verify(self):
+        return m.verify_payload(self.raw, self.hash, self.root)
+
+    def test_exact_payload_bytes(self):
+        result = self.verify()
+        self.assertTrue(result["payloadBytesMatchInventory"])
+        self.assertFalse(result["securityApproved"])
+        self.assertFalse(result["releaseAuthorized"])
+        self.assertFalse(result["installerExecuted"])
+        self.assertFalse(result["artifactBytesIndependentlyVerified"])
+
+    def test_same_length_tampering(self):
+        path = self.root / "CRC.PracticeManager.exe"
+        path.write_bytes(b"x" * path.stat().st_size)
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_missing_payload(self):
+        (self.root / "hostfxr.dll").unlink()
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_extra_file_or_directory(self):
+        path = self.root / "unexpected.dll"
+        path.write_bytes(b"synthetic")
+        with self.assertRaises(ValueError):
+            self.verify()
+        path.unlink()
+        (self.root / "unexpected").mkdir()
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_redirected_payload_entry(self):
+        path = self.root / "CRC.PracticeManager.exe"
+        target = self.root.parent / "external.txt"
+        target.write_bytes(path.read_bytes())
+        path.unlink()
+        try:
+            path.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symbolic link fixture not available")
+        with self.assertRaises(ValueError):
+            self.verify()
