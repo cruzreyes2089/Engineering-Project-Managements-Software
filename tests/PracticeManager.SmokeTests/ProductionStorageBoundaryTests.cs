@@ -64,6 +64,23 @@ internal static class ProductionStorageBoundaryTests
    Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyExisting(candidate),"missing candidate database not reopened");
    check(!File.Exists(candidate.DatabasePath),"missing candidate database remains absent");
    Refuse(()=>ProductionWorkspaceIdentityCandidate.InitializeNewFixture(candidate),"existing marker cannot trigger database replacement");
+   var protectedProjects=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"protected-projects"));
+   var folders=ProductionStorageBoundary.Review(profile2,protectedProjects,backup);
+   var target=ProductionProjectFolderPolicy.ResolveProjectDirectory(folders,"PRJ-000001");
+   check(target==Path.Combine(protectedProjects,"PRJ-000001"),"production project path uses assigned stable project number");
+   var children=ProductionProjectFolderPolicy.ResolveTemplateDirectories(folders,"PRJ-000001",ProjectFolderTemplate.Defaults);
+   check(children.Count==9&&children.Contains(Path.Combine(target,"Structural DWGs"))&&children.Contains(Path.Combine(target,"Plancheck Comment Responses"))&&!children.Contains(Path.Combine(target,"Correspondence")),"production folder plan preserves nine approved defaults and optional correspondence");
+   check(!Directory.Exists(target),"folder plan never creates project directory");
+   foreach(var invalid in new[]{"PRJ-1","PRJ-000000","PRJ-000001/other","prj-000001","PRJ-0000001","../PRJ-000001"})
+    Refuse(()=>ProductionProjectFolderPolicy.ResolveProjectDirectory(folders,invalid),"noncanonical project number refused: "+invalid);
+   File.WriteAllText(target,"existing file");
+   Refuse(()=>ProductionProjectFolderPolicy.ResolveTemplateDirectories(folders,"PRJ-000001",ProjectFolderTemplate.Defaults),"existing project file collision rejected");
+   check(File.ReadAllText(target)=="existing file","project collision left unchanged");
+   File.Delete(target);
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(target);
+   File.WriteAllText(Path.Combine(target,"Calculations"),"existing child file");
+   Refuse(()=>ProductionProjectFolderPolicy.ResolveTemplateDirectories(folders,"PRJ-000001",ProjectFolderTemplate.Defaults),"existing template child file collision rejected before creation");
+   check(!Directory.Exists(Path.Combine(target,"Architectural")),"collision review does not create other folders");
   }
  }
 }
