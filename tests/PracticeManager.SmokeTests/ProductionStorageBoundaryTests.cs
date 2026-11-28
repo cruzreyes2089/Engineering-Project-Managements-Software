@@ -142,6 +142,22 @@ internal static class ProductionStorageBoundaryTests
    Refuse(()=>service.IsInitialized(),"subsequent connection refuses changed workspace marker");
    File.WriteAllText(workflow.IdentityMarkerPath,savedMarker);
    check(LocalPractice.OpenProductionFixture(workflow,workflowId).IsInitialized(),"existing initialized fixture reopens without migration");
+   var savedLayout=ProductionWorkspaceIdentityCandidate.ReadStoredLayout(workflowProfile,workflowId);
+   check(savedLayout.ProjectRoot==workflowProjects&&savedLayout.BackupRoot==backup,"persisted settings recover reviewed project and backup paths");
+   check(LocalPractice.ReopenProductionFixture(workflowProfile,workflowId).IsInitialized(),"normal fixture reopen uses stored paths without directory selection");
+   var otherBackup=Directory.CreateDirectory(Path.Combine(root,"other-backup")).FullName;
+   var overrideLayout=ProductionStorageBoundary.Review(workflowProfile,workflowProjects,otherBackup);
+   Refuse(()=>LocalPractice.OpenProductionFixture(overrideLayout,workflowId),"caller cannot override persisted backup location");
+   using(var sql=new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{DataSource=workflow.DatabasePath,Pooling=false}.ToString()))
+   {
+    sql.Open();using var command=sql.CreateCommand();
+    command.CommandText="UPDATE production_storage_settings SET backup_root=$root WHERE singleton=1";
+    command.Parameters.AddWithValue("$root",workflowProjects);command.ExecuteNonQuery();
+    Refuse(()=>service.IsInitialized(),"active connection refuses changed settings");
+    Refuse(()=>LocalPractice.ReopenProductionFixture(workflowProfile,workflowId),"reopen refuses overlapping stored roots");
+    command.Parameters[0].Value=backup;command.ExecuteNonQuery();
+   }
+   check(LocalPractice.ReopenProductionFixture(workflowProfile,workflowId).IsInitialized(),"restored fixture settings permit reopen");
    File.Delete(workflow.DatabasePath);
    Refuse(()=>service.IsInitialized(),"missing database not recreated by fixture service");
    check(!File.Exists(workflow.DatabasePath),"fixture service preserves missing database state");
