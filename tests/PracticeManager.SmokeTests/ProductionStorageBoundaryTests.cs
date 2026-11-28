@@ -182,6 +182,20 @@ internal static class ProductionStorageBoundaryTests
    File.Delete(offlineBackup);
    WorkspaceConfidentiality.EnsureWorkspaceDirectory(offlineBackup);
    check(offline.VerifyBackupDestination()==offlineBackup,"restored protected backup path qualifies without settings change");
+   var desktopProfile=Directory.CreateDirectory(Path.Combine(root,"desktop-acceptance-profile")).FullName;
+   var session=ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-new"});
+   check(session.Service.IsProductionAcceptance&&!session.Service.IsInitialized(),"explicit acceptance startup creates isolated empty fixture");
+   var sessionRoot=Path.Combine(desktopProfile,"CRC Practice Manager PRODUCTION ACCEPTANCE",session.SessionId);
+   check(File.Exists(Path.Combine(sessionRoot,"CRC Practice Manager DATA","practice.db"))&&!Directory.Exists(Path.Combine(desktopProfile,"CRC Practice Manager DATA")),"acceptance does not create normal production database");
+   session.Service.Bootstrap("Synthetic desktop acceptance","admin",pw,"CL");
+   var reopened=ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",session.SessionId});
+   check(reopened.Service.IsInitialized()&&reopened.Service.Login("admin",pw),"explicit acceptance reopens original company");
+   Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",Guid.NewGuid().ToString("N")}),"unknown acceptance session refused without creation");
+   Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,Array.Empty<string>()),"implicit acceptance startup refused");
+   Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session","../other"}),"invalid acceptance session refused");
+   var sessionMarker=Path.Combine(sessionRoot,"production-acceptance-session.txt");
+   File.WriteAllText(sessionMarker,session.SessionId+":"+Guid.NewGuid().ToString("N"));
+   Refuse(()=>ProductionAcceptanceStartup.Open(desktopProfile,new[]{"--production-acceptance-session",session.SessionId}),"changed session binding refuses reopen");
   }
  }
 }
