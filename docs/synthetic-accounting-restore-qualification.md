@@ -1,0 +1,7 @@
+# Accounting recovery across older and newer database copies
+
+The synthetic test exercises actual application SQLite recovery copy and isolated restore methods, with a separate retained witness directory and an operation whose simulated provider acknowledgement was lost. A backup predating the attempt is compared with the later retained witness; the orphan must be reported, not inferred as nonposting. A backup after uncertainty must retain its exact attempt and assessment. Both copies must exclude accounting profiles and retain the lifecycle hold, denying reservation, continuation, reassessment and replacement preparation as applicable. Original backup and witness hashes and source accounting state are checked unchanged.
+
+This is a source-level regression candidate, not actual provider recovery or permission to reconnect. The synthetic matching sweep is fabricated within the test, not independent real accounting evidence. The witness remains a local file rather than an independently administered immutable trust anchor. No hold release, actual Manager access, live posting, retry or distribution. Database schema remains 54. Exact revision CI pending.
+
+Preceding concurrent-receipt reference-provider regression: e1c001de176bb85456b1fd6095b41c5d2083ec7f, run 46073194557, 103 Python tests, 2,158 native checks, no compiler warnings/errors. Installed DAO absent; Windows rename exclusion unqualified.

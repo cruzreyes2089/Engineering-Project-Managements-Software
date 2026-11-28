@@ -1,0 +1,5 @@
+# Invoice preparation usability
+
+The project selector displays number, title and client. One active project is selected automatically only when unambiguous. Billing terms appear before two distinct tabs: Prepare draft and Saved drafts. Eligible work selection is explicit, limited to the existing 200-source bound, and displays a subtotal; no automatic invoice creation or approval. Hourly billing disables fixed-fee inputs. Draft-date changes reload candidates; due date remains editable. Existing view, approve, cancel and export controls are state and permission dependent. Advanced Manager comparison, discrepancy holds, independently verified releases and document history remain accessible in a menu. The original grant, exact payload, fee-cap, allocation, audit and owner-exception checks remain in the service. No external accounting posting, issuance, payment or schema change. Interactive WPF acceptance and exact CI remain pending.
+
+Previous manager approval revision 57f3a4ccc3d5c6736a33540682df21ea956a5e16 run 46085555365 passed 2267 native checks and 103 Python tests, zero desktop compile warnings/errors. DAO and Windows rename exclusion remain unqualified.

@@ -23,7 +23,7 @@ internal sealed class AccountingPostingSafetyWindow:Window
   panel.Children.Add(new TextBlock{Text="Synthetic attempt history (offline only)",FontWeight=FontWeights.SemiBold});
   panel.Children.Add(attemptReport);
   var history=new Button{Content="Inspect transaction history (read only)",Margin=new Thickness(0,8,0,8),Padding=new Thickness(8)};
-  history.Click+=(_,_)=>new AccountingWireHistoryWindow(service){Owner=this}.ShowDialog();
+  history.Click+=(_,_)=>{try{new AccountingWireHistoryWindow(service){Owner=this}.ShowDialog();}catch(UnauthorizedAccessException){MessageBox.Show(this,"Access denied.");}catch(Exception){MessageBox.Show(this,"History unavailable.");}finally{Refresh();}};
   panel.Children.Add(history);
   panel.Children.Add(new TextBlock{Text="Declare a hold only if a clone, restore or suspected identity change has occurred. This is sticky; there is no reset in this version. Read-only inspection remains available.",TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,8)});
   reason.ItemsSource=Enum.GetValues<LifecycleHoldReason>();reason.SelectedIndex=-1;
@@ -35,29 +35,24 @@ internal sealed class AccountingPostingSafetyWindow:Window
  }
  void Refresh()
  {
+  report.Text=wireReport.Text=attemptReport.Text="";
+  declare.IsEnabled=reason.IsEnabled=false;
   try{
-   var s=service.ReadPostingRehearsalStatus();
-   report.Text=$"Posting: DISABLED\nLifecycle: {(s.Held?"HOLD — "+s.HoldReason:"No incident declared; identity not certified")}\nReserved: {s.Reserved}\nIn flight (treat as uncertain after interruption): {s.InFlight}\nUncertain: {s.Uncertain}\nSimulated confirmed: {s.SimulatedConfirmed}\nCancelled: {s.Cancelled}";
-   reason.IsEnabled=!s.Held;declare.IsEnabled=!s.Held&&reason.SelectedItem is LifecycleHoldReason;
-  }catch(UnauthorizedAccessException){report.Text="Access denied.";declare.IsEnabled=reason.IsEnabled=false;}
-   catch(Exception){report.Text="Status unavailable. No authorization assumed.";declare.IsEnabled=reason.IsEnabled=false;}
-  try{
-   var w=service.ReadSyntheticWireDraftStatus();
+   var overview=service.ReadAccountingSafetyOverview();
+   var s=overview.Rehearsals;var w=overview.Drafts;var a=overview.Attempts;
+   report.Text=$"Posting: DISABLED\nStatus: {overview.Status}\nLifecycle: {(s.Held?"HOLD — "+s.HoldReason:"No incident declared; identity not certified")}\nUnresolved simulated attempts: {overview.Unresolved}\nSaved profile: {(overview.ProfilePresent?"Present":"Absent")}\nMarker: {(overview.MarkerPresent?"Present":"Absent")}\nLegacy rehearsal reserved: {s.Reserved}\nIn flight: {s.InFlight}\nUncertain: {s.Uncertain}\nSimulated confirmed: {s.SimulatedConfirmed}\nCancelled: {s.Cancelled}";
    wireReport.Text=$"Drafts: {w.Draft}\nHistorically approved: {w.Approved}\nCancelled: {w.Cancelled}\nApproval counts are not posting authorization.";
-  }catch(UnauthorizedAccessException){wireReport.Text="Draft history access denied.";}
-   catch(Exception){wireReport.Text="Draft history unavailable.";}
-  try{
-   var a=service.ReadSyntheticWireAttemptStatus();
    attemptReport.Text=$"Reserved: {a.Reserved}\nWitnessed: {a.Witnessed}\nUncertain: {a.Uncertain}\nAwaiting review: {a.ConfirmationForReview}\nReviewed simulations: {a.ReviewedSimulation}\nNo real posting authority.";
-  }catch(UnauthorizedAccessException){attemptReport.Text="Attempt history access denied.";}
-   catch(Exception){attemptReport.Text="Attempt history unavailable.";}
+   reason.IsEnabled=!s.Held;declare.IsEnabled=!s.Held&&reason.SelectedItem is LifecycleHoldReason;
+  }catch(UnauthorizedAccessException){report.Text="Access denied.";}
+   catch(Exception){report.Text="Status unavailable. No authorization assumed.";}
  }
  void Declare()
  {
   if(reason.SelectedItem is not LifecycleHoldReason value)return;
   if(MessageBox.Show(this,"Confirm that this local accounting journal must be quarantined. No reset is available in this development version. This does not alter Manager records.","Declare accounting lifecycle hold",MessageBoxButton.YesNo,MessageBoxImage.Warning)!=MessageBoxResult.Yes)return;
   try{service.DeclareAccountingLifecycleHold(value);Refresh();}
-  catch(UnauthorizedAccessException){report.Text="Access denied.";declare.IsEnabled=reason.IsEnabled=false;}
-  catch(Exception){report.Text="Hold request failed; no success assumed.";declare.IsEnabled=reason.IsEnabled=false;}
+  catch(UnauthorizedAccessException){report.Text="Access denied.";wireReport.Text=attemptReport.Text="";declare.IsEnabled=reason.IsEnabled=false;}
+  catch(Exception){report.Text="Hold request failed; no success assumed.";wireReport.Text=attemptReport.Text="";declare.IsEnabled=reason.IsEnabled=false;}
  }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using PracticeManager.Core;
 using PracticeManager.Persistence;
 internal static class SyntheticWireAttemptTests
@@ -32,11 +33,28 @@ internal static class SyntheticWireAttemptTests
   var observed=new SyntheticDispatchObservation(true,true,201,true,external,true,match,external);
   var payload=SyntheticWireCompiler.Compile(intent);
   var sweep=new SyntheticRecoverySweep(marker,true,true,new[]{new SyntheticRecoveryCandidate(external,intent.Kind,payload.Reference,hash)});
+  void Sql(string sql){using var db=new SqliteConnection($"Data Source={path};Pooling=False");db.Open();using var q=db.CreateCommand();q.CommandText=sql;q.ExecuteNonQuery();}
+  Sql("CREATE TRIGGER test_abort_assessment BEFORE INSERT ON accounting_wire_assessments BEGIN SELECT RAISE(ABORT,'Synthetic injected failure'); END");
+  try{s.AssessSyntheticWireAttempt(intent.OperationKey,key,observed,sweep,sweep);throw new Exception("FAIL: evidence failure");}catch(SqliteException){check(s.ReadSyntheticWireAttempt(intent.OperationKey).State=="Witnessed","assessment failure does not advance attempt");}
+  Sql("DROP TRIGGER test_abort_assessment");
   check(s.AssessSyntheticWireAttempt(intent.OperationKey,key,observed,sweep,sweep).State=="ConfirmationForReview","matching simulation awaits explicit review");
+  var confirmed=s.ReadSyntheticWireHistory().Items.Single();check(confirmed.AssessmentEvidence=="ConfirmationForReview"&&confirmed.ObservedStatus==201&&confirmed.RecoveryFinding=="MatchedForReview","normalized assessment evidence recorded");
+  try{Sql("UPDATE accounting_wire_assessments SET matched_key=NULL");throw new Exception("FAIL: mutable assessment");}catch(SqliteException){check(true,"assessment evidence immutable");}
   check(s.ReadSyntheticWireAttemptStatus()==new WireAttemptStatus(0,0,0,1,0),"review status counts accurately");
   check(s.ReviewSyntheticWireAttempt(intent.OperationKey,"wrong").Outcome=="ApprovalOrPayloadInvalid","review requires exact fingerprint");
   check(s.ReviewSyntheticWireAttempt(intent.OperationKey,hash).State=="ReviewedSimulation","explicit offline review only");
   check(s.ReserveSyntheticWireAttempt(intent.OperationKey,hash).Outcome=="AttemptAlreadyRecorded","reviewed simulation permanently consumes key");
+  var exact=s.CompareSyntheticAttemptWitness(root,store);check(exact.Outcome=="MatchedForReview"&&exact.Exact==1&&exact.Unresolved==0&&!exact.MaySend&&!exact.MayRetry&&!exact.MayReleaseHold,"completed synthetic witness exact comparison only");
+  check(s.CompareSyntheticAttemptWitness(root,Guid.NewGuid()).Outcome=="WitnessScopeMismatch","wrong store witness inventory blocked");
+  var firstPath=Path.Combine(root,intent.OperationKey.ToString("N")+".attempt");var firstBytes=File.ReadAllBytes(firstPath);
+  // Test-only alterations in an isolated synthetic directory, never a real witness.
+  File.WriteAllText(firstPath,"partial");
+  check(s.CompareSyntheticAttemptWitness(root,store).Conflicting==1,"truncated witness detected");
+  File.WriteAllBytes(firstPath,firstBytes);
+  File.Move(firstPath,firstPath+".missing");
+  var missing=s.CompareSyntheticAttemptWitness(root,store);check(missing.Missing==1&&missing.Orphaned==1,"missing and unexpected witness evidence detected");
+  File.Move(firstPath+".missing",firstPath);
+  check(firstBytes.SequenceEqual(File.ReadAllBytes(firstPath)),"comparison does not change witness bytes");
   var other=intent with{OperationKey=Guid.NewGuid()};var otherHash=SyntheticWireCompiler.Compile(other).Fingerprint;
   check(s.PrepareSyntheticWireDraft(other).Outcome=="Prepared"&&s.ApproveSyntheticWireDraft(other.OperationKey,otherHash).Outcome=="Approved","second draft approved");
   var second=s.ReserveSyntheticWireAttempt(other.OperationKey,otherHash);
@@ -53,11 +71,22 @@ internal static class SyntheticWireAttemptTests
   check(page.Items.Count==2&&page.NextBeforeId.HasValue&&page.Items[0].Reference==SyntheticWireCompiler.Compile(third).Reference&&page.Items[0].AttemptState=="NotAttempted","history newest first and bounded");
   var tail=s.ReadSyntheticWireHistory(beforeId:page.NextBeforeId,pageSize:2);
   check(tail.Items.Count==1&&tail.NextBeforeId==null&&tail.Items[0].AttemptState=="ReviewedSimulation","history pagination no duplicate or omission");
+  var overview=s.ReadAccountingSafetyOverview();
+  check(overview.Status=="LifecycleHold"&&overview.Unresolved==1&&overview.Attempts==s.ReadSyntheticWireAttemptStatus()&&overview.Rehearsals.Held&&overview.ProfilePresent&&overview.MarkerPresent,
+   "unified accounting overview preserves hold and unresolved counts");
+  check(!overview.MayPost&&!overview.MayRetry&&!overview.MayReleaseHold,"accounting overview cannot grant posting or release authority");
+  var heldEvidence=s.CompareSyntheticAttemptWitness(root,store);
+  check(heldEvidence.Exact==2&&heldEvidence.Unresolved==1&&heldEvidence.Outcome=="WitnessReviewRequired","matching evidence cannot release unresolved attempt or lifecycle hold");
+  var orphan=Path.Combine(root,Guid.NewGuid().ToString("N")+".attempt");File.WriteAllText(orphan,"Synthetic orphan");
+  check(s.CompareSyntheticAttemptWitness(root,store).Orphaned==1&&File.ReadAllText(orphan)=="Synthetic orphan","orphan witness retained during inspection");
   var pending=s.ReadSyntheticWireHistory(unresolvedOnly:true);
   check(pending.Items.Count==1&&pending.Items[0].Reference==SyntheticWireCompiler.Compile(other).Reference&&pending.Items[0].AttemptState=="Uncertain"&&pending.Items[0].Reason=="WitnessUnavailableOrExisting","unresolved history survives lifecycle hold");
+  check(pending.Items[0].AssessmentEvidence=="NotRecorded"&&tail.Items[0].AssessmentEvidence=="ConfirmationForReview","witness uncertainty distinguished from simulated readback evidence");
   check(!pending.Items[0].ToString().Contains(second.AttemptKey!.Value.ToString("D")),"history never returns attempt capability");
   try{s.ReadSyntheticWireHistory(pageSize:101);throw new Exception("FAIL: history bounds");}catch(ArgumentOutOfRangeException){check(true,"history page size capped");}
   s.Logout();
+  try{s.ReadAccountingSafetyOverview();throw new Exception("FAIL: overview authorization");}catch(UnauthorizedAccessException){check(true,"unified accounting overview requires authentication");}
+  try{s.CompareSyntheticAttemptWitness(root,store);throw new Exception("FAIL: witness authorization");}catch(UnauthorizedAccessException){check(true,"witness comparison requires accounting grants");}
   try{s.ReadSyntheticWireHistory();throw new Exception("FAIL: history authorization");}catch(UnauthorizedAccessException){check(true,"history requires authenticated accounting grants");}
  }
 }

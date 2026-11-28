@@ -1,0 +1,3 @@
+# Windows deployment qualification
+
+The CI-only static check validates the required published files, nonempty components, x64 PE headers for the executable and native host/SQLite libraries, self-contained .NET 10 included frameworks, win-x64 dependency target and exclusion of obvious database/credential file extensions. It does not execute the quarantined executable, establish malware absence, verify every runtime dependency, or constitute installer acceptance. Existing dependency review and inventory remain separate. Clean Windows VM startup, actual installation/uninstallation, data preservation, signing and independent security authorization are still outstanding. No installer distribution, security bypass, or production release. Exact regression pending.

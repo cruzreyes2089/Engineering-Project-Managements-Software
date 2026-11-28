@@ -101,6 +101,9 @@ internal static class SyntheticPostingPipelineTests
   check(drafts.PrepareSyntheticWireDraft(next).Outcome=="Prepared"&&drafts.ApproveSyntheticWireDraft(next.OperationKey,hash).Outcome=="Approved","pipeline next draft remains preparable");
   check(drafts.ReserveSyntheticWireAttempt(next.OperationKey,hash).Outcome=="UnresolvedRehearsal"&&provider.Sends==3,"pipeline uncertainty blocks all later sends");
   check(drafts.ReadSyntheticWireAttemptStatus()==new WireAttemptStatus(0,0,1,0,2),"pipeline durable outcomes retained");
+  var history=drafts.ReadSyntheticWireHistory().Items;
+  check(history.Single(x=>x.Kind=="ExpensePayment"&&x.AttemptState=="Uncertain").AssessmentEvidence=="Uncertain"&&history.Single(x=>x.Kind=="ExpensePayment"&&x.AttemptState=="Uncertain").ObservedStatus==null,"timeout evidence retained without fabricated response");
+  check(history.Count(x=>x.AttemptState=="ReviewedSimulation"&&x.AssessmentEvidence=="ConfirmationForReview"&&x.ObservedStatus==201)==2,"reviewed simulations retain original assessments");
   // Wrong-response GUID classification remains covered by the independent
   // dispatch unit tests; never bypass the global uncertainty gate here.
  }

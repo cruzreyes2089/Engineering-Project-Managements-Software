@@ -1,0 +1,5 @@
+# Staff administration usability
+
+Separate employee and license action areas. User account edit/password reset requires selection of a non-administrator account. Role allow/remove actions require a selected mutable permission and are disabled for the protected administrator role or Administration.Manage grant. Employee mutation requires the existing Employees.View and Employees.Edit grants. Refresh retains selected identity where available; role changes clear previous grant rows. Date-picker replaces manually formatted license expiration date. Storage locations and project templates have plain labels; legacy layout remains under Advanced. No automatic grant, role change, password reset, account link or license renewal. Existing service authorization, concurrency, audit and owner-exception safeguards remain decisive. No database change. Exact CI and interactive acceptance pending. Invoice and reporting commits both completed successful CI before this change.
+
+Next work: integrated desktop acceptance and installer qualification, defect corrections only; avoid unrequested feature expansion.

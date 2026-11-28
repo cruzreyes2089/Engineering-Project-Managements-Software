@@ -10,37 +10,38 @@ internal sealed class EngagementWindow:Window
  readonly LocalPractice service;
  readonly DataGrid proposals=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly DataGrid projects=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
- readonly TextBox search=new(){MaxLength=150};
+ readonly TextBox search=new(){MaxLength=150,ToolTip="Search proposals and projects"};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
- readonly Button edit=new(){Content="Edit draft"},issue=new(){Content="Record issued"},accept=new(){Content="Record accepted"},reject=new(){Content="Record rejected"},snapshot=new(){Content="View frozen snapshot"};
+ readonly Button edit=new(){Content="Edit draft"},issue=new(){Content="Record as sent"},accept=new(){Content="Record acceptance"},reject=new(){Content="Record rejection"},snapshot=new(){Content="View issued record"};
  public EngagementWindow(LocalPractice service)
  {
-  this.service=service;Title="Proposals and pending projects — development";Width=1060;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
+  this.service=service;Title="Proposals and projects — development";Width=1060;Height=650;WindowStartupLocation=WindowStartupLocation.CenterOwner;
   var root=new DockPanel{Margin=new Thickness(16)};var header=new StackPanel();
-  header.Children.Add(new TextBlock{Text="Proposals and pending projects",FontSize=24,FontWeight=FontWeights.SemiBold});
+  header.Children.Add(new TextBlock{Text="Proposals and projects",FontSize=24,FontWeight=FontWeights.SemiBold});
   header.Children.Add(new TextBlock{Text="Synthetic records only. Recording issue/acceptance is manual evidence, not sending a document, signing a contract, or authorization to start work.",TextWrapping=TextWrapping.Wrap});
-  header.Children.Add(search);header.Children.Add(status);DockPanel.SetDock(header,Dock.Top);root.Children.Add(header);
+  header.Children.Add(new TextBlock{Text="Search by client, title or number"});header.Children.Add(search);header.Children.Add(status);DockPanel.SetDock(header,Dock.Top);root.Children.Add(header);
   var tabs=new TabControl();
   void Col(DataGrid g,string label,string prop)=>g.Columns.Add(new DataGridTextColumn{Header=label,Binding=new Binding(prop),Width=DataGridLength.Auto});
   foreach(var (label,prop) in new[]{("Number","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Fee (USD)","Fee"),("Revision","Revision"),("Status","State")})Col(proposals,label,prop);
-  foreach(var (label,prop) in new[]{("Project","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Status","State"),("Setup","SetupState")})Col(projects,label,prop);
+  foreach(var (label,prop) in new[]{("Project","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Status","State"),("Setup","SetupState"),("Conflict screening","ConflictStatus")})Col(projects,label,prop);
   var pp=new DockPanel();var buttons=new WrapPanel();
-  var create=new Button{Content="New draft",IsEnabled=service.Can("Engagements.Edit")&&service.Can("Engagements.View")&&service.Can("Clients.View")};
+  var create=new Button{Content="New proposal",IsEnabled=service.Can("Engagements.Edit")&&service.Can("Engagements.View")&&service.Can("Clients.View")};
   var refresh=new Button{Content="Refresh"};create.Click+=(_,_)=>Run(()=>Edit(null));edit.Click+=(_,_)=>Run(()=>Edit(Selected()));issue.Click+=(_,_)=>Run(Issue);accept.Click+=(_,_)=>Run(()=>Decision(true));reject.Click+=(_,_)=>Run(()=>Decision(false));snapshot.Click+=(_,_)=>Run(()=>ShowSnapshot(Selected()));refresh.Click+=(_,_)=>Refresh();
-  foreach(var b in new[]{create,edit,issue,accept,reject,snapshot,refresh}){b.Margin=new Thickness(2);buttons.Children.Add(b);}
+  var compliance=new Button{Content="Conflict screening",IsEnabled=service.Can("Compliance.View")};compliance.Click+=(_,_)=>Run(()=>{var d=Selected();if(d.State!="Draft")throw new ArgumentException("Select draft.");new ConflictReviewWindow(service,d.Id,d.Revision){Owner=this}.ShowDialog();});
+  var reviewDoc=new Button{Content="Save proposal review DOCX",IsEnabled=service.Can("Engagements.Export")};reviewDoc.Click+=(_,_)=>Run(()=>{var x=Selected();ReviewDocumentSave.Save(this,service.PrepareProposalReviewDocx(x.Id,x.Revision,x.SnapshotHash));});
+  var history=new Button{Content="Review document history",IsEnabled=service.Can("Engagements.Export")};history.Click+=(_,_)=>Run(()=>{var x=Selected();new ReviewDocumentHistoryWindow(()=>service.ReadProposalReviewDocuments(x.Id),d=>service.RetrieveProposalReviewDocument(x.Id,d.Id,d.Sha256)){Owner=this}.ShowDialog();});
+  foreach(var b in new[]{create,edit,compliance,reviewDoc,history,issue,accept,reject,snapshot,refresh}){b.Margin=new Thickness(2);buttons.Children.Add(b);}
   DockPanel.SetDock(buttons,Dock.Top);pp.Children.Add(buttons);pp.Children.Add(proposals);
   tabs.Items.Add(new TabItem{Header="Proposals",Content=pp});
   var projectPanel=new DockPanel();var openProject=new Button{Content="Open selected project",Margin=new Thickness(2),IsEnabled=false};
-  projects.SelectionChanged+=(_,_)=>openProject.IsEnabled=projects.SelectedItem is PendingProject;
-  openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectHandoffWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
+  
+  openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectWorkspaceWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
   var actions=new WrapPanel();actions.Children.Add(openProject);
-  var plan=new Button{Content="Plan phases and tasks",Margin=new Thickness(2)};plan.IsEnabled=service.Can("Projects.Plan")&&service.Can("Employees.View");
-  plan.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectPlanningWindow(service,p.Id){Owner=this}.ShowDialog();});
-  actions.Children.Add(plan);
-  var documents=new Button{Content="Documents",Margin=new Thickness(2),IsEnabled=service.Can("Documents.View")};
-  documents.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectDocumentsWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(documents);
-  var quality=new Button{Content="QA/QC and scope",Margin=new Thickness(2),IsEnabled=service.Can("QA.View")};
-  quality.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectQualityWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(quality);
+  void UpdateProjectActions(){openProject.IsEnabled=projects.SelectedItem is PendingProject&&service.Can("Projects.View")&&service.Can("Clients.View");}
+  projects.SelectionChanged+=(_,_)=>UpdateProjectActions();
+  projects.MouseDoubleClick+=(_,e)=>{if(openProject.IsEnabled&&e.OriginalSource is DependencyObject origin){DependencyObject? source=origin;while(source!=null&&source is not DataGridRow){source=source is System.Windows.Media.Visual||source is System.Windows.Media.Media3D.Visual3D?System.Windows.Media.VisualTreeHelper.GetParent(source):null;}if(source is DataGridRow row&&row.Item==projects.SelectedItem)openProject.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));}};
+  proposals.SelectionChanged+=(_,_)=>{var selected=proposals.SelectedItem as ProposalSummary;compliance.IsEnabled=selected?.State=="Draft"&&service.Can("Compliance.View");reviewDoc.IsEnabled=selected!=null&&service.Can("Engagements.Export");history.IsEnabled=selected!=null&&service.Can("Engagements.Export");};
+  UpdateProjectActions();compliance.IsEnabled=reviewDoc.IsEnabled=history.IsEnabled=false;
   DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
   root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh();proposals.SelectionChanged+=(_,_)=>UpdateButtons();Refresh();
  }

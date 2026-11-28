@@ -80,6 +80,11 @@ public sealed partial class LocalPractice
   var bound=observation with{AttemptDurablyRecorded=true,IndependentReadbackComplete=recovery.Finding==SyntheticRecoveryFinding.MatchedForReview,Recovery=recovery,IndependentlyMatchedExternalKey=matched};
   var result=SyntheticDispatchReview.Evaluate(bound);
   var state=result.State==SyntheticDispatchState.ConfirmationForReview?"ConfirmationForReview":"Uncertain";
+  // Retain only normalized synthetic observations and the derived classification.
+  // A malformed status is stored as absent, never as a successful HTTP response.
+  var code=observation.StatusCode is >=100 and <=599?observation.StatusCode:null;
+  Exec(c,t,"INSERT INTO accounting_wire_assessments(attempt_id,source_hash,send_entered,status_code,complete_response,returned_key,matched_key,recovery_finding,assessment_state,reason,recorded_by,recorded_utc) VALUES($i,$h,$s,$c,$r,$k,$m,$f,$a,$n,$u,$t)",
+   ("$i",a.Id),("$h",p.Fingerprint),("$s",observation.SendEntered?1:0),("$c",code),("$r",observation.CompleteResponse?1:0),("$k",observation.ReturnedExternalKey?.ToString("D")),("$m",matched?.ToString("D")),("$f",recovery.Finding.ToString()),("$a",state),("$n",result.Reason),("$u",scope.Actor),("$t",UtcNow()));
   ChangeAttempt(c,t,a,scope.Actor,state,result.Reason);t.Commit();return new(state,state);
  }
  public WireAttemptResult ReviewSyntheticWireAttempt(Guid operation,string expectedFingerprint)
@@ -90,6 +95,7 @@ public sealed partial class LocalPractice
   var d=ReadWireDraftRow(c,t,operation);if(d==null)return new("NotRecorded");
   var a=ReadAttempt(c,t,d.Id);if(a==null||a.State!="ConfirmationForReview")return new("ManualRecoveryRequired",a?.State);
   var p=ReconstructWireDraft(d);if(p==null||p.Fingerprint!=expectedFingerprint||p.Intent.MarkerKey!=scope.Marker||!WireApprovalValid(c,t,d))return new("ApprovalOrPayloadInvalid");
+  if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM accounting_wire_assessments WHERE attempt_id=$i AND source_hash=$h AND assessment_state='ConfirmationForReview'",("$i",a.Id),("$h",p.Fingerprint)))!=1)return new("AssessmentEvidenceMissing",a.State);
   ChangeAttempt(c,t,a,scope.Actor,"ReviewedSimulation","OfflineSimulationOnly");t.Commit();return new("ReviewedSimulation","ReviewedSimulation");
  }
  public WireAttemptResult ReadSyntheticWireAttempt(Guid operation)

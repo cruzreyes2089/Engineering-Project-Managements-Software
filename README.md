@@ -11,14 +11,15 @@ CRC Practice Manager is a developing open-source Windows desktop application for
 
 ## Development status
 
-Early development; not production-ready. The native foundation uses C#/.NET, WPF and SQLite. Source and Windows build instructions are available; [native foundation notes](docs/native-foundation-0.4.0.md) describe the original baseline. Version 0.4.1 adds phone display and entry formatting; see the pull request and exact-commit CI results for verification. Version 0.4.2 adds an experimental read-only Manager.io Desktop API2 connectivity probe; see [accounting connection notes](docs/accounting-connection-0.4.2.md). No synchronization, ledger or accounting posting is implemented.
+Development source; not production-ready. The native C#/.NET, WPF and SQLite application now includes CRM, proposals, project handoff, staff, scheduling, work submissions, approvals, document evidence, QA, additional-scope controls, internal invoice drafts, reports and recovery copies. Manager.io read-only integration and synthetic posting rehearsals are experimental; no production posting, duplicate AR ledger, or automatic replacement of a live database is enabled. Recovery copies can be verified and restored to a separate file; collections review is bounded to a synthetic fixture. See the stacked draft pull requests and exact-commit Windows CI for verification. Desktop acceptance, release security review and live provider qualification remain required.
 
 ## Roadmap
 
-- 04A: establish repository governance and a safe source import process.
-- 04B: import the reviewed native baseline, verify Windows compilation, tests and startup.
-- 04C: assess accounting-provider feasibility using a synthetic sandbox.
-- Resume feature development after foundation acceptance.
+1. [Stage 1: internal operational application](docs/stage-1-release-scope.md) — current owner-approved priority; qualification pending.
+2. Stage 2: qualified legacy migration and Manager integration.
+3. Stage 3: network operation, commercial licensing and distribution.
+
+See the [Stage 1 operating guide](docs/stage-1-operating-guide.md), [installation contract](docs/stage-1-installation-contract.md), and [acceptance plan](docs/desktop-release-acceptance-plan.md). All are development and qualification references, not authorization to execute or distribute a held build.
 
 ## Contributing
 

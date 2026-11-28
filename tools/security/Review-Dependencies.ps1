@@ -16,6 +16,22 @@ foreach ($project in $projects) {
     if ($report.version -ne 1 -or $null -eq $report.projects -or @($report.projects).Count -ne 1) {
       throw "Unexpected dependency report schema: $mode"
     }
+    $entry = @($report.projects)[0]
+    if ([string]::IsNullOrWhiteSpace($entry.path) -or -not [string]::Equals([IO.Path]::GetFullPath($entry.path),(Resolve-Path -LiteralPath $project).Path,[StringComparison]::OrdinalIgnoreCase)) {
+      throw "Dependency report project identity mismatch: $mode"
+    }
+    if ($mode -eq 'inventory') {
+      if ($report.parameters -notmatch '(?:^|\s)--include-transitive(?:$|\s)' -or @($entry.frameworks | Where-Object { $null -ne $_ }).Count -eq 0) { throw 'Missing inventory framework or transitive scope.' }
+      foreach ($framework in $entry.frameworks) {
+        if ([string]::IsNullOrWhiteSpace($framework.framework)) { throw 'Missing framework identity.' }
+        $packages = @($framework.topLevelPackages) + @($framework.transitivePackages)
+        foreach ($package in $packages | Where-Object { $null -ne $_ }) {
+          if ([string]::IsNullOrWhiteSpace($package.id) -or [string]::IsNullOrWhiteSpace($package.resolvedVersion)) { throw 'Unresolved package identity.' }
+        }
+      }
+    } else {
+      if ($report.parameters -notmatch '(?:^|\s)--vulnerable(?:$|\s)' -or $report.parameters -notmatch '(?:^|\s)--include-transitive(?:$|\s)' -or @($report.sources) -notcontains 'https://api.nuget.org/v3/index.json') { throw 'Missing advisory scan scope or expected NuGet source.' }
+    }
     Write-Host $raw
     if ($mode -eq 'vulnerabilities') {
       foreach ($p in $report.projects) {

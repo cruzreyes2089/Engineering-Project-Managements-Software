@@ -48,9 +48,8 @@ public sealed partial class LocalPractice
   Audit(c,t,actor,"Update","Proposal",id);t.Commit();
  }
  private static string HashProposal(string snapshot)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(snapshot)));
- public string RecordProposalIssued(long id,int expectedRevision)
+ private static (long Client,string Snapshot) DraftProposalSnapshot(SqliteConnection c,SqliteTransaction t,long id,int expectedRevision)
  {
-  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Engagements.Issue");Require(c,t,"Engagements.View");Require(c,t,"Clients.View");
   string snapshot;long client;
   using(var q=Command(c,t,@"SELECT p.proposal_no,p.client_id,p.title,p.site,p.scope,p.fee_cents,p.revision,c.company_name,c.first_name,c.last_name FROM proposals p JOIN clients c ON c.id=p.client_id WHERE p.id=$i AND p.state='Draft' AND p.revision=$r",("$i",id),("$r",expectedRevision)))
   using(var r=q.ExecuteReader()){
@@ -58,7 +57,14 @@ public sealed partial class LocalPractice
    client=r.GetInt64(1);
    snapshot=JsonSerializer.Serialize(new{Format="CRC-Proposal-Snapshot-v1",Number=r.GetString(0),ClientId=client,Title=r.GetString(2),Site=r.GetString(3),Scope=r.GetString(4),FeeCents=r.GetInt64(5),Currency="USD",Revision=r.GetInt32(6),Company=r.GetString(7),First=r.GetString(8),Last=r.GetString(9)});
   }
+  return (client,snapshot);
+ }
+ public string RecordProposalIssued(long id,int expectedRevision)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Engagements.Issue");Require(c,t,"Engagements.View");Require(c,t,"Clients.View");
+  var (client,snapshot)=DraftProposalSnapshot(c,t,id,expectedRevision);
   ActiveClient(c,t,client);var hash=HashProposal(snapshot);
+  if(!ProposalConflictCleared(c,t,id,expectedRevision,hash))throw new ArgumentException("Current proposal conflict review required before issue.");
   if(Exec(c,t,"UPDATE proposals SET state='Issued',snapshot=$s,snapshot_hash=$h,issued_by=$a,issued_utc=$u WHERE id=$i AND state='Draft' AND revision=$r",("$s",snapshot),("$h",hash),("$a",actor),("$u",UtcNow()),("$i",id),("$r",expectedRevision))!=1)throw new InvalidOperationException("Draft changed.");
   Audit(c,t,actor,"RecordIssued","Proposal",id);t.Commit();return hash;
  }
@@ -95,13 +101,21 @@ public sealed partial class LocalPractice
   t.Commit();return new("Accepted",project,number);
  }
  // Historical method name retained for compatibility; register now includes both Pending and Active projects.
+ public PendingProject ReadProjectOverview(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction();RequireProjectView(c,t);ProjectRow(c,t,project);
+  using var q=Command(c,t,@"SELECT p.id,p.project_no,s.id,s.title,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,s.site,(SELECT v.state FROM project_operational_state v WHERE v.project_id=p.id),p.setup_state,CASE WHEN EXISTS(SELECT 1 FROM project_conflict_cleared cr WHERE cr.project_id=p.id) THEN 'Clear' WHEN EXISTS(SELECT 1 FROM project_conflict_current cr WHERE cr.project_id=p.id) THEN 'Hold' ELSE 'NotReviewed' END FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id JOIN clients c ON c.id=s.client_id WHERE p.id=$p",("$p",project));
+  using var r=q.ExecuteReader();
+  if(!r.Read())throw new ArgumentException("Project unavailable.");
+  return new(r.GetInt64(0),r.GetString(1),r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8));
+ }
  public IReadOnlyList<PendingProject> SearchPendingProjects(string search="")
  {
   using var c=Open();using var t=c.BeginTransaction();Require(c,t,"Projects.View");Require(c,t,"Clients.View");
-  using var q=Command(c,t,@"SELECT p.id,p.project_no,s.id,s.title,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,s.site,p.state,p.setup_state FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id JOIN clients c ON c.id=s.client_id WHERE $s='' OR instr(lower(p.project_no||' '||s.title||' '||c.company_name||' '||c.first_name||' '||c.last_name),lower($s))>0 ORDER BY p.id DESC LIMIT 501",("$s",Validation.Text(search,150,"Search")));
+  using var q=Command(c,t,@"SELECT p.id,p.project_no,s.id,s.title,CASE WHEN trim(c.company_name)!='' THEN c.company_name ELSE trim(c.first_name||' '||c.last_name) END,s.site,(SELECT v.state FROM project_operational_state v WHERE v.project_id=p.id),p.setup_state,CASE WHEN EXISTS(SELECT 1 FROM project_conflict_cleared cr WHERE cr.project_id=p.id) THEN 'Clear' WHEN EXISTS(SELECT 1 FROM project_conflict_current cr WHERE cr.project_id=p.id) THEN 'Hold' ELSE 'NotReviewed' END FROM projects p JOIN engagements e ON e.id=p.engagement_id JOIN proposals s ON s.id=e.proposal_id JOIN clients c ON c.id=s.client_id WHERE $s='' OR instr(lower(p.project_no||' '||s.title||' '||c.company_name||' '||c.first_name||' '||c.last_name),lower($s))>0 ORDER BY p.id DESC LIMIT 501",("$s",Validation.Text(search,150,"Search")));
   using var r=q.ExecuteReader();var rows=new List<PendingProject>();while(r.Read()){
    if(rows.Count==500)throw new ArgumentException("More than 500 projects match. Narrow the search.");
-   rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7)));
+   rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetInt64(2),r.GetString(3),r.GetString(4),r.GetString(5),r.GetString(6),r.GetString(7),r.GetString(8)));
   }return rows.AsReadOnly();
  }
 }
