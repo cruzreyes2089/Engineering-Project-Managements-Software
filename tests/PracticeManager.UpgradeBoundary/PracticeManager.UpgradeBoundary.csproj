@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/PracticeManager.Persistence.Sqlite/PracticeManager.Persistence.Sqlite.csproj"/>
+    <Compile Include="../PracticeManager.SmokeTests/SyntheticCrmNativeTests.cs" Link="SyntheticCrmNativeTests.cs"/>
+  </ItemGroup>
+</Project>
