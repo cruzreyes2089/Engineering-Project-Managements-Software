@@ -18,6 +18,7 @@ internal sealed class InstallerHandoffReviewSession : IDisposable
  readonly DateTimeOffset initialTime;
  readonly Stopwatch elapsed=Stopwatch.StartNew();
  readonly NamedPipeServerStream pipe;
+ static readonly TimeSpan MaximumLifetime=TimeSpan.FromSeconds(15);
  int attempted;
  internal string PipeName{get;}
  internal sealed record Result(string Commit,string Inventory,int PeerPid)
@@ -36,7 +37,7 @@ internal sealed class InstallerHandoffReviewSession : IDisposable
  [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
  [return:MarshalAs(UnmanagedType.Bool)]
  static extern bool GetNamedPipeClientProcessId(SafePipeHandle pipe,out uint clientProcessId);
- internal async Task<Result> ReviewAsync(Process expectedPeer)
+ internal async Task<Result> ReviewAsync(Process expectedPeer,CancellationToken cancellation=default)
  {
   Require(Interlocked.Exchange(ref attempted,1)==0);
   try
@@ -45,10 +46,13 @@ internal sealed class InstallerHandoffReviewSession : IDisposable
    // Keep the process object/handle alive until the exchange finishes.
    _=expectedPeer.SafeHandle;
    var pid=expectedPeer.Id;
-   using var deadline=new CancellationTokenSource(TimeSpan.FromSeconds(15));
+   var remaining=MaximumLifetime-elapsed.Elapsed;
+   Require(remaining>TimeSpan.Zero&&!cancellation.IsCancellationRequested);
+   using var deadline=CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+   deadline.CancelAfter(remaining);
    await pipe.WaitForConnectionAsync(deadline.Token);
    Require(GetNamedPipeClientProcessId(pipe.SafePipeHandle,out uint observed)&&observed==(uint)pid&&!expectedPeer.HasExited);
-   Require(elapsed.Elapsed<TimeSpan.FromSeconds(15)&&reservation.ReviewForHandoff(release,initialTime+elapsed.Elapsed)==witness);
+   Require(elapsed.Elapsed<MaximumLifetime&&!deadline.IsCancellationRequested&&reservation.ReviewForHandoff(release,initialTime+elapsed.Elapsed)==witness);
    var challenge=new byte[64];
    RandomNumberGenerator.Fill(challenge.AsSpan(0,32));
    SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{release,witness}),challenge.AsSpan(32,32));
@@ -57,10 +61,13 @@ internal sealed class InstallerHandoffReviewSession : IDisposable
    await pipe.ReadExactlyAsync(response,deadline.Token);
    Require(CryptographicOperations.FixedTimeEquals(response,SHA256.HashData(challenge))&&!expectedPeer.HasExited);
    Require(GetNamedPipeClientProcessId(pipe.SafePipeHandle,out observed)&&observed==(uint)pid);
-   Require(elapsed.Elapsed<TimeSpan.FromSeconds(15)&&reservation.ReviewForHandoff(release,initialTime+elapsed.Elapsed)==witness);
+   Require(elapsed.Elapsed<MaximumLifetime&&!deadline.IsCancellationRequested&&reservation.ReviewForHandoff(release,initialTime+elapsed.Elapsed)==witness);
    await pipe.WriteAsync(new byte[]{1},deadline.Token);
+   Require(elapsed.Elapsed<MaximumLifetime&&!deadline.IsCancellationRequested);
    return new(release.Commit,witness.Inventory,pid);
   }
+  catch(IOException ex){throw new ArgumentException("Installer handoff channel interrupted; no review accepted.",ex);}
+  catch(OperationCanceledException ex){throw new ArgumentException("Installer handoff channel expired or canceled; no review accepted.",ex);}
   finally{pipe.Dispose();GC.KeepAlive(expectedPeer);}
  }
  public void Dispose(){Interlocked.Exchange(ref attempted,1);pipe.Dispose();}

@@ -263,6 +263,19 @@ internal static class InstalledProgramBoundaryTests
    using(var wrongPeer=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
     Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(wrongPeer,true),"handoff review refuses unexpected operating-system peer PID");
    Refuse(()=>new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime.AddMinutes(2)),"handoff channel refuses expired release before opening");
+   using(var disconnected=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
+   {
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(disconnected,false,"disconnect"),"handoff rejects child disconnect after challenge");
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(disconnected,false),"interrupted handoff cannot be reused");
+   }
+   using(var badResponse=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(badResponse,false,"wrong-response"),"handoff refuses incorrect challenge response");
+   using(var canceled=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
+   using(var self=System.Diagnostics.Process.GetCurrentProcess())
+   {
+    Refuse(()=>canceled.ReviewAsync(self,new CancellationToken(true)).GetAwaiter().GetResult(),"handoff refuses canceled review before connection");
+    Refuse(()=>canceled.ReviewAsync(self).GetAwaiter().GetResult(),"canceled review cannot be retried");
+   }
    check(stagingReservation.ReviewSealed().Inventory==extracted.Digest,"handoff channel leaves protected extraction unchanged");
    using(var heldArtifact=new InstallerExecutableAuthenticity.ArtifactLease(reservedHelper,envelopeHelperHash))
    {
@@ -284,7 +297,12 @@ internal static class InstalledProgramBoundaryTests
    Refuse(()=>stagingReservation.ReviewAuthenticHandoff(envelopeEvidence,reservedHelper,reservedHelper,expectedDigest,handoffTime),"authentic handoff rejects overlapping artifact paths");
    check(InstallerCoordinatorCandidate.Run(new[]{"--install"})==3,"authenticity candidate does not change release hold");
    Refuse(()=>stagingReservation.SealForReview(),"sealed reservation cannot be overwritten");
-   File.AppendAllText(reservedHelper,"tamper");
+   using(var changed=new InstallerHandoffReviewSession(stagingReservation,envelopeEvidence,handoffTime))
+   {
+    File.AppendAllText(reservedHelper,"tamper");
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(changed,false),"handoff rejects evidence changed after channel creation");
+    Refuse(()=>CrossProcessInstallerProbe.ObserveHandoff(changed,false),"tampered handoff cannot be retried");
+   }
    Refuse(()=>stagingReservation.ReviewSealed(),"sealed reservation rejects changed helper");
    check(File.Exists(reservedHelper),"failed handoff review preserves staged evidence");
   }
