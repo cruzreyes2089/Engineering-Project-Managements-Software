@@ -30,6 +30,8 @@ static class RecoveryCopyTests
   {try{action();}catch(InvalidOperationException){check(true,label);return;}throw new Exception("FAIL: "+label);}
   using(var stage=new RecoveryStaging(publication))
   {
+   stage.VerifyPrivateDirectory();
+   if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedDirectoryAcl(Path.GetDirectoryName(stage.FilePath)!),"staging directory protected before writing confidential bytes");
    File.WriteAllBytes(stage.FilePath,publicationBytes);
    Refused(()=>stage.Publish(publicationBytes.Length+1,publicationHash),"publication refuses mismatched staged length");
    Refused(()=>stage.Publish(publicationBytes.Length,new string('0',64)),"publication refuses mismatched staged hash");
@@ -40,6 +42,15 @@ static class RecoveryCopyTests
   Refused(()=>RecoveryStaging.VerifyIdentity(publication,publicationBytes.Length,new string('0',64)),"destination verification rejects incorrect hash");
   Refused(()=>RecoveryStaging.VerifyIdentity(publication,publicationBytes.Length+1,publicationHash),"destination verification rejects incorrect length");
   check(File.ReadAllBytes(publication).SequenceEqual(publicationBytes),"failed destination verification does not delete published file");
+  var collision=Path.Combine(Path.GetDirectoryName(path)!,"synthetic-publication-collision.txt");
+  using(var stage=new RecoveryStaging(collision))
+  {
+   File.WriteAllBytes(stage.FilePath,publicationBytes);
+   File.WriteAllText(collision,"Existing destination");
+   try{stage.Publish(publicationBytes.Length,publicationHash);throw new Exception("FAIL: publication overwrote destination");}
+   catch(ArgumentException){check(File.ReadAllText(collision)=="Existing destination","publication refuses destination created after staging");}
+  }
+  check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"publication collision removes only application staging");
   var result=s.CreateRecoveryCopy(target);
   if(OperatingSystem.IsWindows())check(WorkspaceConfidentiality.HasRestrictedFileAcl(target),"published recovery copy has protected explicit file ACL");
   check(!Directory.EnumerateDirectories(Path.GetDirectoryName(path)!,".crc-recovery-stage-*").Any(),"successful backup removes private staging directory");
