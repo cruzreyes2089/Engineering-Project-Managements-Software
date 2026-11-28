@@ -183,6 +183,7 @@ try{
   else Console.WriteLine("NOT QUALIFIED: Windows storage ACL checks unavailable.");
  await InvoiceDraftTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"invoice-drafts.db"),pw,Check);
  RecoveryCopyTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"recovery-source.db"),pw,Check);
+ IntegratedPracticeWorkflowTests.Run(Path.GetDirectoryName(path)!,pw,Check);
  OwnerApprovalTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"owner-approval.db"),pw,Check);
  ConflictReviewTests.Run(Path.Combine(Path.GetDirectoryName(path)!,"conflict-review.db"),pw,Check);
  ReviewDocxTests.Run(Check);
