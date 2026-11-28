@@ -3,7 +3,10 @@ namespace PracticeManager.Persistence;
 
 public sealed partial class LocalPractice
 {
- // No desktop route. The fixture opener fixes the reviewed root and workspace
+ public bool IsProductionAcceptance=>productionFixtureLayout!=null;
+ public (string ProjectDirectory,int Created,int Existing) SetupProductionAcceptanceFolders(long project,IReadOnlyList<ProjectFolderTemplateItem> selection)
+  =>SetupProductionFixtureFolders(project,selection);
+ // Explicit synthetic acceptance route only. The fixture opener fixes the reviewed root and workspace
  // identity; no path or project number is supplied by the operator.
  internal (string ProjectDirectory,int Created,int Existing) SetupProductionFixtureFolders(long project,IReadOnlyList<ProjectFolderTemplateItem> selection)
  {
