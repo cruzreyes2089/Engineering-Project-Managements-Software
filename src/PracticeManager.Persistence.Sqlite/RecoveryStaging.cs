@@ -16,6 +16,13 @@ internal sealed class RecoveryStaging:IDisposable
   if(Directory.Exists(directory)||File.Exists(directory))throw new InvalidOperationException("Recovery staging collision.");
   WorkspaceConfidentiality.EnsureWorkspaceDirectory(directory);
   FilePath=Path.Combine(directory,"copy.partial");
+  VerifyPrivateDirectory();
+ }
+ internal void VerifyPrivateDirectory()
+ {
+  LocalStoragePath.DirectoryPath(directory);
+  if(OperatingSystem.IsWindows()&&!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(directory))
+   throw new InvalidOperationException("Recovery staging permissions require manual review.");
  }
  internal static void VerifyIdentity(string path,long expectedBytes,string expectedHash)
  {
@@ -28,6 +35,7 @@ internal sealed class RecoveryStaging:IDisposable
  }
  public void Publish(long expectedBytes,string expectedHash)
  {
+  VerifyPrivateDirectory();
   LocalStoragePath.FilePath(FilePath,mustExist:true,rejectSidecars:true);
   LocalStoragePath.FilePath(target,mustExist:false,mustBeNew:true,rejectSidecars:true);
   WorkspaceConfidentiality.ProtectOwnedStagingFile(FilePath);
