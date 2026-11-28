@@ -26,10 +26,17 @@ internal static class ProjectHandoffTests
   check(s.AuthorizeProjectStart(project,hash,a.Id,a.PdfHash,true,"Synthetic")== "AgreementEvidenceMismatch","stale agreement cannot authorize");
   Invalid(()=>s.RecordSignedAgreement(project,hash,"test.pdf",bytes,"Synthetic",true),"superseded copy cannot silently return");
   check(s.AuthorizeProjectStart(project,hash,b.Id,"wrong",true,"Synthetic")== "AgreementEvidenceMismatch","wrong stored file hash blocked");
+  var initial=s.ReadProjectSetup(project);
+  check(s.SaveProjectSetupChecklist(project,initial.Items,initial.Items).State=="NotStarted","unchanged batch checklist does not create setup evidence");
+  var badBatch=initial.Items.Select((x,i)=>i==0?x with{Complete=true,Note="Synthetic first change"}:i==1?x with{Complete=true,Note=""}:x).ToArray();
+  Invalid(()=>s.SaveProjectSetupChecklist(project,initial.Items,badBatch),"batch requires notes for changed rows");
+  check(s.ReadProjectSetup(project).Items.SequenceEqual(initial.Items),"failed batch rolls back every changed row");
   var setup=s.RecordProjectSetupItem(project,"ScopeReviewed",true,"Synthetic review",false,"");
+  Invalid(()=>s.SaveProjectSetupChecklist(project,initial.Items,initial.Items),"batch rejects stale checklist snapshot");
   check(setup.State=="InProgress"&&s.ReadProjectHandoff(project).State=="Pending","setup progress does not activate project");
   Invalid(()=>s.RecordProjectSetupItem(project,"ScopeReviewed",false,"Stale",false,""),"stale setup edit rejected");
-  foreach(var item in setup.Items.Where(x=>!x.Complete))s.RecordProjectSetupItem(project,item.Item,true,"Synthetic review",false,"");
+  var desired=setup.Items.Select(x=>x.Complete?x:x with{Complete=true,Note="Synthetic combined review"}).ToArray();
+  check(s.SaveProjectSetupChecklist(project,setup.Items,desired).Items.SequenceEqual(desired),"one save records all changed checklist items and preserves existing note");
   check(s.ReadProjectSetup(project).State=="Complete"&&s.SearchPendingProjects().Single().SetupState=="Complete"&&s.ReadProjectHandoff(project).State=="Pending","complete setup not start authorization");
   var designer=s.SaveClient(new Client(0,"","Architect / Designer","Synthetic Designer","","","","","","","","","","","Active"));
   var contact=s.SaveContact(new Contact(0,designer,"Synthetic","Contact","","","",true));
@@ -92,6 +99,7 @@ internal static class ProjectHandoffTests
   Denied(()=>s.ReadProjectHandoff(project),"restricted agreement evidence not returned");
   Sql("UPDATE role_permissions SET allowed=0 WHERE permission_code='Projects.Setup'");
   Denied(()=>s.RecordProjectSetupItem(project,"ScopeReviewed",false,"Synthetic",true,"Synthetic review"),"setup permission checked");
+  var finalSetup=s.ReadProjectSetup(project);Denied(()=>s.SaveProjectSetupChecklist(project,finalSetup.Items,finalSetup.Items),"batch checklist requires current setup permission");
   check(s.ReadProjectSetup(project).State=="Complete","denied setup mutation leaves state");
  }
 }
