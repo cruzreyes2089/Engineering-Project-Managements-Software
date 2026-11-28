@@ -1,0 +1,3 @@
+# Wire queue preview and fake-provider integration
+
+Source-only change: the existing safeguards window displays aggregate historical full-wire draft counts separately from legacy rehearsal counts. Permission is checked in the service; missing permission denies only draft counts. No UI create, approve, cancel, send or retry controls are exposed. Historically approved does not mean eligible to post. Automated in-memory provider tests now prepare, approve, reopen and reconstruct the persisted exact payload before recording the external synthetic witness and exercising fake responses. The tests exercise scenarios independently; they do not implement a queue worker or durable dispatch state transition. No actual Manager transaction or executable distribution is authorized.
