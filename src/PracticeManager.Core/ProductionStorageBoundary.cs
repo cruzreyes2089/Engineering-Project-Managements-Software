@@ -17,13 +17,20 @@ public sealed class ProductionStorageBoundary
  // Fixed program/data namespaces; project and recovery destinations are separate
  // administrative choices. Existing directories must be plain local paths.
  public static ProductionStorageBoundary Review(string localAppData,string projectRoot,string backupRoot)
+  =>ReviewCore(localAppData,projectRoot,backupRoot,true);
+ // Existing workspace operation may proceed with the reviewed backup offline.
+ // This does not qualify the stored path for writing or claim that it is online.
+ public static ProductionStorageBoundary ReviewForDailyUse(string localAppData,string projectRoot,string backupRoot)
+  =>ReviewCore(localAppData,projectRoot,backupRoot,false);
+ static ProductionStorageBoundary ReviewCore(string localAppData,string projectRoot,string backupRoot,bool requireBackup)
  {
   var profile=LocalStoragePath.DirectoryPath(localAppData);
   var programs=Path.Combine(profile,"Programs");
   var program=LocalStoragePath.Normalize(Path.Combine(programs,"CRC Practice Manager"));
   var data=LocalStoragePath.Normalize(Path.Combine(profile,"CRC Practice Manager DATA"));
   var project=LocalStoragePath.DirectoryPath(projectRoot);
-  var backup=LocalStoragePath.DirectoryPath(backupRoot);
+  var backup=requireBackup?LocalStoragePath.DirectoryPath(backupRoot):LocalStoragePath.NormalizeStoredDestination(backupRoot);
+  if(string.Equals(backup,Path.GetPathRoot(backup),StringComparison.OrdinalIgnoreCase))throw new ArgumentException("Select a dedicated backup directory, not a drive root.");
   var roots=new[]{program,data,project,backup,
     Path.Combine(profile,"CRC Practice Manager DEV"),
     Path.Combine(profile,"CRC Practice Manager ACCEPTANCE"),
@@ -40,6 +47,16 @@ public sealed class ProductionStorageBoundary
   return new(program,data,project,backup);
  }
 
+ // Call only when an actual backup is requested. No replacement location,
+ // directory creation or automatic repair is permitted.
+ public string VerifyBackupDestination()
+ {
+  var current=Review(Path.GetDirectoryName(DataRoot)!,ProjectRoot,BackupRoot);
+  if(current.DataRoot!=DataRoot||current.BackupRoot!=BackupRoot||
+     !OperatingSystem.IsWindows()||!WorkspaceConfidentiality.HasRestrictedDirectoryAcl(current.BackupRoot))
+   throw new ArgumentException("Configured backup location is unavailable or requires permissions review.");
+  return current.BackupRoot;
+ }
  static bool Overlaps(string first,string second)
  {
   static string Prefix(string p)=>Path.EndsInDirectorySeparator(p)?p:p+Path.DirectorySeparatorChar;
