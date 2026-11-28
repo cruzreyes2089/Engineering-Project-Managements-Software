@@ -6,6 +6,11 @@ public sealed record ProjectTask(long Id,long ProjectId,string ProjectNumber,str
  public decimal EstimatedHours=>EstimateMinutes/60m;
  public bool CanStart=>ProjectState=="Active"&&State=="Planned"&&ConflictStatus=="Clear"&&ScopeState is ("Base scope" or "Authorized");
  public bool CanComplete=>ProjectState=="Active"&&State=="InProgress"&&ScopeState is ("Base scope" or "Authorized");
+ // Presentation hint for actual facts, not authorization to start new work.
+ public bool CanRecordActualOn(DateOnly date,bool historical)
+ =>date>=Start&&date<=End&&(!StoppedOn.HasValue||date<=StoppedOn.Value)
+   &&State is ("InProgress" or "Completed" or "Discontinued")
+   &&(historical?ProjectState=="OperationalClosed"&&ClosureId.HasValue&&ClosedOn.HasValue&&date<=ClosedOn.Value:ProjectState=="Active");
  public string WorkEntryLabel=>$"{ProjectNumber} / {Phase} / "+( ClosedOn.HasValue?$"{Title} — closed {ClosedOn.Value:yyyy-MM-dd}{(ClosureDateInferred?" (inferred local date)":"")}; historical only{(StoppedOn.HasValue?$", stopped {StoppedOn.Value:yyyy-MM-dd}":"")}":StoppedOn.HasValue?$"{Title} — discontinued {StoppedOn.Value:yyyy-MM-dd} (historical only)":Title);
 }
 public sealed record TaskScopeOption(long? Id,string Label,string State);
