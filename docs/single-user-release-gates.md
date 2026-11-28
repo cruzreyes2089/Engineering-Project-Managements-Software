@@ -49,3 +49,7 @@ G3 now has a source-level CI gate that checks whether the hosted Windows runner 
 ## Consolidated current qualification baseline
 
 Exact completed revision 7f8e1b9c89e0a221ab08e8002176b1d4cabd9a68, run 46088669251: 2304 native checks, 104 Python tests, zero desktop compilation warnings/errors; static Windows x64 deployment passed. Integrated three-account workflow and populated legacy SQLite upgrade/recovery included. DAO NoRegisteredEngine and Windows metadata handle rename exclusion remain explicitly unqualified. The subsequent invoice polish revision was still running at this checkpoint. Current schema 54, version 0.4.12. Original 42+7 desktop acceptance scenarios are unchanged. G1 source regression passed at the stated revision, not interactive acceptance; G2/G3/G4/G5/G6 remain outstanding in their actual release scope; G7 HOLD and G8 not ready. No claim of production posting, actual Access migration, physical folder activation, installer execution or security clearance. This batch adds exact recorded folder-base restoration, not a filesystem operation. Exact new revision regression pending. A saved storage binding remains historical and must be reviewed again after a changed selection.
+
+## Owner-approved sequencing — 2026-11-27
+
+See [Stage 1 release scope](stage-1-release-scope.md). Internal operational qualification is first; subsequent integration and commercial milestones remain required on the roadmap. No release approval or change to security HOLD.
