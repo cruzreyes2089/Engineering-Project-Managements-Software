@@ -239,6 +239,12 @@ internal static class WorkEntriesTests
   Invalid(()=>admin.ReadEmployeeTimeReport(new(long.MaxValue,null,day,day,"All")),"employee report rejects unknown employee");
   Invalid(()=>admin.ReadEmployeeTimeReport(new(employee,null,day,day,"Other")),"employee report rejects unknown status");
   Denied(()=>worker.ReadEmployeeTimeReport(new(employee,project,day,day,"All")),"own-work access cannot read management time report");
+  var timeCsv=admin.PrepareEmployeeTimeReportCsv(new(employee,project,day,day,"Approved"));
+  check(timeCsv.Contains("EMPLOYEE TIME")&&timeCsv.Contains("\"90\",\"0\",\"0\",\"0\"")&&timeCsv.Contains("Record ID")&&!timeCsv.Contains("Overhead")&&!timeCsv.Contains("Billing rate"),"time export preserves filtered minutes and excludes overhead and compensation");
+  check(!timeCsv.Contains("Actual work before discontinuation"),"employee export contains no work narrative");
+  Denied(()=>worker.PrepareEmployeeTimeReportCsv(new(employee,project,day,day,"All")),"employee cannot prepare management time export");
+  Invalid(()=>admin.PrepareEmployeeTimeReportCsv(new(employee,project,day,day,"Other")),"time export rejects invalid status filter");
+
   var effort=admin.ReadProjectEffort(project);
   check(effort.Tasks.Single().TaskId==task&&effort.CurrentPlanMinutes==120&&effort.CurrentApprovedMinutes==90&&effort.CurrentPendingMinutes==0,"whole-project effort matches approved time without overhead or expenses");
   check(effort.ProjectId==project&&effort.Tasks.Single().Revision==2,"project effort carries stable project identity and task revision");
