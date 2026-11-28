@@ -261,6 +261,9 @@ internal static class WorkEntriesTests
   check(admin.ReadProjectLifecycle(project).Count==0,"existing active project has no invented closeout history");
   Denied(()=>worker.RecordProjectLifecycle(project,null,true,"Synthetic unauthorized",true),"employee cannot close project");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending expense",true),"unreviewed project expense blocks closeout");
+  var blockedLifecycle=admin.ReadProjectLifecycleReview(project);
+  check(blockedLifecycle.Snapshot.HasUnresolvedOperationalItems&&!blockedLifecycle.Snapshot.CanRequestClose&&blockedLifecycle.History.Count==0,"lifecycle screen snapshot explains blocked closeout with matching history");
+  Denied(()=>worker.ReadProjectLifecycleReview(project),"combined lifecycle review requires closeout and operations grants");
   var pendingExpense=worker.ReadMySubmissions(day,day).Single(x=>x.ReviewState=="Submitted"&&x.Kind=="Expense");
   check(admin.ReviewWork(pendingExpense.Id,true,"Synthetic verified expense")=="Approved","pending expense resolved before closure");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic incomplete setup",true),"incomplete setup blocks closeout");
@@ -272,6 +275,8 @@ internal static class WorkEntriesTests
   var scope=admin.ProposeScopeChange(project,"Synthetic scope","Synthetic pending decision");
   Invalid(()=>admin.RecordProjectLifecycle(project,null,true,"Synthetic pending scope",true),"undecided scope blocks closeout");
   admin.DecideScopeChange(project,scope,false,"Synthetic declined",false);
+  var readyLifecycle=admin.ReadProjectLifecycleReview(project);
+  check(readyLifecycle.Snapshot.CanRequestClose&&!readyLifecycle.Snapshot.CanRequestReopen&&readyLifecycle.History.Count==0,"resolved operational items enable close request only");
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="CREATE TRIGGER test_lifecycle_audit_abort BEFORE INSERT ON audit_events WHEN NEW.action='OperationalClose' BEGIN SELECT RAISE(ABORT,'Synthetic audit failure'); END";q.ExecuteNonQuery();}
   try{admin.RecordProjectLifecycle(project,null,true,"Synthetic rollback",true);throw new Exception("FAIL: lifecycle audit rollback");}catch(SqliteException){check(admin.ReadProjectLifecycle(project).Count==0&&admin.ReadProjectCloseoutReview(project).ProjectState=="Active","lifecycle transition rolls back with failed audit");}
   using(var db=new SqliteConnection($"Data Source={path};Pooling=False")){db.Open();using var q=db.CreateCommand();q.CommandText="DROP TRIGGER test_lifecycle_audit_abort";q.ExecuteNonQuery();}
@@ -298,7 +303,11 @@ internal static class WorkEntriesTests
   var review=admin.ReadConflictHistory(project).First();
   var held=admin.RecordConflictReview(project,review.Id,new("Synthetic jurisdiction","No","No","No","Yes","Synthetic concern"),true);
   Invalid(()=>admin.RecordProjectLifecycle(project,closed.Id,false,"Synthetic held reopen",true),"conflict hold blocks reopening");
+  var heldLifecycle=admin.ReadProjectLifecycleReview(project);
+  check(!heldLifecycle.Snapshot.CanRequestReopen&&!heldLifecycle.Snapshot.CanRequestClose&&heldLifecycle.History.First().Id==closed.Id,"conflict-held closed project disables both requests with exact lifecycle history");
   admin.RecordConflictReview(project,held.Id,new("Synthetic jurisdiction","No","No","No","No","Synthetic resolved conflict"),true);
+  var reopenReview=admin.ReadProjectLifecycleReview(project);
+  check(reopenReview.Snapshot.CanRequestReopen&&!reopenReview.Snapshot.CanRequestClose,"current clearance permits reopen request despite retained post-close observations");
   var reopened=admin.RecordProjectLifecycle(project,closed.Id,false,"Synthetic authorized reopen",true);
   check(reopened.State=="Active"&&admin.ReadProjectLifecycle(project).Count==2&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="Active","explicit reopen restores active status with retained lifecycle history");
   admin.CloseQualityItem(project,lateQa,"Synthetic resolved");
