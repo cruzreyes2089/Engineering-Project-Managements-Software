@@ -29,6 +29,8 @@ $manifest = [ordered]@{format='CRC-Development-Build-Inventory-v1';architecture=
 $json = ConvertTo-Json -InputObject $manifest -Depth 5 -Compress
 $bytes = [Text.UTF8Encoding]::new($false).GetBytes($json)
 $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+$json | python tools/release/validate_build_inventory.py --stdin --expected-sha256 $digest
+if ($LASTEXITCODE -ne 0) { throw "Published inventory evidence validation failed." }
 $signature = Get-AuthenticodeSignature -LiteralPath (Join-Path $root 'CRC.PracticeManager.exe')
 Write-Host "Build file count: $($files.Count)"
 Write-Host "Build total bytes: $total"
