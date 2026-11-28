@@ -118,11 +118,17 @@ internal sealed class InstallerExtractionReservation : IDisposable
   var helper=LocalStoragePath.FilePath(Path.Combine(Envelope,"CRC.Uninstall.exe"),mustExist:true,rejectSidecars:true);
   Require(!string.Equals(package,coordinator,StringComparison.OrdinalIgnoreCase)&&
    !ProjectFolderPolicy.Overlaps(root,package)&&!ProjectFolderPolicy.Overlaps(root,coordinator));
-  InstallerExecutableAuthenticity.Review(package,expected.PackageSha256,independentlyTrustedPublisherSha256);
-  InstallerExecutableAuthenticity.Review(coordinator,expected.CoordinatorSha256,independentlyTrustedPublisherSha256);
-  InstallerExecutableAuthenticity.Review(helper,expected.Plan.UninstallerSha256,independentlyTrustedPublisherSha256);
+  using var packageLease=new InstallerExecutableAuthenticity.ArtifactLease(package,expected.PackageSha256);
+  using var coordinatorLease=new InstallerExecutableAuthenticity.ArtifactLease(coordinator,expected.CoordinatorSha256);
+  using var helperLease=new InstallerExecutableAuthenticity.ArtifactLease(helper,expected.Plan.UninstallerSha256);
+  packageLease.ReviewPublisher(independentlyTrustedPublisherSha256);
+  coordinatorLease.ReviewPublisher(independentlyTrustedPublisherSha256);
+  helperLease.ReviewPublisher(independentlyTrustedPublisherSha256);
   var second=ReviewForHandoff(expected,now);
   Require(first==second);
+  packageLease.ReviewBytes();
+  coordinatorLease.ReviewBytes();
+  helperLease.ReviewBytes();
   return second;
  }
  public void Dispose()
