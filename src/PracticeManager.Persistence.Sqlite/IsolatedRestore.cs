@@ -13,12 +13,23 @@ public sealed record IsolatedRestoreResult(string Path,string Sha256,long Bytes,
 // No changes to startup settings, active database, credentials or holds.
 public sealed partial class LocalPractice
 {
+ public IsolatedRestoreResult VerifyConfiguredAcceptanceBackup(string source,string expectedSha256)
+ {
+  var layout=productionFixtureLayout??throw new UnauthorizedAccessException("Configured acceptance recovery unavailable.");
+  if(!Can("Administration.Manage")||!Can("Administration.RecoveryCopy"))throw new UnauthorizedAccessException();
+  var root=layout.VerifyBackupDestination();
+  return RestoreRecoveryCopyToNewFile(source,expectedSha256,Path.Combine(root,"CRC-isolated-"+Guid.NewGuid().ToString("N")+".db"));
+ }
  public IsolatedRestoreResult RestoreRecoveryCopyToNewFile(string source,string expectedSha256,string destination)
  {
   using var active=Open();long actor;long schema;var generation=sessionGeneration;
   using(var t=active.BeginTransaction()){actor=RequireAdministration(active,t);Require(active,t,"Administration.RecoveryCopy");schema=Convert.ToInt64(Scalar(active,t,"PRAGMA user_version"));if(schema is not (47 or 48 or 49))throw new ArgumentException("Unsupported active recovery schema.");}
   if(!Regex.IsMatch(expectedSha256??"",@"\A[0-9A-Fa-f]{64}\z"))throw new ArgumentException("Enter the original recorded SHA-256.");
   var input=LocalStoragePath.FilePath(source,mustExist:true,rejectSidecars:true);var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
+  VerifyProductionRecoveryDestination(input);
+  VerifyProductionRecoveryDestination(target);
+  if(productionFixtureLayout!=null&&!WorkspaceConfidentiality.HasRestrictedFileAcl(input))
+   throw new ArgumentException("Recovery source permissions require review.");
   var live=Path.GetFullPath(new SqliteConnectionStringBuilder(connectionString).DataSource);
   bool Same(string? a,string? b)=>string.Equals(a,b,StringComparison.OrdinalIgnoreCase);
   if(!Same(Path.GetExtension(input),".db")||!Same(Path.GetExtension(target),".db")||Same(input,target)||Same(input,live)||Same(target,live))throw new ArgumentException("Choose separate recovery and new destination database files.");
@@ -43,6 +54,13 @@ public sealed partial class LocalPractice
     if(Convert.ToInt64(Scalar(db,null,"PRAGMA foreign_keys"))!=1||Scalar(db,null,"PRAGMA trusted_schema") is not long trusted||trusted!=0||Convert.ToInt64(Scalar(db,null,"PRAGMA query_only"))!=1)
      throw new InvalidOperationException("Required restore connection safeguards unavailable.");
     if(Convert.ToInt64(Scalar(db,null,"PRAGMA user_version"))!=schema)throw new ArgumentException("Recovery schema must match the active schema; a different version requires reviewed migration.");
+    if(productionFixtureLayout!=null)
+    {
+     ProductionWorkspaceIdentityCandidate.VerifyRecoveryIdentity(db,null,productionFixtureIdentity!);
+     ProductionWorkspaceIdentityCandidate.VerifyConfiguredRoots(db,null,productionFixtureLayout);
+    }
+    else if(Convert.ToInt64(Scalar(db,null,"PRAGMA application_id")) is ProductionWorkspaceIdentityCandidate.ApplicationId or ProductionWorkspaceIdentityCandidate.RecoveryApplicationId)
+     throw new ArgumentException("Production recovery requires its own workspace.");
     using(var q=Command(db,null,"PRAGMA integrity_check"))using(var r=q.ExecuteReader()){if(!r.Read()||r.GetString(0)!="ok"||r.Read())throw new InvalidOperationException("Recovery database integrity failed.");}
     using(var q=Command(db,null,"PRAGMA foreign_key_check"))using(var r=q.ExecuteReader()){if(r.Read())throw new InvalidOperationException("Recovery database foreign-key check failed.");}
     long Count(string sql)=>Convert.ToInt64(Scalar(db,null,sql));
@@ -57,6 +75,7 @@ public sealed partial class LocalPractice
     if(generation!=sessionGeneration||RequireAdministration(active,t)!=actor)throw new UnauthorizedAccessException();
     Require(active,t,"Administration.RecoveryCopy");if(Convert.ToInt64(Scalar(active,t,"PRAGMA user_version"))!=schema)throw new InvalidOperationException("Active recovery schema changed.");Audit(active,t,actor,"IsolatedRestorePrepared","Firm",1);t.Commit();
    }
+   VerifyProductionRecoveryDestination(target);
    stage.Publish(bytes,hash);
    return new(target,hash,bytes,clients,projects,documents){HistoricalProjects=historicalProjects};
  }
