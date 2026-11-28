@@ -16,6 +16,15 @@ internal static class WorkEntriesTests
   check(hint.CanStart&&!hint.CanComplete&&hint.WorkEntryLabel=="PRJ-1 / Design / Drawings","task actions and entry label retain project context");
   check(!(hint with{ConflictStatus="Hold"}).CanStart&&!(hint with{ProjectState="Pending"}).CanStart&&!(hint with{ScopeState="Proposed"}).CanStart,"task start hint excludes held and unauthorized work");
   check((hint with{State="InProgress",ConflictStatus="Hold"}).CanComplete&&!(hint with{State="InProgress",ProjectState="OperationalClosed"}).CanComplete,"completion hint matches active project service semantics");
+  check(WorkDuration.Parse("10:00")==600&&WorkDuration.Format(1440)=="24:00","two-digit hour duration boundaries");
+  var actual=hint with{State="InProgress",End=hintDay.AddDays(5)};
+  check(actual.CanRecordActualOn(hintDay,false)&&actual.CanRecordActualOn(hintDay.AddDays(5),false)&&!actual.CanRecordActualOn(hintDay.AddDays(6),false)&&!actual.CanRecordActualOn(hintDay.AddDays(-1),false),"actual work task selection follows entered date inclusively");
+  check(!hint.CanRecordActualOn(hintDay,false)&&!(actual with{State="Cancelled"}).CanRecordActualOn(hintDay,false),"actual work task hint excludes unstarted and cancelled work");
+  var stopped=actual with{State="Discontinued",StoppedOn=hintDay.AddDays(2)};
+  check(stopped.CanRecordActualOn(hintDay.AddDays(2),false)&&!stopped.CanRecordActualOn(hintDay.AddDays(3),false),"discontinued task hint respects stop date");
+  var closed=actual with{ProjectState="OperationalClosed",ClosureId=1,ClosedOn=hintDay.AddDays(3)};
+  check(!closed.CanRecordActualOn(hintDay,false)&&closed.CanRecordActualOn(hintDay.AddDays(3),true)&&!closed.CanRecordActualOn(hintDay.AddDays(4),true),"closed task hint requires historical mode and closure cutoff");
+  check((actual with{ConflictStatus="Hold"}).CanRecordActualOn(hintDay,false),"actual-fact recording is not a new-work authorization");
   var role=admin.ReadStaffRoles().Single(r=>r.Name=="Engineer");admin.SetStaffGrant(role.Id,"Work.Own",true,false);
   var user=admin.CreateStaffAccount("worker",role.Id,"Synthetic-worker-temp-0001");var employee=admin.CreateEmployee(new("Synthetic","Worker","","",true),user);
   var worker=new LocalPractice(path);check(worker.ChangeRequiredPassword("worker","Synthetic-worker-temp-0001","Synthetic-worker-password-0001")&&worker.Login("worker","Synthetic-worker-password-0001"),"work entries employee login");
