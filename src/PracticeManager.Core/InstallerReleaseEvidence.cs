@@ -26,6 +26,25 @@ internal static class InstallerReleaseEvidence
   if(value.ValueKind!=JsonValueKind.Number||!value.TryGetInt64(out var result))throw new ArgumentException("Invalid evidence time.");
   return result;
  }
+ // Hash the actual candidate bytes, not a supplied textual checksum. This
+ // read-only check is not a launch lease or a proof against same-user races.
+ static string ObserveArtifact(string path,long maximum)
+ {
+  var full=LocalStoragePath.FilePath(path,mustExist:true,rejectSidecars:true);
+  using var stream=new FileStream(full,FileMode.Open,FileAccess.Read,FileShare.Read);
+  var length=stream.Length;
+  Require(length>0&&length<=maximum);
+  using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+  var buffer=new byte[65536];long count=0;int read;
+  while((read=stream.Read(buffer,0,buffer.Length))!=0)
+  {count+=read;Require(count<=length);hash.AppendData(buffer,0,read);}
+  Require(count==length&&stream.Length==length);
+  return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+ }
+ internal static Evidence VerifyArtifacts(byte[] document,byte[] signature,byte[] publicKeySpki,string independentlyTrustedKeySha256,
+  InstallerCoordinatorCandidate.Operation requestedOperation,string packagePath,string coordinatorPath,string expectedCommit,DateTimeOffset now)
+  =>Verify(document,signature,publicKeySpki,independentlyTrustedKeySha256,requestedOperation,
+    ObserveArtifact(packagePath,1024L*1024*1024),ObserveArtifact(coordinatorPath,250L*1024*1024),expectedCommit,now);
  internal static Evidence Verify(byte[] document,byte[] signature,byte[] publicKeySpki,string independentlyTrustedKeySha256,
   InstallerCoordinatorCandidate.Operation requestedOperation,string observedPackageSha256,string observedCoordinatorSha256,
   string expectedCommit,DateTimeOffset now)
