@@ -115,6 +115,48 @@ internal static class InstalledProgramBoundaryTests
   check(!Directory.Exists(boundary.VersionDirectory(second))&&InstalledVersionSelectionCandidate.ReviewCurrent(boundary)==null,"uninstalled selection has no fallback active version");
   check(Directory.Exists(boundary.VersionDirectory(first))&&File.Exists(Path.Combine(manifests,second+".json"))&&Directory.EnumerateFiles(root,"uninstalled-*.txt").Count()==1,"previous payload and uninstall evidence retained");
   check(File.ReadAllText(sentinel)=="must survive removal","uninstall does not touch user project records");
+  // Nonexecutable fixtures simulate extraction into a separate directory.
+  (string Source,byte[] Manifest,string Digest) Extracted(string label)
+  {
+   var source=Directory.CreateDirectory(Path.Combine(parent,label)).FullName;
+   var rows=new List<object>();long bytes=0;
+   foreach(var file in Directory.EnumerateFiles(boundary.VersionDirectory(first),"*",SearchOption.AllDirectories).OrderBy(x=>x,StringComparer.Ordinal))
+   {
+    var name=Path.GetRelativePath(boundary.VersionDirectory(first),file).Replace(Path.DirectorySeparatorChar,'/');
+    var output=Path.Combine(source,name.Replace('/',Path.DirectorySeparatorChar));
+    Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+    var content=System.Text.Encoding.UTF8.GetBytes("Synthetic extracted "+label+" "+name);
+    File.WriteAllBytes(output,content);bytes+=content.Length;
+    rows.Add(new{path=name,bytes=content.Length,sha256=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content)).ToLowerInvariant()});
+   }
+   var raw=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new{format="CRC-Development-Build-Inventory-v1",architecture="win-x64",fileCount=rows.Count,bytes,files=rows});
+   return(source,raw,Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(raw)).ToLowerInvariant());
+  }
+  var extracted=Extracted("extract-one");
+  var installPending=Path.Combine(root,"install-pending.txt");
+  var extraSource=Path.Combine(extracted.Source,"extra.dll");
+  File.WriteAllText(extraSource,"unexpected");
+  Refuse(()=>InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,null,extracted.Digest,extracted.Source,extracted.Manifest),"extra extracted file refuses install");
+  check(!Directory.Exists(boundary.VersionDirectory(extracted.Digest))&&!File.Exists(installPending),"invalid extracted tree leaves install location unchanged");
+  File.Delete(extraSource);
+  InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,null,extracted.Digest,extracted.Source,extracted.Manifest);
+  check(InstalledVersionSelectionCandidate.ReviewCurrent(boundary)==extracted.Digest&&!File.Exists(installPending),"fresh staged payload selected and verified");
+  check(File.Exists(Path.Combine(extracted.Source,"hostfxr.dll")),"source extraction remains unchanged");
+  var upgrade=Extracted("extract-two");
+  Refuse(()=>InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,null,upgrade.Digest,upgrade.Source,upgrade.Manifest),"stale expected selection refuses staging");
+  using(InstalledVersionSelectionCandidate.AcquireSelectedLaunchLease(boundary,Path.Combine(boundary.VersionDirectory(extracted.Digest),"CRC.PracticeManager.exe")))
+  {
+   try{InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest);throw new Exception("FAIL: install during active launch lease");}
+   catch(IOException){check(true,"running application lease prevents staging");}
+  }
+  InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest);
+  check(InstalledVersionSelectionCandidate.ReviewCurrent(boundary)==upgrade.Digest&&Directory.Exists(boundary.VersionDirectory(extracted.Digest)),"combined upgrade retains prior payload");
+  File.WriteAllText(installPending,upgrade.Digest);
+  Refuse(()=>InstalledVersionSelectionCandidate.ReviewCurrent(boundary),"incomplete install blocks startup review");
+  Refuse(()=>InstalledVersionSelectionCandidate.StageAndSelectReviewedPayload(boundary,upgrade.Digest,first,extracted.Source,extracted.Manifest),"incomplete install blocks further staging");
+  check(File.ReadAllText(sentinel)=="must survive removal","staging and selection preserve project data");
+  File.Delete(installPending); // disposable fixture only
+
   check(File.Exists(boundary.LeasePath),"coordination file persists after release");
   File.WriteAllText(boundary.LeasePath,"unexpected content");
   Refuse(()=>boundary.AcquireExistingLease(),"unexpected coordination file content refused");
