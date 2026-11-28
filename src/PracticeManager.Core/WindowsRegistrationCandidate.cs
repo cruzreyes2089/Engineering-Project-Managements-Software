@@ -122,8 +122,8 @@ internal static class WindowsRegistrationCandidate
   Require(entry.Executable==Path.Combine(directory,"CRC.PracticeManager.exe")&&entry.Uninstaller==Path.Combine(boundary.ProgramRoot,"CRC.Uninstall.exe"));
   Require(IsDigest(entry.UninstallerHash)&&IsDigest(entry.ShortcutHash)&&FileHash(entry.Uninstaller)==entry.UninstallerHash);
   var path=LocalStoragePath.FilePath(Path.Combine(shortcutDirectory,ShortcutName),mustExist:true,rejectSidecars:true);
-  VerifyShortcut(path,entry.Executable,directory);
   Require(FileHash(path)==entry.ShortcutHash);
+  VerifyShortcut(path,entry.Executable,directory);
   VerifyOwnedKey(parent,entry);
  }
 }
