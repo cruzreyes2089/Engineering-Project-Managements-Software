@@ -239,6 +239,36 @@ internal static class ProductionStorageBoundaryTests
    check(!File.Exists(Path.Combine(root,"outside-backup.db")),"refused backup does not create outside file");
    var restore=reopened.Service.VerifyConfiguredAcceptanceBackup(backupReceipt.Path,backupReceipt.Sha256);
    check(Path.GetDirectoryName(restore.Path)==sessionBackup&&restore.Path!=backupReceipt.Path&&restore.Sha256==backupReceipt.Sha256,"configured isolated restore preserves source and hash");
+   var reviewLayout=ProductionStorageBoundary.Review(sessionRoot,Path.Combine(sessionRoot,"synthetic-projects"),sessionBackup);
+   var recoveryWorkspace=ProductionWorkspaceIdentityCandidate.VerifyExisting(reviewLayout);
+   var recoveryTime=DateTimeOffset.FromUnixTimeSeconds(1900000000);
+   var recoveryBinding=new InstallerWorkspaceRecoveryReview.Binding(recoveryWorkspace,new string('a',40),new string('b',64),new string('c',64),
+    47,49,backupReceipt.Sha256,backupReceipt.Bytes,1899999900,1900000100);
+   using(var recoverySigner=System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
+   {
+    var recoveryPublicKey=recoverySigner.ExportSubjectPublicKeyInfo();
+    var recoveryPin=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(recoveryPublicKey)).ToLowerInvariant();
+    byte[] SignRecovery(InstallerWorkspaceRecoveryReview.Binding binding)=>recoverySigner.SignData(InstallerWorkspaceRecoveryReview.CanonicalBytes(binding),
+     System.Security.Cryptography.HashAlgorithmName.SHA256,System.Security.Cryptography.DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+    var recoverySignature=SignRecovery(recoveryBinding);
+    InstallerWorkspaceRecoveryReview.Binding ReviewRecovery(InstallerWorkspaceRecoveryReview.Binding binding,byte[] signature,string workspace,string commit,string prior,string next,int schema,string source,string copy,DateTimeOffset time,string pin)
+     =>InstallerWorkspaceRecoveryReview.Review(binding,signature,recoveryPublicKey,pin,workspace,commit,prior,next,schema,reviewLayout,source,copy,time);
+    check(ReviewRecovery(recoveryBinding,recoverySignature,recoveryWorkspace,recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin)==recoveryBinding,"signed workspace recovery review verifies exact isolated backup and restore");
+    Refuse(()=>ReviewRecovery(recoveryBinding,recoverySignature,Guid.NewGuid().ToString("N"),recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin),"signed recovery review rejects different expected workspace");
+    Refuse(()=>ReviewRecovery(recoveryBinding,recoverySignature,recoveryWorkspace,new string('d',40),recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin),"signed recovery review rejects different release revision");
+    Refuse(()=>ReviewRecovery(recoveryBinding,recoverySignature,recoveryWorkspace,recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,48,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin),"signed recovery review rejects different target schema");
+    Refuse(()=>ReviewRecovery(recoveryBinding,recoverySignature,recoveryWorkspace,recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,backupReceipt.Path,recoveryTime,recoveryPin),"signed recovery review requires a distinct isolated restore");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifySignature(recoveryBinding,recoverySignature,recoveryPublicKey,new string('0',64),recoveryTime),"signed recovery review refuses untrusted key pin");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifySignature(recoveryBinding with {TargetSchema=48},recoverySignature,recoveryPublicKey,recoveryPin,recoveryTime),"signed recovery review rejects altered signed schema");
+    Refuse(()=>InstallerWorkspaceRecoveryReview.VerifySignature(recoveryBinding,recoverySignature,recoveryPublicKey,recoveryPin,recoveryTime.AddMinutes(2)),"signed recovery review rejects expired evidence");
+    var wrongHashBinding=recoveryBinding with {RecoverySha256=new string('0',64)};
+    Refuse(()=>ReviewRecovery(wrongHashBinding,SignRecovery(wrongHashBinding),recoveryWorkspace,recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin),"signed recovery review still verifies actual file bytes");
+    var foreignBinding=recoveryBinding with {WorkspaceId=Guid.NewGuid().ToString("N")};
+    Refuse(()=>ReviewRecovery(foreignBinding,SignRecovery(foreignBinding),foreignBinding.WorkspaceId,recoveryBinding.Commit,recoveryBinding.PreviousInventory,recoveryBinding.Inventory,49,backupReceipt.Path,restore.Path,recoveryTime,recoveryPin),"signed recovery review verifies actual stored workspace identity");
+    check(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(backupReceipt.Path))).ToLowerInvariant()==backupReceipt.Sha256&&
+     Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(restore.Path))).ToLowerInvariant()==backupReceipt.Sha256,"signed recovery review preserves both original artifacts");
+   }
+
    try{_=new LocalPractice(restore.Path);throw new Exception("FAIL: recovery copy opened as development");}
    catch(InvalidOperationException){check(true,"recovery-only copy refused by normal opener");}
    Refuse(()=>reopened.Service.VerifyConfiguredAcceptanceBackup(backupReceipt.Path,new string('0',64)),"wrong recovery hash refused");
