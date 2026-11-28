@@ -10,7 +10,8 @@ internal sealed class EngagementWindow:Window
  readonly LocalPractice service;
  readonly DataGrid proposals=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
  readonly DataGrid projects=new(){AutoGenerateColumns=false,IsReadOnly=true,CanUserAddRows=false,SelectionMode=DataGridSelectionMode.Single};
- readonly TextBox search=new(){MaxLength=150};
+ readonly TextBox search=new(){MaxLength=150,MinWidth=250,ToolTip="Search number, client, title or site"};
+ readonly ComboBox projectState=new(){ItemsSource=new[]{"All","Pending","Active","OperationalClosed"},SelectedIndex=0,MinWidth=150};
  readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap};
  readonly Button edit=new(){Content="Edit draft"},issue=new(){Content="Record issued"},accept=new(){Content="Record accepted"},reject=new(){Content="Record rejected"},snapshot=new(){Content="View frozen snapshot"};
  public EngagementWindow(LocalPractice service)
@@ -19,7 +20,7 @@ internal sealed class EngagementWindow:Window
   var root=new DockPanel{Margin=new Thickness(16)};var header=new StackPanel();
   header.Children.Add(new TextBlock{Text="Proposals and pending projects",FontSize=24,FontWeight=FontWeights.SemiBold});
   header.Children.Add(new TextBlock{Text="Synthetic records only. Recording issue/acceptance is manual evidence, not sending a document, signing a contract, or authorization to start work.",TextWrapping=TextWrapping.Wrap});
-  header.Children.Add(search);header.Children.Add(status);DockPanel.SetDock(header,Dock.Top);root.Children.Add(header);
+  var searchBar=new WrapPanel();searchBar.Children.Add(new TextBlock{Text="Search number, client, title or site",VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,8,0)});searchBar.Children.Add(search);WorkWindowFields.Button(searchBar,"Clear",()=>{search.Clear();projectState.SelectedIndex=0;});header.Children.Add(searchBar);header.Children.Add(status);DockPanel.SetDock(header,Dock.Top);root.Children.Add(header);
   var tabs=new TabControl();
   void Col(DataGrid g,string label,string prop)=>g.Columns.Add(new DataGridTextColumn{Header=label,Binding=new Binding(prop),Width=DataGridLength.Auto});
   foreach(var (label,prop) in new[]{("Number","Number"),("Client","ClientName"),("Title","Title"),("Site","Site"),("Fee (USD)","Fee"),("Revision","Revision"),("Status","State")})Col(proposals,label,prop);
@@ -36,7 +37,7 @@ internal sealed class EngagementWindow:Window
   var projectPanel=new DockPanel();var openProject=new Button{Content="Open selected project",Margin=new Thickness(2),IsEnabled=false};
   projects.SelectionChanged+=(_,_)=>openProject.IsEnabled=projects.SelectedItem is PendingProject;
   openProject.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is PendingProject p){new ProjectHandoffWindow(service,p.Id){Owner=this}.ShowDialog();Refresh();}});
-  var actions=new WrapPanel();actions.Children.Add(openProject);
+  var actions=new WrapPanel();actions.Children.Add(new TextBlock{Text="Project status:",VerticalAlignment=VerticalAlignment.Center});actions.Children.Add(projectState);actions.Children.Add(openProject);
   var plan=new Button{Content="Plan phases and tasks",Margin=new Thickness(2)};plan.IsEnabled=service.Can("Projects.Plan")&&service.Can("Employees.View");
   plan.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectPlanningWindow(service,p.Id){Owner=this}.ShowDialog();});
   actions.Children.Add(plan);
@@ -44,14 +45,28 @@ internal sealed class EngagementWindow:Window
   documents.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectDocumentsWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(documents);
   var quality=new Button{Content="QA/QC and scope",Margin=new Thickness(2),IsEnabled=service.Can("QA.View")};
   quality.Click+=(_,_)=>Run(()=>{if(projects.SelectedItem is not PendingProject p)throw new ArgumentException("Select a project.");new ProjectQualityWindow(service,p.Id){Owner=this}.ShowDialog();});actions.Children.Add(quality);
+  void UpdateProjectActions(){var selected=projects.SelectedItem is PendingProject;openProject.IsEnabled=selected;plan.IsEnabled=selected&&service.Can("Projects.Plan")&&service.Can("Employees.View");documents.IsEnabled=selected&&service.Can("Documents.View");quality.IsEnabled=selected&&service.Can("QA.View");}
+  projects.SelectionChanged+=(_,_)=>Run(UpdateProjectActions);UpdateProjectActions();
   DockPanel.SetDock(actions,Dock.Top);projectPanel.Children.Add(actions);projectPanel.Children.Add(projects);tabs.Items.Add(new TabItem{Header="Projects",Content=projectPanel});
-  root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh();proposals.SelectionChanged+=(_,_)=>UpdateButtons();Refresh();
+  root.Children.Add(tabs);Content=root;search.TextChanged+=(_,_)=>Refresh(false);projectState.SelectionChanged+=(_,_)=>Refresh(false);proposals.SelectionChanged+=(_,_)=>Run(UpdateButtons);Refresh(false);
  }
  ProposalSummary Selected()=>proposals.SelectedItem as ProposalSummary??throw new ArgumentException("Select a proposal.");
  void Run(Action action){try{action();}catch(UnauthorizedAccessException){status.Text="Access denied.";}catch(ArgumentException e){status.Text=e.Message;}catch(Exception){status.Text="Operation failed. Refresh before retrying.";}}
- void Refresh(){proposals.ItemsSource=null;projects.ItemsSource=null;status.Text="";
-  Run(()=>{if(service.Can("Engagements.View"))proposals.ItemsSource=service.SearchProposals(search.Text);});
-  Run(()=>{if(service.Can("Projects.View"))projects.ItemsSource=service.SearchPendingProjects(search.Text);});UpdateButtons();}
+ void Refresh(bool preserveSelection=true)
+ {
+  var proposalId=preserveSelection?(proposals.SelectedItem as ProposalSummary)?.Id:null;
+  var projectId=preserveSelection?(projects.SelectedItem as PendingProject)?.Id:null;
+  proposals.ItemsSource=null;projects.ItemsSource=null;status.Text="";
+  Run(()=>{
+   if(service.Can("Engagements.View")&&service.Can("Clients.View")){
+    var rows=service.SearchProposals(search.Text);proposals.ItemsSource=rows;proposals.SelectedItem=rows.FirstOrDefault(x=>x.Id==proposalId);
+   }
+   if(service.Can("Projects.View")&&service.Can("Clients.View")){
+    var rows=service.SearchPendingProjects(search.Text,projectState.SelectedItem as string??"All");projects.ItemsSource=rows;projects.SelectedItem=rows.FirstOrDefault(x=>x.Id==projectId);
+   }
+   status.Text=$"{proposals.Items.Count} proposals • {projects.Items.Count} projects. Select a record to open.";
+  });Run(UpdateButtons);
+ }
  void UpdateButtons(){var x=proposals.SelectedItem as ProposalSummary;edit.IsEnabled=x?.State=="Draft"&&service.Can("Engagements.Edit");issue.IsEnabled=x?.State=="Draft"&&service.Can("Engagements.Issue");accept.IsEnabled=x?.State=="Issued"&&service.Can("Engagements.Accept")&&service.Can("Projects.View");reject.IsEnabled=x?.State=="Issued"&&service.Can("Engagements.Accept");snapshot.IsEnabled=x!=null&&x.State!="Draft";}
  void Edit(ProposalSummary? x)
  {
