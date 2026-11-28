@@ -58,9 +58,9 @@ public sealed record DevelopmentWorkspace(string DatabasePath,string? Acceptance
    var exists=true;
    try{_=File.GetAttributes(directory);}catch(FileNotFoundException){exists=false;}catch(DirectoryNotFoundException){exists=false;}
    var dev=ProtectedDirectory(directory,!exists);
-   var db=ProtectedFile(Path.Combine(dev,"practice-dev.db"),mustExist:exists,mustBeNew:!exists,rejectSidecars:!exists);
+   var defaultDatabase=ProtectedFile(Path.Combine(dev,"practice-dev.db"),mustExist:exists,mustBeNew:!exists,rejectSidecars:!exists);
    newDefaultWorkspace=!exists;
-   return new(db,null);
+   return new(defaultDatabase,null);
   }
   var budget=arguments.Count>0&&arguments[0] is "--budget-acceptance-new" or "--budget-acceptance-session";
   var document=arguments.Count>0&&arguments[0] is "--document-acceptance-new" or "--document-acceptance-session";
