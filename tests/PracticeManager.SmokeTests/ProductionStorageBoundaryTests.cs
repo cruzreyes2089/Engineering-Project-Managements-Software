@@ -81,6 +81,31 @@ internal static class ProductionStorageBoundaryTests
    File.WriteAllText(Path.Combine(target,"Calculations"),"existing child file");
    Refuse(()=>ProductionProjectFolderPolicy.ResolveTemplateDirectories(folders,"PRJ-000001",ProjectFolderTemplate.Defaults),"existing template child file collision rejected before creation");
    check(!Directory.Exists(Path.Combine(target,"Architectural")),"collision review does not create other folders");
+   var writerProfile=Directory.CreateDirectory(Path.Combine(root,"folder-writer-profile")).FullName;
+   var writerProjects=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"folder-writer-projects"));
+   var writer=ProductionStorageBoundary.Review(writerProfile,writerProjects,backup);
+   var writerId=ProductionWorkspaceIdentityCandidate.InitializeNewFixture(writer);
+   var project=Path.Combine(writerProjects,"PRJ-000001");
+   Refuse(()=>ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,Guid.NewGuid().ToString("N"),"PRJ-000001",ProjectFolderTemplate.Defaults),"wrong workspace identity refuses folder creation");
+   check(!Directory.Exists(project),"wrong workspace leaves project directory absent");
+   WorkspaceConfidentiality.EnsureWorkspaceDirectory(project);
+   var sentinel=Path.Combine(project,"existing-drawing.txt");
+   File.WriteAllText(sentinel,"preserve this");
+   Refuse(()=>ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000001",ProjectFolderTemplate.Defaults),"unmarked existing project directory not adopted");
+   check(File.ReadAllText(sentinel)=="preserve this"&&!Directory.Exists(Path.Combine(project,"Calculations")),"unmarked project contents preserved");
+   var made=ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000002",ProjectFolderTemplate.Defaults);
+   check(made.Created==9&&made.Existing==0&&Directory.Exists(Path.Combine(made.ProjectDirectory,"Structural DWGs")),"marked project creates nine default directories");
+   var drawing=Path.Combine(made.ProjectDirectory,"Structural DWGs","existing-drawing.txt");
+   File.WriteAllText(drawing,"retain drawing");
+   var again=ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000002",ProjectFolderTemplate.Defaults);
+   check(again.Created==0&&again.Existing==9&&File.ReadAllText(drawing)=="retain drawing","repeat setup idempotent and preserves project files");
+   var optional=ProjectFolderTemplate.Defaults.Select(x=>x with{IncludedByDefault=true}).ToArray();
+   var added=ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000002",optional);
+   check(added.Created==1&&added.Existing==9&&Directory.Exists(Path.Combine(made.ProjectDirectory,"Correspondence")),"optional correspondence can be added without replacing other folders");
+   Refuse(()=>ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000003",new[]{new ProjectFolderTemplateItem("Other",true)}),"unapproved template label rejected");
+   File.WriteAllText(Path.Combine(made.ProjectDirectory,".crc-project-identity"),"wrong identity");
+   Refuse(()=>ProductionProjectFolderCreationCandidate.CreateFixtureFolders(writer,writerId,"PRJ-000002",optional),"altered project identity stops setup");
+   check(File.ReadAllText(drawing)=="retain drawing","identity failure leaves existing files unchanged");
   }
  }
 }
