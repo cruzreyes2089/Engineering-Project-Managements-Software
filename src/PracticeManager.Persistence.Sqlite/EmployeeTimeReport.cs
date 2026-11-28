@@ -7,6 +7,27 @@ public sealed partial class LocalPractice
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:true);
   RequireWorkReview(c,t,"Work.Review");Require(c,t,"Reports.Operations");
+  return ReadEmployeeTimeReportCore(c,t,filter);
+ }
+ public string PrepareEmployeeTimeReportCsv(EmployeeTimeFilter filter)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:false);
+  var actor=RequireWorkReview(c,t,"Work.Review");Require(c,t,"Reports.Operations");
+  var report=ReadEmployeeTimeReportCore(c,t,filter);
+  var rows=new List<IReadOnlyList<string?>>{
+   new[]{"EMPLOYEE TIME — OPERATIONAL REPORT ONLY; NOT PAYROLL"},
+   new[]{"Start","End","Employee ID (blank = all)","Project ID (blank = all plus overhead)","Review status"},
+   new[]{SafeCsv.Date(filter.Start),SafeCsv.Date(filter.End),SafeCsv.Number(filter.EmployeeId),SafeCsv.Number(filter.ProjectId),filter.Status},
+   new[]{"Approved minutes","Pending minutes","Rejected minutes","Invalidated minutes"},
+   new[]{SafeCsv.Number(report.ApprovedMinutes),SafeCsv.Number(report.PendingMinutes),SafeCsv.Number(report.RejectedMinutes),SafeCsv.Number(report.InvalidatedMinutes)},
+   new[]{"Source","Record ID","Employee number","Employee","Project number","Task or category","Work date","Minutes","Status"}
+  };
+  rows.AddRange(report.Rows.Select(x=>(IReadOnlyList<string?>)new[]{x.Source,SafeCsv.Number(x.SubmissionId),x.EmployeeNumber,x.Employee,x.ProjectNumber,x.TaskOrCategory,SafeCsv.Date(x.WorkDate),SafeCsv.Number(x.Minutes),x.Status}));
+  var csv=SafeCsv.Build(rows);
+  Audit(c,t,actor,"PrepareEmployeeTimeExport","Firm",1);t.Commit();return csv;
+ }
+ private static EmployeeTimeReport ReadEmployeeTimeReportCore(Microsoft.Data.Sqlite.SqliteConnection c,Microsoft.Data.Sqlite.SqliteTransaction t,EmployeeTimeFilter filter)
+ {
   DateRange(filter.Start,filter.End,366);
   if(filter.Status is not ("All" or "Approved" or "Submitted" or "Rejected" or "Invalidated"))
    throw new ArgumentException("Select a valid time review status.");
