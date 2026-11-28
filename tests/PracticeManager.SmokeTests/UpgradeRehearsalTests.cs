@@ -1,3 +1,4 @@
+using PracticeManager.Core;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using PracticeManager.Persistence;
@@ -44,6 +45,17 @@ internal static class UpgradeRehearsalTests
    Invalid(()=>InstallerUpgradeRehearsalCandidate.Run(current,new string('0',64),stage,49),"combined rehearsal refuses incorrect source hash");
    var staged=Directory.EnumerateFiles(stage,"rehearsal.db",SearchOption.AllDirectories).Single();
    check(Hash(staged)==candidate.TargetSha256,"combined rehearsal retains exact candidate evidence");
+   var reviewTime=DateTimeOffset.FromUnixTimeSeconds(1900000000);
+   var release=new InstallerReleaseEvidence.Evidence(new(InstallerCoordinatorCandidate.Operation.Upgrade,new string('a',64),new string('b',64),new string('c',64)),new string('d',40),new string('e',64),new string('f',64),1899999900,1900000100);
+   var binding=new InstallerRecoveryBindingCandidate.Binding(release.Commit,release.Plan.PreviousVersion!,release.Plan.Version,candidate.SourceSchema,candidate.TargetSchema,candidate.SourceSha256,candidate.TargetSha256);
+   check(InstallerRecoveryBindingCandidate.Review(release,binding,current,staged,reviewTime)==binding,"rehearsal files match exact reviewed upgrade identity");
+   Invalid(()=>InstallerRecoveryBindingCandidate.Review(release,binding with {Commit=new string('e',40)},current,staged,reviewTime),"recovery binding rejects different release revision");
+   Invalid(()=>InstallerRecoveryBindingCandidate.Review(release,binding with {PreviousInventory=new string('e',64)},current,staged,reviewTime),"recovery binding rejects different prior version");
+   Invalid(()=>InstallerRecoveryBindingCandidate.Review(release,binding with {TargetSchema=48},current,staged,reviewTime),"recovery binding rejects wrong target schema");
+   Invalid(()=>InstallerRecoveryBindingCandidate.Review(release,binding with {SourceSha256=new string('0',64)},current,staged,reviewTime),"recovery binding rejects wrong source hash");
+   Invalid(()=>InstallerRecoveryBindingCandidate.Review(release,binding,current,staged,reviewTime.AddMinutes(2)),"recovery binding refuses expired release");
+   check(Hash(current)==currentHash&&Hash(staged)==candidate.TargetSha256,"recovery binding leaves both database files unchanged");
+
    Invalid(()=>InstallerUpgradeRehearsalCandidate.Run(staged,candidate.TargetSha256,synthetic,47),"combined rehearsal refuses downgrade");
   }
  }
