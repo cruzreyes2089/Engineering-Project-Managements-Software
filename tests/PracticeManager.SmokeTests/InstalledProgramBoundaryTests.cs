@@ -249,11 +249,30 @@ internal static class InstalledProgramBoundaryTests
      Refuse(()=>InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest,registry,shortcutFolder),"modified shortcut blocks registered upgrade");
      check(InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest&&!Directory.Exists(fresh.VersionDirectory(upgrade.Digest)),"registration refusal leaves selection and candidate unchanged");
      File.WriteAllBytes(shortcutPath,shortcutBytes); // disposable fixture only
+     var receiptBytes=File.ReadAllBytes(receiptPath);
+     var registrationPending=Path.Combine(fresh.ProgramRoot,"registration-pending.txt");
+     Refuse(()=>InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,extracted.Digest,extracted.Source,extracted.Manifest,registry,shortcutFolder),"same-version registered upgrade refused");
+     check(!File.Exists(registrationPending)&&InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest,"same-version refusal does not create false interruption hold");
+     var existingCandidate=fresh.VersionDirectory(upgrade.Digest);
+     WorkspaceConfidentiality.EnsureWorkspaceDirectory(existingCandidate);
+     Refuse(()=>InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest,registry,shortcutFolder),"existing candidate directory refuses registered upgrade");
+     check(!File.Exists(registrationPending)&&Directory.Exists(existingCandidate),"candidate collision leaves directory intact and no interruption hold");
+     Directory.Delete(existingCandidate,false); // disposable fixture only
+     File.WriteAllText(receiptPath,System.Text.Encoding.UTF8.GetString(receiptBytes).TrimEnd('}')+",\"Version\":\""+extracted.Digest+"\"}");
+     Refuse(()=>InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest,registry,shortcutFolder),"duplicate receipt property refuses registered upgrade");
+     check(!File.Exists(registrationPending)&&InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==extracted.Digest,"ambiguous receipt refusal leaves active version and no interruption hold");
+     File.WriteAllBytes(receiptPath,receiptBytes); // disposable fixture only
+     using(fresh.AcquireExistingLease())
+     {
+      try{InstalledVersionSelectionCandidate.RemoveRegisteredInstallation(fresh,extracted.Digest,registry,shortcutFolder);throw new Exception("FAIL: registered removal acquired competing lease");}
+      catch(IOException){check(true,"registered removal refuses competing lease");}
+     }
      InstalledVersionSelectionCandidate.UpgradeRegisteredInstallation(fresh,extracted.Digest,upgrade.Digest,upgrade.Source,upgrade.Manifest,registry,shortcutFolder);
      var upgraded=System.Text.Json.JsonSerializer.Deserialize<WindowsRegistrationCandidate.Registration>(File.ReadAllBytes(receiptPath))??throw new Exception("Missing upgraded receipt");
      WindowsRegistrationCandidate.VerifyOwnedRegistration(fresh,registry,shortcutFolder,upgraded);
      check(upgraded.Version==upgrade.Digest&&InstalledVersionSelectionCandidate.ReviewCurrent(fresh)==upgrade.Digest,"registered upgrade selects new payload and verifies registration");
      check(Directory.Exists(fresh.VersionDirectory(extracted.Digest))&&Directory.EnumerateFiles(fresh.ProgramRoot,"registration-history-*.json").Count()==1,"registered upgrade retains prior payload and registration receipt");
+     check(File.ReadAllBytes(Directory.EnumerateFiles(fresh.ProgramRoot,"registration-history-*.json").Single()).SequenceEqual(receiptBytes),"registered upgrade retains exact original receipt bytes");
      var upgradedShortcutBytes=File.ReadAllBytes(shortcutPath);
      File.AppendAllText(shortcutPath,"unexpected");
      Refuse(()=>InstalledVersionSelectionCandidate.RemoveRegisteredInstallation(fresh,upgrade.Digest,registry,shortcutFolder),"modified shortcut blocks registered removal");
