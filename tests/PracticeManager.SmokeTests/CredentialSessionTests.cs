@@ -40,6 +40,18 @@ internal static class CredentialSessionTests
   Denied(()=>s.RegisterSessionActivity(),"expired inactivity cannot be revived by input");
   Denied(()=>s.ReadSessionAccessStamp(),"idle session denies access stamp");
   check(s.Login("admin",password)&&s.ReadSessionAccessStamp()==stamp,"fresh authentication restores session with same grants");
+  using var gate=new ManualResetEventSlim(false);
+  AccountingProbeTests.WithServer(200,"{}",async (url,observed)=>{
+   // The synthetic server waits until the original session has been replaced.
+   try{
+    var probe=s.TestAccountingConnectionAsync(url,"synthetic-session-key");
+    await observed.WaitAsync(TimeSpan.FromSeconds(5));
+    s.Logout();check(s.Login("admin",password),"same actor can authenticate a new session");
+    gate.Set();
+    try{await probe;throw new Exception("FAIL: earlier-session accounting result accepted");}
+    catch(UnauthorizedAccessException){check(true,"earlier-session accounting result denied after same-actor login");}
+   }finally{gate.Set();}
+  },responseFor:_=>gate.Wait(TimeSpan.FromSeconds(10))?"{}":throw new TimeoutException("Synthetic session gate timed out.")).GetAwaiter().GetResult();
   s.Logout();
   Denied(()=>s.FirmName(),"logout denies firm identity");
  }
