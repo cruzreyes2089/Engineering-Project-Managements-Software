@@ -1,4 +1,5 @@
 using PracticeManager.Core;
+using PracticeManager.Persistence;
 
 internal static class ProductionStorageBoundaryTests
 {
@@ -40,6 +41,29 @@ internal static class ProductionStorageBoundaryTests
    check(File.ReadAllText(layout.DatabasePath)=="synthetic bytes not a database","layout verification does not open or modify database content");
    Directory.CreateDirectory(layout.DatabasePath+"-wal");
    Refuse(()=>layout.VerifyExistingPrivateDataLayout(),"unexpected sidecar directory rejected");
+   var profile2=Directory.CreateDirectory(Path.Combine(root,"identity-profile")).FullName;
+   var candidate=ProductionStorageBoundary.Review(profile2,projects,backup);
+   var id=ProductionWorkspaceIdentityCandidate.InitializeNewFixture(candidate);
+   check(Guid.TryParseExact(id,"N",out var parsed)&&parsed!=Guid.Empty,"fresh production candidate assigns unique identity");
+   check(ProductionWorkspaceIdentityCandidate.VerifyExisting(candidate)==id,"marker and database identity match read-only");
+   var original=File.ReadAllBytes(candidate.DatabasePath);
+   var marker=File.ReadAllText(candidate.IdentityMarkerPath);
+   Refuse(()=>ProductionWorkspaceIdentityCandidate.InitializeNewFixture(candidate),"existing production location cannot be initialized again");
+   check(original.SequenceEqual(File.ReadAllBytes(candidate.DatabasePath)),"repeated initialization preserves original database bytes");
+   try{_=new LocalPractice(candidate.DatabasePath);throw new Exception("FAIL: production candidate opened by DEV");}
+   catch(InvalidOperationException){check(original.SequenceEqual(File.ReadAllBytes(candidate.DatabasePath)),"development opener refuses production candidate without database mutation");}
+   File.WriteAllText(candidate.IdentityMarkerPath,"CRC-PRACTICE-PRODUCTION-V1:"+Guid.NewGuid().ToString("N"));
+   Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyExisting(candidate),"different marker identity refused");
+   File.WriteAllText(candidate.IdentityMarkerPath,marker);
+   File.Delete(candidate.IdentityMarkerPath);
+   Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyExisting(candidate),"interrupted candidate with missing marker refused");
+   Refuse(()=>ProductionWorkspaceIdentityCandidate.InitializeNewFixture(candidate),"interrupted candidate cannot be initialized over");
+   File.WriteAllText(candidate.IdentityMarkerPath,marker);
+   check(ProductionWorkspaceIdentityCandidate.VerifyExisting(candidate)==id,"restored synthetic marker matches unchanged database");
+   File.Delete(candidate.DatabasePath);
+   Refuse(()=>ProductionWorkspaceIdentityCandidate.VerifyExisting(candidate),"missing candidate database not reopened");
+   check(!File.Exists(candidate.DatabasePath),"missing candidate database remains absent");
+   Refuse(()=>ProductionWorkspaceIdentityCandidate.InitializeNewFixture(candidate),"existing marker cannot trigger database replacement");
   }
  }
 }
