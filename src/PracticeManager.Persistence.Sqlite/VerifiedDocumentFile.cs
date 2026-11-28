@@ -8,7 +8,7 @@ public static class VerifiedDocumentFile
 {
  public static void Save(string destination,string extension,byte[] bytes,string expectedHash)
  {
-  if(bytes.Length is <1 or > 64*1024*1024||extension is not (".pdf" or ".dwg" or ".dxf" or ".rvt" or ".docx" or ".xlsx" or ".txt" or ".zip")||
+  if(bytes.Length is <1 or > 64*1024*1024||extension is not (".pdf" or ".dwg" or ".dxf" or ".rvt" or ".docx" or ".xlsx" or ".txt" or ".csv" or ".zip")||
    !string.Equals(Path.GetExtension(destination),extension,StringComparison.OrdinalIgnoreCase))
    throw new ArgumentException("Use a new local file with its required extension and bounded content.");
   var target=LocalStoragePath.FilePath(destination,mustExist:false,mustBeNew:true,rejectSidecars:true);
