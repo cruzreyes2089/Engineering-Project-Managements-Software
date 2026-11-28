@@ -163,6 +163,11 @@ internal static class ProductionStorageBoundaryTests
    var identityReviewPath=Path.Combine(identityReviewRoot,"copy.db");
    var identitySourceBytes=File.ReadAllBytes(workflow.DatabasePath);
    File.Copy(workflow.DatabasePath,identityReviewPath,false);
+   var identityStage=WorkspaceConfidentiality.EnsureWorkspaceDirectory(Path.Combine(root,"identity-stage"));
+   var identitySourceHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(identitySourceBytes)).ToLowerInvariant();
+   Refuse(()=>InstallerUpgradeRehearsalCandidate.Run(workflow.DatabasePath,identitySourceHash,identityStage,49),"generic synthetic rehearsal refuses identity-marked database before staging");
+   check(!Directory.EnumerateFileSystemEntries(identityStage).Any(),"identity rejection creates no staging copy");
+
    using(var identityDb=new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{DataSource=identityReviewPath,Pooling=false,ForeignKeys=true}.ToString()))
    {
     identityDb.Open();using var command=identityDb.CreateCommand();
