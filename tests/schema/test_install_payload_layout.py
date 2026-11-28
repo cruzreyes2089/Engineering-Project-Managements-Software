@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import unittest
 import tempfile
+from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("payload", ROOT / "tools/release/validate_install_payload.py")
@@ -128,6 +130,24 @@ class InstallPayloadByteTests(unittest.TestCase):
         self.assertFalse(result["releaseAuthorized"])
         self.assertFalse(result["installerExecuted"])
         self.assertFalse(result["artifactBytesIndependentlyVerified"])
+
+    def test_descriptor_change_rejected(self):
+        original = m.os.fstat
+        calls = 0
+
+        def changed(fd):
+            nonlocal calls
+            st = original(fd)
+            calls += 1
+            if calls == 2:
+                return SimpleNamespace(st_dev=st.st_dev, st_ino=st.st_ino,
+                                       st_size=st.st_size, st_mtime_ns=st.st_mtime_ns + 1,
+                                       st_ctime_ns=st.st_ctime_ns, st_mode=st.st_mode)
+            return st
+
+        with patch.object(m.os, "fstat", changed):
+            with self.assertRaisesRegex(ValueError, "changed while reading"):
+                self.verify()
 
     def test_same_length_tampering(self):
         path = self.root / "CRC.PracticeManager.exe"
