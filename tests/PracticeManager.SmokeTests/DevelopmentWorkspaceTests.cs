@@ -22,6 +22,7 @@ internal static class DevelopmentWorkspaceTests
   if(OperatingSystem.IsWindows())VerifyWindowsAcl(root,normal,one,check);
   var store=new LocalPractice(one.DatabasePath);check(!store.IsInitialized(),"acceptance store begins empty");
   store.Bootstrap("Synthetic acceptance firm","acceptance-admin","Synthetic-acceptance-passphrase-001","QA");
+  if(OperatingSystem.IsWindows())VerifyStartupAcl(root,normal,one,check);
   var resumed=DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!});
   check(resumed==one&&new LocalPractice(resumed.DatabasePath).IsInitialized(),"exact acceptance session may be reopened");
   Invalid(()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",Guid.NewGuid().ToString("N")}),"unknown acceptance session cannot initialize silently");
@@ -55,6 +56,34 @@ internal static class DevelopmentWorkspaceTests
    finally{Directory.Delete(link);}
   }
   check(File.ReadAllText(normal.DatabasePath)=="synthetic protected default","acceptance startup never opens or modifies default store");
+ }
+ [SupportedOSPlatform("windows")]
+ static void VerifyStartupAcl(string root,DevelopmentWorkspace normal,DevelopmentWorkspace one,Action<bool,string> check)
+ {
+  var session=Path.GetDirectoryName(one.DatabasePath)!;
+  var acceptanceRoot=Path.GetDirectoryName(session)!;
+  void RefuseBroadDirectory(string path,Action resolve,string label)
+  {
+   var folder=new DirectoryInfo(path);
+   var original=folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
+   var changed=folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner);
+   changed.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid,null),FileSystemRights.ReadAndExecute,AccessControlType.Allow));
+   folder.SetAccessControl(changed);
+   try
+   {
+    var before=folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm();
+    var rejected=false;try{resolve();}catch(ArgumentException){rejected=true;}
+    check(rejected,label);
+    check(before.SequenceEqual(folder.GetAccessControl(AccessControlSections.Access|AccessControlSections.Owner).GetSecurityDescriptorBinaryForm()),"startup refusal leaves existing directory ACL unchanged");
+   }
+   finally{folder.SetAccessControl(original);}
+  }
+  RefuseBroadDirectory(Path.GetDirectoryName(normal.DatabasePath)!,()=>DevelopmentWorkspace.Resolve(root,Array.Empty<string>()),"development startup refuses broadened directory permissions");
+  RefuseBroadDirectory(session,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"reopen refuses broadened acceptance session permissions");
+  var count=Directory.EnumerateDirectories(acceptanceRoot).Count();
+  RefuseBroadDirectory(acceptanceRoot,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-new"}),"new acceptance refuses broadened root permissions");
+  check(Directory.EnumerateDirectories(acceptanceRoot).Count()==count,"unqualified root creates no new acceptance session");
+  RefuseBroadDirectory(acceptanceRoot,()=>DevelopmentWorkspace.Resolve(root,new[]{"--acceptance-session",one.AcceptanceId!}),"reopen refuses broadened acceptance root permissions");
  }
  [SupportedOSPlatform("windows")]
  static void VerifyWindowsAcl(string root,DevelopmentWorkspace normal,DevelopmentWorkspace one,Action<bool,string> check)
