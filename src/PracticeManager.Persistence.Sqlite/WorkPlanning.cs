@@ -49,6 +49,15 @@ public sealed partial class LocalPractice
  {
   var actor=Require(c,t,"Projects.Plan");RequireProjectView(c,t);Require(c,t,"Employees.View");return actor;
  }
+ public (string State,IReadOnlyList<ProjectPhase> Phases,IReadOnlyList<ProjectTask> Tasks) ReadProjectPlanningSnapshot(long project)
+ {
+  using var c=Open();using var t=c.BeginTransaction(deferred:true);RequirePlan(c,t);ProjectRow(c,t,project);
+  var state=OperationalState(c,t,project);var phases=new List<ProjectPhase>();
+  using(var q=Command(c,t,"SELECT id,project_id,name,start_on,end_on,revision FROM project_phases WHERE project_id=$p ORDER BY start_on,id",("$p",project)))
+  using(var reader=q.ExecuteReader())while(reader.Read())phases.Add(new(reader.GetInt64(0),reader.GetInt64(1),reader.GetString(2),ReadPlanDate(reader.GetString(3)),ReadPlanDate(reader.GetString(4)),reader.GetInt32(5)));
+  using var tasks=Command(c,t,TaskProjection+" WHERE p.id=$p ORDER BY t.start_on,t.id LIMIT 501",("$p",project));
+  return (state,phases.AsReadOnly(),TaskRows(tasks));
+ }
  public IReadOnlyList<ProjectPhase> ReadProjectPhases(long project)
  {
   using var c=Open();using var t=c.BeginTransaction();RequireProjectView(c,t);ProjectRow(c,t,project);
