@@ -312,7 +312,12 @@ internal static class WorkEntriesTests
   admin.RecordConflictReview(project,held.Id,new("Synthetic jurisdiction","No","No","No","No","Synthetic resolved conflict"),true);
   var reopenReview=admin.ReadProjectLifecycleReview(project);
   check(reopenReview.Snapshot.CanRequestReopen&&!reopenReview.Snapshot.CanRequestClose,"current clearance permits reopen request despite retained post-close observations");
-  var reopened=admin.RecordProjectLifecycle(project,closed.Id,false,"Synthetic authorized reopen",true);
+  ProjectLifecycleEvent? TryReopen(LocalPractice service){try{return service.RecordProjectLifecycle(project,closed.Id,false,"Synthetic authorized reopen",true);}catch(ArgumentException){return null;}}
+  var reopenAttempts=await Task.WhenAll(Task.Run(()=>TryReopen(admin)),Task.Run(()=>TryReopen(closePeer)));
+  check(reopenAttempts.Count(x=>x!=null)==1,"concurrent reopen records exactly one event");
+  var reopened=reopenAttempts.Single(x=>x!=null)!;
+  Invalid(()=>admin.RecordProjectLifecycle(project,closed.Id,true,"Synthetic stale closure after reopen",true),"stale closure token cannot be reused after reopening");
+  check(admin.ReadProjectLifecycleReview(project).History.First().Id==reopened.Id,"stale decision leaves latest lifecycle event unchanged");
   check(reopened.State=="Active"&&admin.ReadProjectLifecycle(project).Count==2&&admin.SearchPendingProjects().Single(x=>x.Id==project).State=="Active","explicit reopen restores active status with retained lifecycle history");
   admin.CloseQualityItem(project,lateQa,"Synthetic resolved");
   var replacementTask=admin.CreateProjectTask(project,new(phase,employee,"After reopen",day,day,60));
