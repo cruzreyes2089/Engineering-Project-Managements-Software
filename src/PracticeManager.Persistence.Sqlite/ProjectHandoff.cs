@@ -30,6 +30,10 @@ public sealed partial class LocalPractice
   return new(project,p.Number,OperationalState(c,t,project),p.ProposalHash,a,authorized);
  }
  public AgreementEvidence RecordSignedAgreement(long project,string expectedIssuedHash,string fileName,byte[] pdf,string reviewNote,bool manuallyReviewed)
+ =>RecordSignedAgreementCore(project,expectedIssuedHash,fileName,pdf,reviewNote,manuallyReviewed,false,null);
+ public AgreementEvidence RecordReviewedAgreement(long project,string expectedIssuedHash,long? expectedAgreementId,string fileName,byte[] pdf,string reviewNote,bool manuallyReviewed)
+ =>RecordSignedAgreementCore(project,expectedIssuedHash,fileName,pdf,reviewNote,manuallyReviewed,true,expectedAgreementId);
+ private AgreementEvidence RecordSignedAgreementCore(long project,string expectedIssuedHash,string fileName,byte[] pdf,string reviewNote,bool manuallyReviewed,bool compareCurrent,long? expectedAgreementId)
  {
   using var c=Open();using var t=c.BeginTransaction(deferred:false);var actor=Require(c,t,"Agreements.Record");Require(c,t,"Agreements.View");RequireProjectView(c,t);
   var p=ProjectRow(c,t,project);if(p.State!="Pending"||p.ProposalHash!=expectedIssuedHash)throw new ArgumentException("Current pending project and accepted proposal required.");
@@ -37,13 +41,14 @@ public sealed partial class LocalPractice
   if(!manuallyReviewed)throw new ArgumentException("Explicit review of signatures, parties and terms is required.");
   var name=Validation.Text(fileName,180,"PDF file name",true);var note=Validation.Text(reviewNote,1000,"Review evidence",true);
   if(name.Any(ch=>char.IsControl(ch)||ch is '/' or '\\' or ':' or '<' or '>' or '"' or '|' or '?' or '*')||!name.EndsWith(".pdf",StringComparison.OrdinalIgnoreCase)||pdf==null||pdf.Length>MaxAgreementBytes)throw new ArgumentException("A PDF file name and bounded file are required.");
-  var copy=pdf.ToArray();if(!LooksLikePdf(copy))throw new ArgumentException("PDF header required. The operator must verify the actual signed document.");
+  var copy=pdf.ToArray();try{if(!LooksLikePdf(copy))throw new ArgumentException("PDF header required. The operator must verify the actual signed document.");
   var hash=AgreementHash(copy);var current=CurrentAgreement(c,t,project);
+  if(compareCurrent&&current?.Id!=expectedAgreementId)throw new ArgumentException("Agreement changed. Refresh and review the current record.");
   if(current?.PdfHash==hash)return current;
   if(Convert.ToInt64(Scalar(c,t,"SELECT count(*) FROM project_agreements WHERE project_id=$p AND pdf_hash=$h",("$p",project),("$h",hash)))!=0)throw new ArgumentException("A superseded agreement cannot be silently restored.");
   var now=UtcNow();
   Exec(c,t,"INSERT INTO project_agreements(project_id,issued_hash,file_name,pdf_bytes,pdf_hash,review_note,recorded_by,recorded_utc) VALUES($p,$i,$f,$b,$h,$n,$a,$u)",("$p",project),("$i",p.ProposalHash),("$f",name),("$b",copy),("$h",hash),("$n",note),("$a",actor),("$u",now));
-  var id=Last(c,t);Audit(c,t,actor,"RecordReviewedAgreement","ProjectAgreement",id);t.Commit();return new(id,project,p.ProposalHash,name,hash,now);
+  var id=Last(c,t);Audit(c,t,actor,"RecordReviewedAgreement","ProjectAgreement",id);t.Commit();return new(id,project,p.ProposalHash,name,hash,now);}finally{CryptographicOperations.ZeroMemory(copy);}
  }
  private static bool AgreementIntact(SqliteConnection c,SqliteTransaction t,AgreementEvidence a)
  {
