@@ -11,7 +11,6 @@ internal static class ProductionWorkspaceIdentityCandidate
  const string MarkerPrefix="CRC-PRACTICE-PRODUCTION-V1:";
  const int ApplicationId=0x43524350; // CRCP
  const int BaseSchema=47;
- const string IdentityTable="production_workspace_identity";
  static string Marker(Guid id)=>MarkerPrefix+id.ToString("N");
  static string ReadMarker(ProductionStorageBoundary layout)
  {
@@ -85,7 +84,7 @@ internal static class ProductionWorkspaceIdentityCandidate
     throw new ArgumentException("Reserved database is not a fresh base schema.");
    Execute(c,tx,"CREATE TABLE production_workspace_identity(singleton INTEGER PRIMARY KEY CHECK(singleton=1),workspace_id TEXT NOT NULL CHECK(length(workspace_id)=32))");
    Execute(c,tx,"INSERT INTO production_workspace_identity(singleton,workspace_id) VALUES(1,$id)",identity.ToString("N"));
-   Execute(c,tx,"PRAGMA application_id=1129464656");
+   Execute(c,tx,$"PRAGMA application_id={ApplicationId}");
    tx.Commit();
   }
   // Marker is written last. Any interruption before this point is a recovery
