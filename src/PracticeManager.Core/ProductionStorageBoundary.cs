@@ -35,7 +35,8 @@ public sealed class ProductionStorageBoundary
     Path.Combine(profile,"CRC Practice Manager DEV"),
     Path.Combine(profile,"CRC Practice Manager ACCEPTANCE"),
     Path.Combine(profile,"CRC Practice Manager BUDGET ACCEPTANCE"),
-    Path.Combine(profile,"CRC Practice Manager DOCUMENT ACCEPTANCE")};
+    Path.Combine(profile,"CRC Practice Manager DOCUMENT ACCEPTANCE"),
+    Path.Combine(profile,"CRC Practice Manager PRODUCTION ACCEPTANCE")};
   for(int i=0;i<roots.Length;i++)
    for(int j=i+1;j<roots.Length;j++)
     if(Overlaps(roots[i],roots[j]))
